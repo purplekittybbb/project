@@ -9,8 +9,13 @@
  * appear connected in the UI and which adapter channels are active.
  */
 
-/** Aggregator that established the link (swap demo → rutter/codat later). */
-export type ConnectionProvider = "demo" | "rutter" | "codat";
+/**
+ * Aggregator that established the link (swap demo → rutter/codat later).
+ * "live" marks a connection whose credentials were actually validated
+ * against the real marketplace API (currently: Trendyol) — see
+ * app/api/trendyol/connect/route.ts.
+ */
+export type ConnectionProvider = "demo" | "rutter" | "codat" | "live";
 
 export type ConnectionStatus = "connected" | "disconnected" | "error";
 

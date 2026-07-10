@@ -15,6 +15,7 @@ import { addConnection, maskCredential } from "@/lib/connect/store";
 import { simulateInitialSync } from "@/lib/connect/demo-provider";
 import type { MarketplaceConnection } from "@/lib/connect/types";
 import { getMarketplaceOption } from "@/lib/marketplaces";
+import { getSupabaseClient } from "@/lib/supabase/client";
 
 function LockIcon() {
   return (
@@ -55,6 +56,55 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
     setValues((prev) => ({ ...prev, [key]: v }));
   }
 
+  /**
+   * Trendyol has a REAL backend path: it calls Trendyol's live Orders API to
+   * validate the credentials and pull real data before anything is marked
+   * connected. A wrong key/secret returns Trendyol's own 401 — the modal
+   * shows that error and stays on the form; it never fakes "Connected ✓".
+   */
+  async function connectTrendyol(): Promise<void> {
+    const supabase = getSupabaseClient();
+    const { data: sessionData } = supabase
+      ? await supabase.auth.getSession()
+      : { data: { session: null } };
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
+      setError("Oturum bulunamadı — lütfen tekrar giriş yapın.");
+      setPhase("form");
+      return;
+    }
+
+    let res: Response;
+    try {
+      res = await fetch("/api/trendyol/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          sellerId: values.supplierId,
+          apiKey: values.apiKey,
+          apiSecret: values.apiSecret,
+        }),
+      });
+    } catch {
+      setError("Trendyol'a bağlanılamadı. İnternet bağlantınızı kontrol edin.");
+      setPhase("form");
+      return;
+    }
+
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(result.error ?? "Trendyol'a bağlanılamadı.");
+      setPhase("form");
+      return;
+    }
+
+    const tokenRef = `tm_key_trendyol_${maskCredential(values.apiKey ?? "")}`;
+    const conn = addConnection("trendyol", "live", { tokenRef, method: "api_key" });
+    setPhase("connected");
+    onConnected(conn);
+    setTimeout(onClose, 1000);
+  }
+
   async function handleConnect(e: React.FormEvent) {
     e.preventDefault();
     if (!opt || !marketplaceId) return;
@@ -66,6 +116,13 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
     }
     setError("");
     setPhase("connecting");
+
+    if (marketplaceId === "trendyol") {
+      await connectTrendyol();
+      return;
+    }
+
+    // Non-Trendyol marketplaces: existing demo self-service flow, unchanged.
     await new Promise((r) => setTimeout(r, 900));
 
     const primary = fields.find((f) => f.secret) ?? fields[0];

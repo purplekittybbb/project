@@ -54,6 +54,11 @@ function sampleRowsFor(marketplaceId: string): UserRawRow[] {
  * marketplace twice never duplicates rows.
  */
 export async function simulateInitialSync(conn: MarketplaceConnection): Promise<void> {
+  // Trendyol has a REAL sync path (app/api/trendyol/connect, called directly
+  // from MarketplaceApiKeyModal) — never overwrite real rows with invented
+  // demo ones here.
+  if (conn.marketplaceId === "trendyol") return;
+
   await delay(FETCH_LATENCY_MS);
 
   const opt = getMarketplaceOption(conn.marketplaceId);
