@@ -15,6 +15,8 @@ import { getSupabaseClient } from "./client";
 import { TrendyolAdapter, type RawTrendyolRow } from "../adapters/trendyol";
 import { AmazonUsAdapter, type RawAmazonUsRow } from "../adapters/amazon-us";
 import { HepsiburadaAdapter, type RawHepsiburadaRow } from "../adapters/hepsiburada";
+import { N11Adapter, type RawN11Row } from "../adapters/n11";
+import { ShopifyAdapter, type RawShopifyRow } from "../adapters/shopify";
 import { aggregatePerceivedMargin, type SeededSeller } from "../engine";
 import type { Transaction } from "../domain/canonical";
 import { validateTransactions } from "../domain/schemas";
@@ -28,6 +30,8 @@ export const USER_TENANT_ID = "user-data";
 const trendyol = new TrendyolAdapter();
 const amazonUs = new AmazonUsAdapter();
 const hepsiburada = new HepsiburadaAdapter();
+const n11 = new N11Adapter();
+const shopify = new ShopifyAdapter();
 
 export interface StoredRow extends UserRawRow {
   id: string;
@@ -169,6 +173,38 @@ function toCanonicalForMarketplace(tenantId: string, marketplaceId: string, rows
       adSpend: r.ad_spend,
     }));
     return hepsiburada.toCanonical(tenantId, raw);
+  }
+
+  if (marketplaceId === "n11") {
+    const raw: RawN11Row[] = rows.map((r) => ({
+      orderId: r.order_id,
+      sku: r.sku,
+      category: r.category,
+      saleDate: r.sale_date,
+      units: r.units,
+      grossRevenue: r.gross_revenue,
+      unitCost: r.unit_cost,
+      shipping: r.shipping,
+      returnRate: r.return_rate,
+      adSpend: r.ad_spend,
+    }));
+    return n11.toCanonical(tenantId, raw);
+  }
+
+  if (marketplaceId === "shopify") {
+    const raw: RawShopifyRow[] = rows.map((r) => ({
+      orderId: r.order_id,
+      sku: r.sku,
+      category: r.category,
+      saleDate: r.sale_date,
+      units: r.units,
+      grossRevenue: r.gross_revenue,
+      unitCost: r.unit_cost,
+      shipping: r.shipping,
+      returnRate: r.return_rate,
+      adSpend: r.ad_spend,
+    }));
+    return shopify.toCanonical(tenantId, raw);
   }
 
   // trendyol, and anything else without a dedicated adapter yet.

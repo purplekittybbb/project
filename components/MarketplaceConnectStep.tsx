@@ -9,12 +9,14 @@
  * - Read-only trust copy throughout
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { parseCsv, SAMPLE_CSV, type UserRawRow } from "@/lib/adapters/csv";
 import { getConnections, isMarketplaceConnected, removeConnection, addConnection } from "@/lib/connect/store";
 import type { MarketplaceConnection } from "@/lib/connect/types";
 import { READ_ONLY_COPY, MarketplaceOAuthModal } from "@/components/MarketplaceOAuthModal";
 import { MarketplaceApiKeyModal } from "@/components/MarketplaceApiKeyModal";
+import { ShopifyConnectModal } from "@/components/ShopifyConnectModal";
 import { saveUserRows } from "@/lib/supabase/user-data";
 import { isAuthConfigured } from "@/lib/supabase/client";
 import {
@@ -47,12 +49,15 @@ interface Props {
 }
 
 export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const fileRef = useRef<HTMLInputElement>(null);
   const [connections, setConnections] = useState<MarketplaceConnection[]>(() => getConnections());
   const [oauthTarget, setOauthTarget] = useState<string | null>(null);
   const [oauthOpen, setOauthOpen] = useState(false);
   const [apiKeyTarget, setApiKeyTarget] = useState<string | null>(null);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
+  const [shopifyOpen, setShopifyOpen] = useState(false);
   const [connectError, setConnectError] = useState("");
   const [csvRows, setCsvRows] = useState<UserRawRow[] | null>(null);
   const [csvBusy, setCsvBusy] = useState(false);
@@ -61,6 +66,25 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
     setConnections(getConnections());
     onConnectionsChange?.();
   }
+
+  // Landed back here from a real Shopify OAuth redirect (see
+  // app/api/shopify/oauth/callback) — pick up the result and clean the URL.
+  useEffect(() => {
+    const shopifyResult = searchParams.get("shopify");
+    if (!shopifyResult) return;
+    if (shopifyResult === "connected") {
+      addConnection("shopify", "live", { tokenRef: "tm_key_shopify_oauth", method: "oauth" });
+      refresh();
+    } else if (shopifyResult === "error") {
+      setConnectError(searchParams.get("shopify_error") ?? "Shopify'a bağlanılamadı.");
+    }
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("shopify");
+    params.delete("shopify_error");
+    const qs = params.toString();
+    router.replace(qs ? `/connect?${qs}` : "/connect");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   function startConnect(marketplaceId: string) {
     const opt = getMarketplaceOption(marketplaceId);
@@ -78,6 +102,10 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
     if (opt.connectionMethod === "api_key") {
       setApiKeyTarget(marketplaceId);
       setApiKeyOpen(true);
+      return;
+    }
+    if (marketplaceId === "shopify") {
+      setShopifyOpen(true);
       return;
     }
     setOauthTarget(marketplaceId);
@@ -278,6 +306,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
         onClose={() => { setApiKeyOpen(false); setApiKeyTarget(null); }}
         onConnected={handleConnected}
       />
+      <ShopifyConnectModal open={shopifyOpen} onClose={() => setShopifyOpen(false)} />
     </section>
   );
 }

@@ -55,16 +55,16 @@ export const MARKETPLACE_OPTIONS: MarketplaceOption[] = [
       { key: "apiUsername", label: "API Username", secret: true },
       { key: "apiPassword", label: "API Password", secret: true },
     ],
-    credentialHelp: "Hepsiburada Merchant Panel → Entegrasyon → API Kullanıcı Bilgileri (entegratör yetkisi gerekir).",
+    credentialHelp: "Hepsiburada Merchant Panel (HMS) → Hesabım → Entegrasyon Bilgileri → API Anahtarı'ndan alın.",
   },
   {
     id: "n11", label: "N11", region: "tr", description: "Auto-sync settlement data",
-    currency: "TRY", connectionMethod: "api_key",
+    currency: "TRY", engineChannel: "n11", connectionMethod: "api_key",
     credentialFields: [
-      { key: "apiKey", label: "API Key", secret: true },
-      { key: "apiSecret", label: "API Secret", secret: true },
+      { key: "apiKey", label: "App Key", secret: true },
+      { key: "apiSecret", label: "App Secret", secret: true },
     ],
-    credentialHelp: "so.n11.com → Hesabım → API Hesapları'ndan key alın.",
+    credentialHelp: "so.n11.com/selleroffice/integration/apiAccounts → Yeni Hesap Oluştur'dan alın.",
   },
   {
     id: "pazarama", label: "Pazarama", region: "tr", description: "Auto-sync settlement data",
@@ -97,7 +97,7 @@ export const MARKETPLACE_OPTIONS: MarketplaceOption[] = [
   // ── Your store / website ──
   {
     id: "shopify", label: "Shopify", region: "own_store", description: "Your own storefront",
-    currency: "USD", connectionMethod: "oauth",
+    currency: "USD", engineChannel: "shopify", connectionMethod: "oauth",
   },
   {
     id: "woocommerce", label: "WooCommerce", region: "own_store", description: "Your WordPress store",

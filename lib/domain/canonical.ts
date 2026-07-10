@@ -7,7 +7,7 @@
  * without touching the margin engine, underwriting, or backtest.
  */
 
-export type Marketplace = "trendyol" | "amazon_us" | "hepsiburada";
+export type Marketplace = "trendyol" | "amazon_us" | "hepsiburada" | "n11" | "shopify";
 export type Currency = "TRY" | "USD";
 
 /** Fully broken-out fee waterfall for a single line of sales. */

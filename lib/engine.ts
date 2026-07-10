@@ -380,12 +380,14 @@ export interface PerMarketplaceMargins {
   };
 }
 
-const MARKETPLACES: Marketplace[] = ["trendyol", "amazon_us", "hepsiburada"];
+const MARKETPLACES: Marketplace[] = ["trendyol", "amazon_us", "hepsiburada", "n11", "shopify"];
 
 export const MARKETPLACE_LABELS: Record<Marketplace, string> = {
   trendyol: "Trendyol (TRY)",
   amazon_us: "Amazon US (USD)",
   hepsiburada: "Hepsiburada (TRY)",
+  n11: "N11 (TRY)",
+  shopify: "Shopify (USD)",
 };
 
 function sliceForMarketplace(txs: Transaction[], marketplace: Marketplace): MarketplaceMarginSlice | undefined {
@@ -723,6 +725,8 @@ const SETTLEMENT_DELAY_DAYS: Record<Marketplace, number> = {
   trendyol:   17, // ~3d delivery + 14d Trendyol cycle
   amazon_us:  21, // ~5d FBA processing + 16d Amazon disbursement
   hepsiburada: 15, // ~2d delivery + 13d Hepsiburada cycle
+  n11:        16, // representative mid-point, not independently verified — see lib/adapters/n11.ts
+  shopify:     2, // Shopify Payments payout cycle (no marketplace settlement delay — it's the seller's own store)
 };
 
 export type CashFlowStatus = "received" | "pending" | "overdue";

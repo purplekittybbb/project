@@ -18,7 +18,7 @@ import type { UserRawRow } from "../adapters/csv";
 
 // ─── canonical domain schemas — mirror canonical.ts field-for-field ───────────
 
-export const MarketplaceSchema = z.enum(["trendyol", "amazon_us", "hepsiburada"]) satisfies z.ZodType<Marketplace>;
+export const MarketplaceSchema = z.enum(["trendyol", "amazon_us", "hepsiburada", "n11", "shopify"]) satisfies z.ZodType<Marketplace>;
 export const CurrencySchema = z.enum(["TRY", "USD"]) satisfies z.ZodType<Currency>;
 
 export const FeeBreakdownSchema = z.object({

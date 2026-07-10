@@ -105,6 +105,103 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
     setTimeout(onClose, 1000);
   }
 
+  /**
+   * Hepsiburada has the same REAL backend path as Trendyol (see
+   * connectTrendyol above) — a wrong key/username/password returns
+   * Hepsiburada's own 401, and the modal never fakes "Connected ✓".
+   */
+  async function connectHepsiburada(): Promise<void> {
+    const supabase = getSupabaseClient();
+    const { data: sessionData } = supabase
+      ? await supabase.auth.getSession()
+      : { data: { session: null } };
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
+      setError("Oturum bulunamadı — lütfen tekrar giriş yapın.");
+      setPhase("form");
+      return;
+    }
+
+    let res: Response;
+    try {
+      res = await fetch("/api/hepsiburada/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          merchantId: values.merchantId,
+          apiKey: values.apiUsername,
+          apiSecret: values.apiPassword,
+        }),
+      });
+    } catch {
+      setError("Hepsiburada'ya bağlanılamadı. İnternet bağlantınızı kontrol edin.");
+      setPhase("form");
+      return;
+    }
+
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(result.error ?? "Hepsiburada'ya bağlanılamadı.");
+      setPhase("form");
+      return;
+    }
+
+    const tokenRef = `tm_key_hepsiburada_${maskCredential(values.apiUsername ?? "")}`;
+    const conn = addConnection("hepsiburada", "live", { tokenRef, method: "api_key" });
+    setPhase("connected");
+    onConnected(conn);
+    setTimeout(onClose, 1000);
+  }
+
+  /**
+   * N11 has the same REAL backend path as Trendyol/Hepsiburada — a wrong
+   * App Key/Secret returns N11's own 401, and the modal never fakes
+   * "Connected ✓". Field-name confidence for N11's response shape is lower
+   * than Trendyol/Hepsiburada (see lib/n11-api/client.ts) — the auth check
+   * itself is still a real network round trip regardless.
+   */
+  async function connectN11(): Promise<void> {
+    const supabase = getSupabaseClient();
+    const { data: sessionData } = supabase
+      ? await supabase.auth.getSession()
+      : { data: { session: null } };
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
+      setError("Oturum bulunamadı — lütfen tekrar giriş yapın.");
+      setPhase("form");
+      return;
+    }
+
+    let res: Response;
+    try {
+      res = await fetch("/api/n11/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          appKey: values.apiKey,
+          appSecret: values.apiSecret,
+        }),
+      });
+    } catch {
+      setError("N11'e bağlanılamadı. İnternet bağlantınızı kontrol edin.");
+      setPhase("form");
+      return;
+    }
+
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(result.error ?? "N11'e bağlanılamadı.");
+      setPhase("form");
+      return;
+    }
+
+    const tokenRef = `tm_key_n11_${maskCredential(values.apiKey ?? "")}`;
+    const conn = addConnection("n11", "live", { tokenRef, method: "api_key" });
+    setPhase("connected");
+    onConnected(conn);
+    setTimeout(onClose, 1000);
+  }
+
   async function handleConnect(e: React.FormEvent) {
     e.preventDefault();
     if (!opt || !marketplaceId) return;
@@ -119,6 +216,14 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
 
     if (marketplaceId === "trendyol") {
       await connectTrendyol();
+      return;
+    }
+    if (marketplaceId === "hepsiburada") {
+      await connectHepsiburada();
+      return;
+    }
+    if (marketplaceId === "n11") {
+      await connectN11();
       return;
     }
 

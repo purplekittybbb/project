@@ -53,11 +53,14 @@ function sampleRowsFor(marketplaceId: string): UserRawRow[] {
  * a demo-mode ghost tab with no invented numbers. Idempotent: connecting the same
  * marketplace twice never duplicates rows.
  */
+/** Marketplaces with a real, non-demo sync path — see MarketplaceApiKeyModal. */
+const LIVE_INTEGRATION_MARKETPLACES = new Set(["trendyol", "hepsiburada", "n11", "shopify"]);
+
 export async function simulateInitialSync(conn: MarketplaceConnection): Promise<void> {
-  // Trendyol has a REAL sync path (app/api/trendyol/connect, called directly
-  // from MarketplaceApiKeyModal) — never overwrite real rows with invented
-  // demo ones here.
-  if (conn.marketplaceId === "trendyol") return;
+  // Trendyol and Hepsiburada have REAL sync paths (app/api/*/connect, called
+  // directly from MarketplaceApiKeyModal) — never overwrite real rows with
+  // invented demo ones here.
+  if (LIVE_INTEGRATION_MARKETPLACES.has(conn.marketplaceId)) return;
 
   await delay(FETCH_LATENCY_MS);
 
