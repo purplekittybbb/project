@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>profit-engine — Gerçek Kâr Hesabı</title>
+
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            base:   "#0A0F1E",
+            panel:  "#0F1629",
+            panel2: "#131C33",
+            accent: "#3B82F6",
+          },
+          fontFamily: {
+            sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- React + Babel (CDN) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    html, body { background: #0A0F1E; }
+    /* number inputlarındaki artırma oklarını gizle */
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+  </style>
+</head>
+
+<body class="bg-base text-slate-100 font-sans antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useMemo } = React;
+
+    // --- Yardımcılar --------------------------------------------------------
+    const TL = new Intl.NumberFormat("tr-TR", {
+      style: "currency",
+      currency: "TRY",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    const PCT = (x) =>
+      new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 1 }).format(x * 100) + "%";
+
+    const num = (v) => {
+      const n = parseFloat(String(v).replace(",", "."));
+      return Number.isFinite(n) ? n : 0;
+    };
+    const uid = () => Math.random().toString(36).slice(2, 9);
+
+    // --- Kâr hesabı (spec'teki formül) -------------------------------------
+    function hesaplaKar({ satisFiyati, kdvOrani, komisyonOrani, kargo, cogs, ekGiderler }) {
+      const satis = num(satisFiyati);
+      const kdv = num(kdvOrani);            // 0.10 / 0.20
+      const komOr = num(komisyonOrani) / 100;
+      const netGelir = satis / (1 + kdv);
+      const kdvTutari = satis - netGelir;
+      const komisyon = netGelir * komOr;
+      const toplamEk = ekGiderler.reduce((t, g) => t + num(g.amount), 0);
+      const netKar = netGelir - komisyon - num(kargo) - num(cogs) - toplamEk;
+      const marj = satis > 0 ? netKar / satis : 0;
+      return {
+        satis, kdvTutari, netGelir, komisyon,
+        kargo: num(kargo), cogs: num(cogs), toplamEk,
+        netKar, marj,
+      };
+    }
+
+    // --- UI parçaları -------------------------------------------------------
+    function Field({ label, children, hint }) {
+      return (
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-300 mb-1.5">{label}</span>
+          {children}
+          {hint && <span className="block text-xs text-slate-500 mt-1">{hint}</span>}
+        </label>
+      );
+    }
+
+    const inputCls =
+      "w-full rounded-lg bg-panel2 border border-white/10 px-3.5 py-2.5 text-slate-100 " +
+      "placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/70 focus:border-accent transition";
+
+    function BreakdownRow({ label, sub, value, sign, max, strong }) {
+      const isNeg = sign === "-";
+      const pct = max > 0 ? Math.min(100, (Math.abs(value) / max) * 100) : 0;
+      return (
+        <div className="py-2.5">
+          <div className="flex items-baseline justify-between gap-4">
+            <div className="min-w-0">
+              <span className={"text-sm " + (strong ? "font-semibold text-slate-100" : "text-slate-300")}>{label}</span>
+              {sub && <span className="ml-2 text-xs text-slate-500">{sub}</span>}
+            </div>
+            <span
+              className={
+                "tabular-nums font-semibold shrink-0 " +
+                (strong ? "text-base text-white" : isNeg ? "text-rose-300" : "text-slate-200")
+              }
+            >
+              {isNeg ? "−" : sign === "+" ? "" : ""}{TL.format(Math.abs(value))}
+            </span>
+          </div>
+          {!strong && (
+            <div className="mt-1.5 h-1 w-full rounded-full bg-white/5 overflow-hidden">
+              <div
+                className={"h-full rounded-full " + (isNeg ? "bg-rose-400/60" : "bg-accent/70")}
+                style={{ width: pct + "%" }}
+              />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function Sonuc({ r }) {
+      const pozitif = r.netKar >= 0;
+      return (
+        <div className="rounded-2xl bg-panel border border-white/10 p-6 sm:p-7 shadow-2xl shadow-black/40">
+          {/* Büyük özet */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded-xl bg-panel2 border border-white/10 p-5">
+              <div className="text-xs uppercase tracking-wide text-slate-400">Net Kâr</div>
+              <div className={"mt-1 text-3xl font-extrabold tabular-nums " + (pozitif ? "text-emerald-400" : "text-rose-400")}>
+                {TL.format(r.netKar)}
+              </div>
+            </div>
+            <div className="rounded-xl bg-panel2 border border-white/10 p-5">
+              <div className="text-xs uppercase tracking-wide text-slate-400">Marj</div>
+              <div className={"mt-1 text-3xl font-extrabold tabular-nums " + (pozitif ? "text-emerald-400" : "text-rose-400")}>
+                {PCT(r.marj)}
+              </div>
+            </div>
+          </div>
+
+          {/* Kırılım */}
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-slate-200">Kâr nereye gidiyor?</h3>
+            <p className="text-xs text-slate-500 mt-0.5 mb-2">Satış fiyatından her kalem tek tek düşülüyor.</p>
+
+            <div className="divide-y divide-white/5">
+              <BreakdownRow label="Satış fiyatı" sub="KDV dahil brüt" value={r.satis} sign="+" max={r.satis} />
+              <BreakdownRow label="KDV" value={r.kdvTutari} sign="-" max={r.satis} />
+              <BreakdownRow label="Komisyon" value={r.komisyon} sign="-" max={r.satis} />
+              <BreakdownRow label="Kargo" value={r.kargo} sign="-" max={r.satis} />
+              <BreakdownRow label="Ürün maliyeti (COGS)" value={r.cogs} sign="-" max={r.satis} />
+              <BreakdownRow label="Ek giderler" value={r.toplamEk} sign="-" max={r.satis} />
+              <BreakdownRow label="= Net Kâr" value={r.netKar} sign="=" max={r.satis} strong />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // --- Ana uygulama -------------------------------------------------------
+    function App() {
+      const [form, setForm] = useState({
+        urunAdi: "",
+        satisFiyati: "",
+        kdvOrani: "0.10",
+        komisyonOrani: "",
+        kargo: "",
+        cogs: "",
+      });
+      const [ekGiderler, setEkGiderler] = useState([]);
+      const [sonuc, setSonuc] = useState(null);
+
+      const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+      const addGider = () =>
+        setEkGiderler((g) => [...g, { id: uid(), name: "", amount: "" }]);
+      const setGider = (id, key, val) =>
+        setEkGiderler((g) => g.map((x) => (x.id === id ? { ...x, [key]: val } : x)));
+      const delGider = (id) =>
+        setEkGiderler((g) => g.filter((x) => x.id !== id));
+
+      const onHesapla = () => {
+        setSonuc(hesaplaKar({ ...form, ekGiderler }));
+      };
+
+      return (
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
+          {/* Başlık */}
+          <header className="mb-8">
+            <div className="flex items-center gap-2.5">
+              <div className="h-9 w-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center">
+                <span className="text-accent font-bold text-lg">₺</span>
+              </div>
+              <div>
+                <h1 className="text-xl font-bold tracking-tight">profit-engine</h1>
+                <p className="text-xs text-slate-400 -mt-0.5">Gerçek kâr hesap motoru · Trendyol / TR</p>
+              </div>
+            </div>
+          </header>
+
+          <div className="grid lg:grid-cols-2 gap-6">
+            {/* FORM */}
+            <div className="rounded-2xl bg-panel border border-white/10 p-6 sm:p-7 shadow-2xl shadow-black/40">
+              <h2 className="text-base font-semibold mb-5">Ürün bilgileri</h2>
+
+              <div className="space-y-4">
+                <Field label="Ürün adı">
+                  <input className={inputCls} placeholder="Örn. Kablosuz kulaklık"
+                    value={form.urunAdi} onChange={set("urunAdi")} />
+                </Field>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Satış fiyatı (₺)" hint="KDV dahil">
+                    <input type="number" inputMode="decimal" className={inputCls} placeholder="699"
+                      value={form.satisFiyati} onChange={set("satisFiyati")} />
+                  </Field>
+                  <Field label="KDV oranı">
+                    <select className={inputCls} value={form.kdvOrani} onChange={set("kdvOrani")}>
+                      <option value="0.10">%10</option>
+                      <option value="0.20">%20</option>
+                    </select>
+                  </Field>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Komisyon oranı (%)">
+                    <input type="number" inputMode="decimal" className={inputCls} placeholder="18"
+                      value={form.komisyonOrani} onChange={set("komisyonOrani")} />
+                  </Field>
+                  <Field label="Kargo maliyeti (₺)">
+                    <input type="number" inputMode="decimal" className={inputCls} placeholder="50"
+                      value={form.kargo} onChange={set("kargo")} />
+                  </Field>
+                </div>
+
+                <Field label="Ürün alış maliyeti / COGS (₺)">
+                  <input type="number" inputMode="decimal" className={inputCls} placeholder="170"
+                    value={form.cogs} onChange={set("cogs")} />
+                </Field>
+
+                {/* Dinamik ek giderler */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-slate-300">Ek giderler</span>
+                    <button onClick={addGider}
+                      className="text-xs font-medium text-accent hover:text-blue-400 transition inline-flex items-center gap-1">
+                      <span className="text-base leading-none">+</span> Gider ekle
+                    </button>
+                  </div>
+
+                  {ekGiderler.length === 0 && (
+                    <p className="text-xs text-slate-500">Paketleme, reklam vb. giderleri satır satır ekleyin.</p>
+                  )}
+
+                  <div className="space-y-2">
+                    {ekGiderler.map((g) => (
+                      <div key={g.id} className="flex gap-2">
+                        <input className={inputCls + " flex-1"} placeholder="Gider adı (örn. reklam)"
+                          value={g.name} onChange={(e) => setGider(g.id, "name", e.target.value)} />
+                        <input type="number" inputMode="decimal" className={inputCls + " w-28"} placeholder="₺"
+                          value={g.amount} onChange={(e) => setGider(g.id, "amount", e.target.value)} />
+                        <button onClick={() => delGider(g.id)}
+                          className="shrink-0 w-10 rounded-lg border border-white/10 bg-panel2 text-slate-400 hover:text-rose-400 hover:border-rose-400/40 transition"
+                          aria-label="Sil">×</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button onClick={onHesapla}
+                  className="w-full mt-2 rounded-lg bg-accent hover:bg-blue-500 active:bg-blue-600 text-white font-semibold py-3 transition shadow-lg shadow-accent/20">
+                  Hesapla
+                </button>
+              </div>
+            </div>
+
+            {/* SONUÇ */}
+            <div>
+              {sonuc ? (
+                <Sonuc r={sonuc} />
+              ) : (
+                <div className="rounded-2xl bg-panel border border-dashed border-white/10 p-10 h-full flex flex-col items-center justify-center text-center">
+                  <div className="h-12 w-12 rounded-xl bg-panel2 border border-white/10 flex items-center justify-center mb-4">
+                    <span className="text-2xl text-slate-500">₺</span>
+                  </div>
+                  <p className="text-slate-300 font-medium">Sonuç burada görünecek</p>
+                  <p className="text-sm text-slate-500 mt-1">Bilgileri doldurup <b className="text-slate-300">Hesapla</b>'ya basın.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <footer className="mt-8 text-center text-xs text-slate-600">
+            profit-engine · gerçek kâr, gerçek rakamlar
+          </footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

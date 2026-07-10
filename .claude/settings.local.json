@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(py --version)",
+      "Bash(npx tsx *)",
+      "Bash(npx vitest *)",
+      "PowerShell(Stop-Process -Id 16184 -Force -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Process -Id 16184 -ErrorAction SilentlyContinue)",
+      "Bash(npx tsc *)",
+      "Bash(npm install *)"
+    ]
+  }
+}

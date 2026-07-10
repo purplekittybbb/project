@@ -1,0 +1,13 @@
+
+> truemargin-core@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.15
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+ ✓ Ready in 1763ms
+ ○ Compiling /reveal/[tenantId] ...
+ ✓ Compiled /reveal/[tenantId] in 3.1s (548 modules)
+ ✓ Compiled in 176ms (271 modules)
+ GET /reveal/seller-b 200 in 3689ms

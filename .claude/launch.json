@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "matsorular-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "truemargin-core-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "truemargin-core", "run", "dev", "--", "-p", "3100"],
+      "port": 3100
+    }
+  ]
+}

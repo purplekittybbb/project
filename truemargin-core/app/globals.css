@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-surface text-ink font-body antialiased;
+  }
+
+  /* Every financial figure aligns: tabular numerals, monospace figures. */
+  .fig {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  h1, h2, h3 {
+    @apply font-display tracking-tight;
+  }
+
+  /* Visible keyboard focus — quiet but unmistakable. */
+  :focus-visible {
+    outline: 2px solid #0E6E6B;
+    outline-offset: 2px;
+  }
+}
+
+/* Respect reduced-motion: no reveal animation, show end state. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
