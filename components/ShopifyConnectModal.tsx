@@ -1,13 +1,12 @@
 "use client";
 
 /**
- * Shopify connect — real OAuth, not an API-key form.
+ * Shopify connect — real OAuth (live path), not an API-key form.
  *
- * Unlike MarketplaceApiKeyModal (Trendyol/Hepsiburada/N11), there is no
- * credential to type in and validate here: the merchant approves access on
- * Shopify's OWN site. This modal only collects the store domain, then asks
- * our server for a real Shopify authorize URL and does a full top-level
- * browser redirect there — the modal itself never sees a token.
+ * Opened from MarketplaceConnectStep when isShopifyLiveEnabled() is true
+ * (SHOPIFY_CLIENT_ID set). Collects store domain → POST /api/shopify/oauth/start
+ * → top-level redirect to Shopify. When env is missing, Connect falls back to
+ * MarketplaceOAuthModal (demo) instead.
  */
 
 import { useState } from "react";

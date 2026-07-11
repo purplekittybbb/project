@@ -30,6 +30,8 @@ const SAMPLE_CATEGORY_BY_MARKETPLACE: Record<string, string> = {
   trendyol: "Ev & Yaşam",
   hepsiburada: "Elektronik",
   amazon_us: "Home",
+  shopify: "Apparel",
+  n11: "Ev & Yaşam",
 };
 
 /** A few representative settlement rows for one connected marketplace (demo initial sync). */
@@ -52,14 +54,16 @@ function sampleRowsFor(marketplaceId: string): UserRawRow[] {
  * lib/marketplaces.ts) get sample settlement rows persisted — anything else stays
  * a demo-mode ghost tab with no invented numbers. Idempotent: connecting the same
  * marketplace twice never duplicates rows.
+ *
+ * Marketplaces whose connect UI hits a live API (MarketplaceApiKeyModal →
+ * the platform's own /api/.../connect route) persist real rows themselves —
+ * never invent demo settlement data here. Shopify is NOT in this set: when
+ * live (isShopifyLiveEnabled), /api/shopify/oauth/callback writes real rows;
+ * when demo, simulateInitialSync may seed sample rows like other oauth demos.
  */
-/** Marketplaces with a real, non-demo sync path — see MarketplaceApiKeyModal. */
-const LIVE_INTEGRATION_MARKETPLACES = new Set(["trendyol", "hepsiburada", "n11", "shopify"]);
+const LIVE_INTEGRATION_MARKETPLACES = new Set(["trendyol", "hepsiburada", "n11"]);
 
 export async function simulateInitialSync(conn: MarketplaceConnection): Promise<void> {
-  // Trendyol and Hepsiburada have REAL sync paths (app/api/*/connect, called
-  // directly from MarketplaceApiKeyModal) — never overwrite real rows with
-  // invented demo ones here.
   if (LIVE_INTEGRATION_MARKETPLACES.has(conn.marketplaceId)) return;
 
   await delay(FETCH_LATENCY_MS);

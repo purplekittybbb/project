@@ -19,13 +19,52 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
 import { MarketplaceConnectStep } from "@/components/MarketplaceConnectStep";
-import { getConnections } from "@/lib/connect/store";
-import { isAuthConfigured } from "@/lib/supabase/client";
+import { addConnection, getConnections } from "@/lib/connect/store";
+import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
 import { loadUserRows } from "@/lib/supabase/user-data";
 import {
   completeOnboarding, isOnboardingDone, setConnectedMarketplaces,
   getConnectedMarketplaces, TRIAL_DAYS,
 } from "@/lib/onboarding";
+
+/**
+ * Silently re-syncs every marketplace this signed-in user has stored (but
+ * currently unused) credentials for — see /api/marketplace/auto-reconnect
+ * and lib/marketplace-resync.ts. Only ever called when user_transactions is
+ * already known to be empty (see the caller). Returns true iff at least one
+ * marketplace was successfully reconnected (caller should skip the connect
+ * form and go straight to /dashboard).
+ */
+async function tryAutoReconnect(): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) return false;
+
+  let result: { connected?: string[] };
+  try {
+    const res = await fetch("/api/marketplace/auto-reconnect", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    result = await res.json().catch(() => ({}));
+  } catch {
+    return false;
+  }
+
+  const connected = Array.isArray(result.connected) ? result.connected : [];
+  if (connected.length === 0) return false;
+
+  // Mirror what a manual connect does, so the dashboard's tabs/connected
+  // list reflect exactly what's really connected (see components/
+  // MarketplaceApiKeyModal.tsx's addConnection calls for the same pattern).
+  for (const marketplaceId of connected) {
+    addConnection(marketplaceId, "live", { tokenRef: `tm_key_${marketplaceId}_resync`, method: "api_key" });
+  }
+  setConnectedMarketplaces(getConnections().map((c) => c.marketplaceId));
+  return true;
+}
 
 function LockIcon({ size = 12 }: { size?: number }) {
   return (
@@ -92,6 +131,19 @@ function ConnectFlow() {
           router.replace("/dashboard");
           return;
         }
+
+        // No data yet — but this user may have previously connected a live
+        // marketplace whose stored credentials (marketplace_credentials) were
+        // never read back (e.g. after "Clear", or a fresh sign-in elsewhere).
+        // Try a silent reconnect BEFORE ever showing a form; only fall back
+        // to the connect UI if that fails or there's nothing to try.
+        const reconnected = await tryAutoReconnect();
+        if (!active) return;
+        if (reconnected) {
+          router.replace("/dashboard");
+          return;
+        }
+
         const ids = getConnections().map((c) => c.marketplaceId);
         if (ids.length) setConnectedMarketplaces(ids);
         setReady(true);

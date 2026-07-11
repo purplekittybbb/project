@@ -220,7 +220,9 @@ const SETTLEMENT_GAP_RATES: Record<string, number> = {
 export interface SettlementVerification {
   /** What the engine calculates the marketplace should pay out. */
   expectedPayout: number;
-  /** Simulated actual marketplace payout (replace with real settlement file). */
+  /** Actual marketplace payout. Only a REAL, ingested figure when
+   *  isRealSettlementData is true — otherwise a representative model, and the
+   *  UI must label it "Temsili" rather than presenting it as verified. */
   actualPayout: number;
   /** expectedPayout − actualPayout (positive = underpaid). */
   gap: number;
@@ -230,6 +232,17 @@ export interface SettlementVerification {
   hasGap: boolean;
   currency: string;
   marketplaceLabel: string;
+  /**
+   * False whenever `actualPayout` came from the representative SETTLEMENT_GAP_RATES
+   * model rather than a real settlement file. Today NO adapter or CSV column ingests
+   * an actual-paid-out figure distinct from the engine's own expected-payout
+   * calculation — so this is true ONLY for the 3 seed demo sellers (whose gap rates
+   * are an explicit, disclosed model of real-world Trendyol settlement discrepancy
+   * patterns), and always false for a real signed-in user. Per the no-silent-precision
+   * rule, a false value must never render as a bare "tam ödedi ✓" — the UI has to
+   * say this figure is modeled/representative, not a verified reconciliation.
+   */
+  isRealSettlementData: boolean;
 }
 
 export function computeSettlementVerification(
@@ -242,6 +255,7 @@ export function computeSettlementVerification(
     0,
     w.grossRevenue - w.commission - w.vat - w.paymentFees - w.returnsAllocated
   );
+  const isRealSettlementData = Object.prototype.hasOwnProperty.call(SETTLEMENT_GAP_RATES, tenantId);
   const gapRate = SETTLEMENT_GAP_RATES[tenantId] ?? 0;
   const actualPayout = Math.round(expectedPayout * (1 - gapRate));
   const gap = Math.round(expectedPayout - actualPayout);
@@ -253,6 +267,7 @@ export function computeSettlementVerification(
     hasGap: gap > 0,
     currency,
     marketplaceLabel,
+    isRealSettlementData,
   };
 }
 
@@ -752,6 +767,10 @@ export interface CashFlowEntry {
   status: CashFlowStatus;
   /** Days until settlement from today (negative = already past). */
   daysFromToday: number;
+  /** Same caveat as SettlementVerification.isRealSettlementData — false for
+   *  every real signed-in user (no ingested settlement file), so a "received"
+   *  entry's actualPayout must render as "Temsili", not a verified figure. */
+  isRealSettlementData: boolean;
 }
 
 const TR_MONTHS = ["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"] as const;
@@ -782,6 +801,7 @@ export function getCashFlowProjection(
   const txs = transactionsForChannel(seller, channel);
   if (txs.length === 0) return [];
 
+  const isRealSettlementData = Object.prototype.hasOwnProperty.call(SETTLEMENT_GAP_RATES, tenantId);
   const gapRate = SETTLEMENT_GAP_RATES[tenantId] ?? 0;
 
   // Group by expected settlement date + marketplace
@@ -830,6 +850,7 @@ export function getCashFlowProjection(
       currency,
       transactionCount: group.length,
       status,
+      isRealSettlementData,
       daysFromToday,
     });
   }
@@ -850,6 +871,16 @@ export interface FinancingView {
   incumbentDecision: UnderwritingDecision;
   incumbentOutcome: LoanOutcome;
   report: BacktestReport;
+  /** True when `report` was computed from this ONE seller's own data (a real
+   *  signed-in user), not the 3-seller seed-portfolio backtest — the UI uses
+   *  this to relabel "N=3" and, when historyMonths is low, show an honesty
+   *  warning instead of presenting a single-sample charge-off rate as if it
+   *  were a statistically meaningful backtest. */
+  isSelfBacktest: boolean;
+  /** Distinct calendar months of real transaction history behind this decision.
+   *  Seed sellers report a nominal 12 (a full synthetic year); only meaningful
+   *  to read when isSelfBacktest is true. */
+  historyMonths: number;
 }
 
 export function getFinancing(tenantId: string): FinancingView | undefined {
@@ -866,14 +897,16 @@ export function getFinancing(tenantId: string): FinancingView | undefined {
       incumbentDecision: report.incumbent.decisions[idx],
       incumbentOutcome: report.incumbent.outcomes[idx],
       report,
+      isSelfBacktest: false,
+      historyMonths: 12,
     };
   }
 
   // Runtime (user) seller — not part of the seeded backtest portfolio. Compute a
-  // real underwriting decision straight from their own transactions, benchmarked
-  // against the same seeded-portfolio backtest shown everywhere else. Without this
-  // branch, a signed-in seller's Financing tab would silently fall back to a seed
-  // seller's numbers instead of their own.
+  // real underwriting decision straight from their own transactions. The backtest
+  // comparison (report) is now ALSO computed from this one seller's own inputs —
+  // both models replayed against the SAME real data — instead of silently
+  // substituting the seed portfolio's numbers under this seller's name.
   const runtime = RUNTIME_SELLERS.find((s) => s.tenantId === tenantId);
   if (!runtime || runtime.transactions.length === 0) return undefined;
 
@@ -881,7 +914,8 @@ export function getFinancing(tenantId: string): FinancingView | undefined {
   const inputs = deriveUnderwritingInputsFromTransactions(runtime.transactions, runtime.tenureMonths);
   const decision = trueMarginModel(tenantId, inputs, currency);
   const incumbentDecision = incumbentModel(tenantId, inputs, currency);
-  const report = runBacktest(sellers);
+  const report = runBacktest([{ tenantId, currency, inputs }]);
+  const historyMonths = new Set(runtime.transactions.map((t) => t.saleDate.slice(0, 7))).size;
 
   return {
     tenantId,
@@ -892,5 +926,12 @@ export function getFinancing(tenantId: string): FinancingView | undefined {
     incumbentDecision,
     incumbentOutcome: simulateOutcome(incumbentDecision),
     report,
+    isSelfBacktest: true,
+    historyMonths,
   };
 }
+
+/** Below this many distinct months of real order history, a single-seller
+ *  backtest is too thin to read as predictive — the UI must disclose this
+ *  instead of presenting a charge-off/loss-reduction number at face value. */
+export const LOW_SAMPLE_HISTORY_MONTHS = 6;

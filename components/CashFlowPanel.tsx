@@ -49,15 +49,19 @@ function Summary({ entries, currency }: SummaryProps) {
   const totalPend = pending.reduce((s, e) => s + e.expectedPayout, 0);
   const totalGap  = received.reduce((s, e) => s + (e.gap ?? 0), 0);
   const next      = pending.sort((a, b) => a.daysFromToday - b.daysFromToday)[0];
+  // Same tenant → same value on every entry; no real settlement file means the
+  // "fark" figure is a representative model, not a verified reconciliation.
+  const isReal = entries[0]?.isRealSettlementData ?? false;
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-zinc-800 border border-zinc-800 mb-8">
       {[
-        { label: "Alınan Toplam",   val: money(totalRec, currency),  sub: `${received.length} hakediş`,       dim: false },
+        { label: isReal ? "Alınan Toplam" : "Alınan Toplam (Temsili)", val: money(totalRec, currency),  sub: `${received.length} hakediş`,       dim: false },
         { label: "Beklenen Toplam", val: money(totalPend, currency),  sub: `${pending.length} bekleyen`,       dim: true  },
-        { label: "Toplam Fark",     val: totalGap > 0 ? `−${money(totalGap, currency)}` : "—",
-                                    sub: totalGap > 0 ? "eksik ödeme" : "tam ödendi",
-                                    err: totalGap > 0 },
+        { label: isReal ? "Toplam Fark" : "Toplam Fark (Temsili)",
+                                    val: !isReal ? "—" : totalGap > 0 ? `−${money(totalGap, currency)}` : "—",
+                                    sub: !isReal ? "gerçek hakediş dosyası bağlı değil" : totalGap > 0 ? "eksik ödeme" : "tam ödendi",
+                                    err: isReal && totalGap > 0 },
         { label: "Sonraki Ödeme",
           val: next ? next.dateLabel : "—",
           sub: next ? `${next.daysFromToday} gün sonra` : "tümü alındı",
@@ -79,6 +83,7 @@ function Summary({ entries, currency }: SummaryProps) {
 
 function Row({ e }: { e: CashFlowEntry }) {
   const hasGap = (e.gap ?? 0) > 0;
+  const isReal = e.isRealSettlementData;
 
   return (
     <div className="flex items-center w-full py-3 border-b border-zinc-900/60 hover:bg-zinc-900/20 transition-colors font-mono text-sm gap-2">
@@ -101,11 +106,15 @@ function Row({ e }: { e: CashFlowEntry }) {
         <div className="text-zinc-700 text-[9px]">{e.transactionCount} işlem</div>
       </div>
 
-      {/* Gerçek / Bekliyor */}
+      {/* Gerçek / Temsili / Bekliyor */}
       <div className="w-[110px] text-right shrink-0">
         {e.actualPayout !== null ? (
-          <span className={`tabular-nums ${hasGap ? "text-red-400" : "text-emerald-400"}`}>
+          <span
+            className={`tabular-nums ${!isReal ? "text-zinc-400" : hasGap ? "text-red-400" : "text-emerald-400"}`}
+            title={isReal ? undefined : "Gerçek hakediş dosyası yok — beklenen tutarla aynı kabul edilmiştir."}
+          >
             {money(e.actualPayout, e.currency)}
+            {!isReal && <sup className="text-zinc-600 text-[9px] ml-0.5">T</sup>}
           </span>
         ) : (
           <span className="text-zinc-700">—</span>
@@ -114,7 +123,9 @@ function Row({ e }: { e: CashFlowEntry }) {
 
       {/* Fark */}
       <div className="w-[90px] text-right shrink-0">
-        {e.gap !== null ? (
+        {!isReal ? (
+          <span className="text-zinc-800">—</span>
+        ) : e.gap !== null ? (
           e.gap > 0 ? (
             <span className="text-red-500 tabular-nums">−{money(e.gap, e.currency)}</span>
           ) : (
@@ -155,6 +166,8 @@ export function CashFlowPanel({ tenantId, channel, currency }: Props) {
     );
   }
 
+  const isReal = entries[0]?.isRealSettlementData ?? false;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -177,7 +190,7 @@ export function CashFlowPanel({ tenantId, channel, currency }: Props) {
           <div className="w-[80px] shrink-0">Tarih</div>
           <div className="w-[110px] shrink-0">Pazaryeri</div>
           <div className="flex-1 text-right">Beklenen</div>
-          <div className="w-[110px] text-right shrink-0">Gerçek</div>
+          <div className="w-[110px] text-right shrink-0">{isReal ? "Gerçek" : "Temsili (T)"}</div>
           <div className="w-[90px]  text-right shrink-0">Fark</div>
           <div className="w-[70px]  text-right shrink-0">Durum</div>
         </div>
@@ -194,10 +207,17 @@ export function CashFlowPanel({ tenantId, channel, currency }: Props) {
         <div>
           Gecikme modeli: Trendyol 17g · Amazon US 21g · Hepsiburada 15g (teslimat + ödeme döngüsü).
         </div>
-        <div>
-          Gerçek tutar, hakediş doğrulama fark oranı uygulanarak hesaplanmıştır.
-          Gerçek banka ekstresiyle karşılaştırınız.
-        </div>
+        {isReal ? (
+          <div>
+            Gerçek tutar, hakediş doğrulama fark oranı uygulanarak hesaplanmıştır.
+            Gerçek banka ekstresiyle karşılaştırınız.
+          </div>
+        ) : (
+          <div className="text-amber-500/80">
+            (T) Temsili: gerçek hakediş/ödeme dosyası henüz bağlı değil — &quot;Temsili&quot; sütunu beklenen
+            tutarla aynı kabul edilmiştir, doğrulanmış bir banka mutabakatı değildir.
+          </div>
+        )}
       </div>
     </div>
   );

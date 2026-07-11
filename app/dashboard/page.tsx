@@ -46,7 +46,7 @@ import { MyDataPanel } from "@/components/MyDataPanel";
 import {
   getSellers, getSeller, getFinancing, recomputeMargin, getBacktest, getBenchmarkRows, getPortfolioMetrics,
   registerRuntimeSeller, clearRuntimeSellers, hasRuntimeSeller, getSilentLoserInsight,
-  MARKETPLACE_LABELS, type Channel,
+  MARKETPLACE_LABELS, LOW_SAMPLE_HISTORY_MONTHS, type Channel,
 } from "@/lib/engine";
 import { CampaignSimulator } from "@/components/CampaignSimulator";
 import { CashFlowPanel } from "@/components/CashFlowPanel";
@@ -58,6 +58,9 @@ import {
   supportedChannels, getMarketplaceOption,
   type MarketplaceOption,
 } from "@/lib/marketplaces";
+import { getConnections, removeConnectionByMarketplace } from "@/lib/connect/store";
+import type { MarketplaceConnection } from "@/lib/connect/types";
+import { isAiConfigured } from "@/lib/copilot/ai-configured";
 
 const AI_PRESETS = [
   "Why did this seller get this limit?",
@@ -103,6 +106,9 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       if (seller) {
         registerRuntimeSeller(seller, "Verilerim");
         setTenant(USER_TENANT_ID);
+        // Backfill: a returning user with data but no decision_ledger row yet
+        // (e.g. right after this feature shipped) gets one recorded now.
+        recordLedgerDecision().then(() => loadRealLedger());
       }
       setInitialDataLoadDone(true);
       setDataVersion((v) => v + 1);
@@ -125,6 +131,55 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       if (!authConfigured) setTenant((t) => (t === USER_TENANT_ID ? "seller-b" : t));
     }
     setDataVersion((v) => v + 1);
+    // Every time the user's own data changes, re-derive their real underwriting
+    // decision server-side and append it to decision_ledger IF it moved — see
+    // app/api/ledger/record. Fire-and-forget: never blocks the data refresh the
+    // user is waiting on, and a missed append just means the next data change
+    // (or the periodic cron resync) records it instead.
+    if (authConfigured) {
+      recordLedgerDecision().then(() => loadRealLedger());
+    }
+  }
+
+  // Real, per-user Decision Ledger — replaces the seed-portfolio in-memory
+  // ledger for a signed-in user. See supabase/migrations/0004_decision_ledger.sql
+  // (append-only: RLS grants select+insert only, no update/delete).
+  const [realLedgerEntries, setRealLedgerEntries] = useState<
+    { seq: number; recordedAt: string; approvedLimit: number; takeRate: number; currency: string; modelVersion: string }[] | null
+  >(null);
+
+  async function withAccessToken<T>(fn: (token: string) => Promise<T>): Promise<T | undefined> {
+    const supabase = getSupabaseClient();
+    if (!supabase) return undefined;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) return undefined;
+    return fn(accessToken);
+  }
+
+  async function loadRealLedger() {
+    if (!authConfigured) return;
+    await withAccessToken(async (accessToken) => {
+      try {
+        const res = await fetch("/api/ledger/list", { headers: { Authorization: `Bearer ${accessToken}` } });
+        const result = await res.json().catch(() => ({}));
+        if (Array.isArray(result.entries)) setRealLedgerEntries(result.entries);
+      } catch {
+        // Non-critical — History just keeps showing its last known state.
+      }
+    });
+  }
+  useEffect(() => { loadRealLedger(); }, [authConfigured]);
+
+  async function recordLedgerDecision() {
+    if (!authConfigured) return;
+    await withAccessToken(async (accessToken) => {
+      try {
+        await fetch("/api/ledger/record", { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } });
+      } catch {
+        // Non-critical — the next data change (or hourly cron resync) retries.
+      }
+    });
   }
 
   // A real signed-in seller who hasn't connected/entered any data yet — send them
@@ -167,10 +222,159 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // Read after mount to avoid hydration mismatch.
   const [connectedIds, setConnectedIds] = useState<string[] | null>(null);
   useEffect(() => { setConnectedIds(getConnectedMarketplaces()); }, []);
+
+  // Marketplaces with real (encrypted) credentials on file — only these get a
+  // "Refresh" button; CSV/manual/demo connections have nothing to resync.
+  // See lib/marketplace-resync.ts — the read side of marketplace_credentials.
+  const [resyncableMarketplaces, setResyncableMarketplaces] = useState<string[]>([]);
+  const [resyncBusy, setResyncBusy] = useState<string | null>(null);
+  const [resyncStatus, setResyncStatus] = useState<Record<string, { ok: boolean; message: string }>>({});
+
+  async function loadResyncableMarketplaces() {
+    if (!authConfigured) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) return;
+    try {
+      const res = await fetch("/api/marketplace/credentials-status", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const result = await res.json().catch(() => ({}));
+      if (Array.isArray(result.marketplaces)) setResyncableMarketplaces(result.marketplaces);
+    } catch {
+      // Non-critical — the Refresh section just stays empty.
+    }
+  }
+  useEffect(() => { loadResyncableMarketplaces(); }, [authConfigured]);
+
+  async function handleResync(marketplaceId: string) {
+    const supabase = getSupabaseClient();
+    const { data: sessionData } = supabase
+      ? await supabase.auth.getSession()
+      : { data: { session: null } };
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
+      setResyncStatus((prev) => ({ ...prev, [marketplaceId]: { ok: false, message: "Oturum bulunamadı — lütfen tekrar giriş yapın." } }));
+      return;
+    }
+    setResyncBusy(marketplaceId);
+    try {
+      const res = await fetch("/api/marketplace/resync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ marketplace: marketplaceId }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (res.ok && result.success) {
+        setResyncStatus((prev) => ({
+          ...prev,
+          [marketplaceId]: { ok: true, message: `Senkronize edildi · ${result.rowsSaved} satır` },
+        }));
+        await refreshUserData();
+      } else {
+        setResyncStatus((prev) => ({
+          ...prev,
+          [marketplaceId]: { ok: false, message: result.error ?? "Senkronizasyon başarısız." },
+        }));
+      }
+    } catch {
+      setResyncStatus((prev) => ({ ...prev, [marketplaceId]: { ok: false, message: "Bağlantı kurulamadı." } }));
+    } finally {
+      setResyncBusy(null);
+    }
+  }
+  // Signed-in account identity for Settings — real values from the Supabase
+  // session (email always present; company is whatever was captured at signup,
+  // see app/signup/page.tsx's user_metadata.company). null while loading/no auth.
+  const [account, setAccount] = useState<{ email: string; company: string } | null>(null);
+  useEffect(() => {
+    if (!authConfigured) return;
+    let active = true;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    supabase.auth.getUser().then(({ data }) => {
+      if (!active || !data.user) return;
+      setAccount({
+        email: data.user.email ?? "—",
+        company: typeof data.user.user_metadata?.company === "string" ? data.user.user_metadata.company : "",
+      });
+    });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authConfigured]);
+
+  // Settings → "Connected marketplaces" list. Merges two sources of truth so the
+  // list is never silently wrong: localStorage connections (this browser's
+  // record of what was linked, incl. demo-only links) UNIONed with
+  // resyncableMarketplaces (server-verified: a real, still-stored credential
+  // row exists) — a marketplace connected on another device still shows up
+  // as "Live" here even with no local connection record.
+  const [connections, setConnections] = useState<MarketplaceConnection[]>([]);
+  useEffect(() => { setConnections(getConnections()); }, [connectedIds]);
+  const displayedConnections = (() => {
+    const byId = new Map<string, { marketplaceId: string; provider: "live" | "demo"; connectedAt: string | null }>();
+    for (const c of connections) {
+      byId.set(c.marketplaceId, { marketplaceId: c.marketplaceId, provider: c.provider === "live" ? "live" : "demo", connectedAt: c.connectedAt });
+    }
+    for (const mp of resyncableMarketplaces) {
+      if (!byId.has(mp)) byId.set(mp, { marketplaceId: mp, provider: "live", connectedAt: null });
+    }
+    return Array.from(byId.values());
+  })();
+
+  const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
+  const [disconnectBusy, setDisconnectBusy] = useState(false);
+  const [disconnectStatus, setDisconnectStatus] = useState<Record<string, { ok: boolean; message: string }>>({});
+
+  async function confirmDisconnect(deleteData: boolean) {
+    const marketplaceId = disconnectTarget;
+    if (!marketplaceId) return;
+    setDisconnectBusy(true);
+    try {
+      if (authConfigured) {
+        const supabase = getSupabaseClient();
+        const { data: sessionData } = supabase
+          ? await supabase.auth.getSession()
+          : { data: { session: null } };
+        const accessToken = sessionData.session?.access_token;
+        if (accessToken) {
+          const res = await fetch("/api/marketplace/disconnect", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({ marketplace: marketplaceId, deleteData }),
+          });
+          const result = await res.json().catch(() => ({}));
+          if (!res.ok || !result.success) {
+            setDisconnectStatus((prev) => ({ ...prev, [marketplaceId]: { ok: false, message: result.error ?? "Bağlantı kesilemedi." } }));
+            return;
+          }
+        }
+      }
+      removeConnectionByMarketplace(marketplaceId);
+      setConnections(getConnections());
+      setConnectedIds(getConnectedMarketplaces());
+      await loadResyncableMarketplaces();
+      if (deleteData) await refreshUserData();
+      setDisconnectStatus((prev) => ({
+        ...prev,
+        [marketplaceId]: { ok: true, message: deleteData ? "Bağlantı kesildi ve veriler silindi." : "Bağlantı kesildi — geçmiş veriler korundu." },
+      }));
+    } finally {
+      setDisconnectBusy(false);
+      setDisconnectTarget(null);
+    }
+  }
+
   const [aiInput, setAiInput] = useState("");
   const [askedQ, setAskedQ] = useState<string | null>(null);
   const [aiAnswer, setAiAnswer] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  // "model" = real Claude response; "rule-based" = ANTHROPIC_API_KEY not configured;
+  // "model-error" = key configured but the model call failed, deterministic fallback used.
+  // Read from the X-Copilot-Mode response header — never inferred client-side.
+  const [aiMode, setAiMode] = useState<"model" | "rule-based" | "model-error" | null>(null);
 
   const view = getSeller(tenant, channel) ?? getSeller("seller-b", channel)!;
   const fin = getFinancing(tenant) ?? getFinancing("seller-b")!;
@@ -204,7 +408,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
 
   const benchmarks = getBenchmarkRows();
   const portfolio = getPortfolioMetrics();
-  const ledger = getBacktest().ledger;
+  // Signed-in users see their OWN append-only Postgres ledger (decision_ledger);
+  // only the no-auth /demo walkthrough still shows the seed-portfolio in-memory
+  // ledger, which is what it's supposed to demonstrate.
+  const seedLedger = getBacktest().ledger;
+  const ledger = authConfigured
+    ? (realLedgerEntries ?? []).map((l) => ({ ...l, tenantId: USER_TENANT_ID, label: "Your account" }))
+    : seedLedger;
 
   const approved = view.decision.approvedLimit > 0;
   const takeRate = (view.decision.takeRate * 100).toFixed(1);
@@ -261,6 +471,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     if (!question || aiLoading) return;
     setAskedQ(question);
     setAiAnswer("");
+    setAiMode(null);
     setAiInput("");
     setAiLoading(true);
 
@@ -270,6 +481,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ messages: [{ role: "user", content: question }], tenantId: tenant, channel }),
       });
+      const mode = res.headers.get("X-Copilot-Mode");
+      if (mode === "model" || mode === "rule-based" || mode === "model-error") setAiMode(mode);
       if (!res.body) throw new Error("No response body");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -291,6 +504,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   useEffect(() => {
     setAskedQ(null);
     setAiAnswer("");
+    setAiMode(null);
   }, [tenant, channel]);
 
   const renderCostRow = (label: string, value: number) => {
@@ -537,30 +751,51 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       </div>
                     </div>
 
-                    {/* Settlement verification — secondary, below break-even */}
+                    {/* Settlement verification — secondary, below break-even. When there's
+                        no real settlement file behind actualPayout (true for every real
+                        signed-in user today — no adapter ingests one yet), this is labeled
+                        "Temsili" instead of silently rendering a bare "tam ödedi ✓". */}
                     {(() => {
                       const s = view.settlement;
                       const hasGap = s.hasGap;
+                      const dotColor = !s.isRealSettlementData ? "bg-zinc-600" : hasGap ? "bg-red-500/60" : "bg-emerald-500/60";
                       return (
                         <div className="mt-5 flex items-start justify-between gap-4 border border-zinc-800/70 bg-zinc-900/30 px-4 py-3">
                           <div>
-                            <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-2">
-                              Hakediş Doğrulama
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans">
+                                Hakediş Doğrulama
+                              </div>
+                              {!s.isRealSettlementData && (
+                                <span
+                                  title="Gerçek hakediş dosyası bağlanmadı — bu rakam sadece beklenen tutarı gösterir, gerçek ödeme doğrulaması yapılmadı."
+                                  className="text-[9px] px-1.5 py-0.5 font-mono uppercase tracking-widest border border-zinc-700 text-zinc-500"
+                                >
+                                  Temsili
+                                </span>
+                              )}
                             </div>
                             <div className="font-mono text-sm flex items-baseline gap-3 flex-wrap">
                               <span className="text-zinc-500">Beklenen</span>
                               <span className="tabular-nums text-zinc-200">{money(s.expectedPayout)}</span>
                               <span className="text-zinc-700">·</span>
-                              <span className="text-zinc-500">Gerçek</span>
+                              <span className="text-zinc-500">{s.isRealSettlementData ? "Gerçek" : "Temsili"}</span>
                               <span className="tabular-nums text-zinc-200">{money(s.actualPayout)}</span>
                             </div>
-                            <div className={`mt-1.5 font-mono text-[12px] tabular-nums font-medium ${hasGap ? "text-red-400" : "text-emerald-400"}`}>
-                              {hasGap
-                                ? `${s.marketplaceLabel} ${money(s.gap)} eksik ödedi (−${s.gapRatePct.toFixed(1)}%)`
-                                : `${s.marketplaceLabel} tam ödedi ✓`}
-                            </div>
+                            {s.isRealSettlementData ? (
+                              <div className={`mt-1.5 font-mono text-[12px] tabular-nums font-medium ${hasGap ? "text-red-400" : "text-emerald-400"}`}>
+                                {hasGap
+                                  ? `${s.marketplaceLabel} ${money(s.gap)} eksik ödedi (−${s.gapRatePct.toFixed(1)}%)`
+                                  : `${s.marketplaceLabel} tam ödedi ✓`}
+                              </div>
+                            ) : (
+                              <div className="mt-1.5 font-mono text-[12px] text-zinc-500 leading-relaxed max-w-sm">
+                                {s.marketplaceLabel} için henüz gerçek hakediş/ödeme dosyası bağlı değil — gösterilen
+                                &quot;{s.isRealSettlementData ? "Gerçek" : "Temsili"}&quot; tutar beklenen tutarla aynı kabul edilmiştir, doğrulanmış bir ödeme farkı değildir.
+                              </div>
+                            )}
                           </div>
-                          <div className={`shrink-0 w-1.5 self-stretch rounded-full ${hasGap ? "bg-red-500/60" : "bg-emerald-500/60"}`} />
+                          <div className={`shrink-0 w-1.5 self-stretch rounded-full ${dotColor}`} />
                         </div>
                       );
                     })()}
@@ -772,11 +1007,16 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     </div>
                   )}
 
-                  {/* Backtest Comparison */}
+                  {/* Backtest Comparison — for a real signed-in user this replays both models
+                      against THEIR OWN data (fin.isSelfBacktest), not the 3-seller seed
+                      portfolio; low history months gets an explicit low-sample warning
+                      instead of a face-value charge-off percentage. */}
                   <div>
                     <div className="flex items-center gap-4 mb-6">
                       <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans">Backtest Comparison</h3>
-                      <span className="bg-zinc-900 text-zinc-500 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800">N=3</span>
+                      <span className="bg-zinc-900 text-zinc-500 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800">
+                        {fin.isSelfBacktest ? `N=1 · ${fin.historyMonths} mo. history` : "N=3"}
+                      </span>
                     </div>
                     <div className="grid grid-cols-2 gap-px bg-zinc-800 border border-zinc-800">
                       <div className="bg-zinc-950 p-4 lg:p-6">
@@ -790,9 +1030,17 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                         <div className="text-zinc-700 text-[10px] lg:text-[11px] font-mono tracking-wide uppercase">charge-off</div>
                       </div>
                     </div>
-                    <div className="mt-4 text-xs text-emerald-400/80 font-mono tracking-wide flex items-center gap-3">
-                      <span className="text-emerald-500">↓</span> {lossRed}% loss reduction
-                    </div>
+                    {fin.isSelfBacktest && fin.historyMonths < LOW_SAMPLE_HISTORY_MONTHS ? (
+                      <div className="mt-4 text-xs text-amber-400/90 font-mono tracking-wide leading-relaxed">
+                        Sınırlı veri (N={fin.historyMonths} ay) — bu sonuçlar öngörücü değil, bilgilendirici. Güvenilir bir
+                        charge-off oranı için en az {LOW_SAMPLE_HISTORY_MONTHS} aylık gerçek sipariş geçmişi gerekir.
+                      </div>
+                    ) : (
+                      <div className="mt-4 text-xs text-emerald-400/80 font-mono tracking-wide flex items-center gap-3">
+                        <span className="text-emerald-500">↓</span> {lossRed}% loss reduction
+                        {fin.isSelfBacktest && <span className="text-zinc-600">· your own data, {fin.historyMonths} mo. history</span>}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -915,7 +1163,14 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
 
                 {/* RIGHT: backtest — us vs incumbent */}
                 <section>
-                  <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">Backtest — us vs incumbent</h3>
+                  <div className="flex items-center gap-3 mb-3">
+                    <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans">Backtest — us vs incumbent</h3>
+                    {fin.isSelfBacktest && (
+                      <span className="bg-zinc-900 text-zinc-500 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800">
+                        N=1 · {fin.historyMonths} mo.
+                      </span>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-px bg-zinc-800 border border-zinc-800 mt-4">
                     <div className="bg-zinc-950 p-4 lg:p-5">
                       <div className="text-zinc-400 font-sans text-xs mb-3">TrueMargin</div>
@@ -936,9 +1191,16 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       </dl>
                     </div>
                   </div>
-                  <div className="mt-4 text-xs text-emerald-400/80 font-mono tracking-wide flex items-center gap-3">
-                    <span className="text-emerald-500">↓</span> {lossRed}% loss reduction vs incumbent (N=3 design partners)
-                  </div>
+                  {fin.isSelfBacktest && fin.historyMonths < LOW_SAMPLE_HISTORY_MONTHS ? (
+                    <div className="mt-4 text-xs text-amber-400/90 font-mono tracking-wide leading-relaxed">
+                      Sınırlı veri (N={fin.historyMonths} ay) — sonuçlar öngörücü değil, bilgilendirici.
+                    </div>
+                  ) : (
+                    <div className="mt-4 text-xs text-emerald-400/80 font-mono tracking-wide flex items-center gap-3">
+                      <span className="text-emerald-500">↓</span> {lossRed}% loss reduction vs incumbent{" "}
+                      {fin.isSelfBacktest ? `(your own data, N=1)` : "(N=3 design partners)"}
+                    </div>
+                  )}
                 </section>
               </div>
 
@@ -999,30 +1261,45 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 <span className="bg-zinc-900 text-emerald-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800">IMMUTABLE · APPEND-ONLY</span>
               </div>
               <p className="text-zinc-600 text-[11px] font-mono mb-10 pl-4 max-w-xl">
-                Every underwriting decision is written once and never mutated — the auditable record due diligence
-                looks for, and the store of the decision traces that are the real, un-copyable moat.
+                {authConfigured
+                  ? "Every real underwriting decision on your account is written once and never mutated — recorded to Postgres whenever your data changes and the decision genuinely moves."
+                  : "Every underwriting decision is written once and never mutated — the auditable record due diligence looks for, and the store of the decision traces that are the real, un-copyable moat."}
               </p>
-              <div className="text-sm font-mono w-full">
-                <div className="flex w-full border-b border-zinc-900 pb-3 mb-1 text-zinc-600 text-[10px] uppercase tracking-[0.1em]">
-                  <div className="w-1/12">Seq</div>
-                  <div className="w-3/12">Recorded at</div>
-                  <div className="w-3/12">Tenant</div>
-                  <div className="w-3/12 text-right">Limit</div>
-                  <div className="w-2/12 text-right">Take-rate</div>
-                </div>
-                {ledger.map((l) => (
-                  <div key={l.seq} className="flex w-full items-center py-3 border-b border-zinc-900/50 hover:bg-zinc-900/30 transition-colors">
-                    <div className="w-1/12 text-zinc-600 tabular-nums">#{l.seq}</div>
-                    <div className="w-3/12 text-zinc-500 text-[11px] tabular-nums">{new Date(l.recordedAt).toISOString().replace("T", " ").slice(0, 19)}</div>
-                    <div className="w-3/12 text-zinc-300 text-[13px]">{l.label}</div>
-                    <div className="w-3/12 text-right text-zinc-100 tabular-nums">{money(l.approvedLimit, l.currency)}</div>
-                    <div className="w-2/12 text-right text-zinc-400 tabular-nums">{(l.takeRate * 100).toFixed(1)}%</div>
+              {authConfigured && realLedgerEntries === null ? (
+                <p className="text-zinc-600 font-mono text-[12px] pl-4">Loading your decision history…</p>
+              ) : authConfigured && ledger.length === 0 ? (
+                <p className="text-zinc-600 font-mono text-[12px] pl-4 max-w-md">
+                  No decisions recorded yet — connect a marketplace or upload data from Verilerim, and your first
+                  underwriting decision will appear here.
+                </p>
+              ) : (
+                <>
+                  <div className="text-sm font-mono w-full">
+                    <div className="flex w-full border-b border-zinc-900 pb-3 mb-1 text-zinc-600 text-[10px] uppercase tracking-[0.1em]">
+                      <div className="w-1/12">Seq</div>
+                      <div className="w-3/12">Recorded at</div>
+                      <div className="w-3/12">Tenant</div>
+                      <div className="w-3/12 text-right">Limit</div>
+                      <div className="w-2/12 text-right">Take-rate</div>
+                    </div>
+                    {ledger.map((l) => (
+                      <div key={l.seq} className="flex w-full items-center py-3 border-b border-zinc-900/50 hover:bg-zinc-900/30 transition-colors">
+                        <div className="w-1/12 text-zinc-600 tabular-nums">#{l.seq}</div>
+                        <div className="w-3/12 text-zinc-500 text-[11px] tabular-nums">{new Date(l.recordedAt).toISOString().replace("T", " ").slice(0, 19)}</div>
+                        <div className="w-3/12 text-zinc-300 text-[13px]">{l.label}</div>
+                        <div className="w-3/12 text-right text-zinc-100 tabular-nums">{money(l.approvedLimit, l.currency)}</div>
+                        <div className="w-2/12 text-right text-zinc-400 tabular-nums">{(l.takeRate * 100).toFixed(1)}%</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <p className="mt-6 text-[11px] text-zinc-600 font-mono">
-                {ledger.length} entries · model {ledger[0]?.modelVersion ?? "—"} · sink: in-memory (swap to Postgres/SQLite append-only table in production).
-              </p>
+                  <p className="mt-6 text-[11px] text-zinc-600 font-mono">
+                    {ledger.length} entries · model {ledger[0]?.modelVersion ?? "—"} ·{" "}
+                    {authConfigured
+                      ? "sink: Postgres (decision_ledger, RLS-scoped to your account, append-only)."
+                      : "sink: in-memory (seed-portfolio walkthrough — /demo only)."}
+                  </p>
+                </>
+              )}
             </div>
           )}
 
@@ -1030,13 +1307,129 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {currentTab === "Settings" && (
             <div className="max-w-[900px] px-8 py-12 md:py-20">
               <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-12 border-l border-zinc-800 pl-4">Organization Settings</h2>
-              <div className="text-zinc-500 font-mono text-sm p-8 border border-zinc-900 bg-zinc-950/50 flex items-center justify-center">
-                Configuration interface loading...
+
+              {/* Account — real identity from the Supabase session, not a placeholder. */}
+              <div className="border border-zinc-900 bg-zinc-950/50 p-6">
+                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">Account</div>
+                {authConfigured ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div>
+                      <div className="text-zinc-600 text-[10px] uppercase tracking-wide font-mono mb-1.5">Email</div>
+                      <div className="text-zinc-200 text-sm font-mono tabular-nums truncate">{account?.email ?? "…"}</div>
+                    </div>
+                    <div>
+                      <div className="text-zinc-600 text-[10px] uppercase tracking-wide font-mono mb-1.5">Company / store</div>
+                      <div className="text-zinc-200 text-sm font-mono truncate">
+                        {account ? (account.company || "—") : "…"}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-zinc-600 font-mono text-[12px]">
+                    Supabase not configured in this environment — account identity unavailable.
+                  </p>
+                )}
               </div>
 
-              {/* Account / session */}
+              {/* Connected marketplaces — every link that actually exists (server-verified
+                  live credentials + demo-only local links), each with a real Disconnect. */}
+              <div className="mt-8 border border-zinc-900 bg-zinc-950/50 p-6">
+                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">Connected marketplaces</div>
+                {displayedConnections.length === 0 ? (
+                  <p className="text-zinc-600 font-mono text-[12px]">
+                    No marketplace connected yet — go to <span className="text-zinc-400">/connect</span> to link one.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-zinc-900">
+                    {displayedConnections.map((c) => {
+                      const opt = getMarketplaceOption(c.marketplaceId);
+                      const isLive = c.provider === "live";
+                      const status = disconnectStatus[c.marketplaceId];
+                      return (
+                        <li key={c.marketplaceId} className="py-3.5 flex items-center justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-zinc-200 text-sm truncate">{opt?.label ?? c.marketplaceId}</span>
+                              <span
+                                className={`shrink-0 text-[9px] px-1.5 py-0.5 font-mono uppercase tracking-widest border ${
+                                  isLive ? "border-emerald-800/60 text-emerald-400/80" : "border-zinc-800 text-zinc-500"
+                                }`}
+                              >
+                                {isLive ? "Live" : "Demo"}
+                              </span>
+                            </div>
+                            <div className="text-zinc-600 text-[11px] font-mono mt-0.5 tabular-nums">
+                              {c.connectedAt
+                                ? `Connected ${new Date(c.connectedAt).toISOString().slice(0, 10)}`
+                                : "Credentials on file"}
+                            </div>
+                            {status && (
+                              <div className={`text-[11px] font-mono mt-1 ${status.ok ? "text-emerald-400" : "text-red-400"}`}>
+                                {status.message}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setDisconnectTarget(c.marketplaceId)}
+                            className="shrink-0 inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-400 font-mono text-[12px] hover:border-red-400/40 hover:text-red-400 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
+                          >
+                            Disconnect
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+
+              {/* Marketplace connections — manual resync per platform, using the
+                  credentials already stored from connect (see lib/marketplace-resync.ts) */}
+              {authConfigured && (
+                <div className="mt-10 border border-zinc-900 bg-zinc-950/50 p-6">
+                  <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">Refresh data</div>
+                  {resyncableMarketplaces.length === 0 ? (
+                    <p className="text-zinc-600 font-mono text-[12px]">
+                      No live marketplace integration connected yet — connect Trendyol, Hepsiburada, N11 or Shopify from /connect.
+                    </p>
+                  ) : (
+                    <ul className="space-y-3">
+                      {resyncableMarketplaces.map((mp) => {
+                        const opt = getMarketplaceOption(mp);
+                        const status = resyncStatus[mp];
+                        const busy = resyncBusy === mp;
+                        return (
+                          <li key={mp} className="flex items-center justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="text-zinc-300 text-sm">{opt?.label ?? mp}</div>
+                              {status && (
+                                <div className={`text-[11px] font-mono mt-0.5 ${status.ok ? "text-emerald-400" : "text-red-400"}`}>
+                                  {status.message}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleResync(mp)}
+                              disabled={busy}
+                              className="shrink-0 inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-300 font-mono text-[12px] hover:bg-zinc-900 hover:text-zinc-100 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
+                            >
+                              {busy ? "Refreshing…" : "Refresh"}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  <p className="mt-4 text-[11px] text-zinc-600 font-mono leading-relaxed">
+                    Pulls your latest real orders again using the same credentials from connect — never asks for your API key twice.
+                  </p>
+                </div>
+              )}
+
+              {/* Session */}
               <div className="mt-10 border border-zinc-900 bg-zinc-950/50 p-6">
-                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">Account</div>
+                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">Session</div>
                 <div className="flex items-center justify-between gap-4">
                   <p className="text-zinc-500 font-mono text-[12px] leading-relaxed">
                     End your session on this device. You&apos;ll need to sign in again to return.
@@ -1049,13 +1442,71 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   </button>
                 </div>
               </div>
+
+              {/* Disconnect confirmation — PDF trust rule: never destroy data silently.
+                  The choice between the two outcomes is explicit and neither is pre-selected. */}
+              {disconnectTarget && (
+                <div
+                  className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4"
+                  onClick={() => !disconnectBusy && setDisconnectTarget(null)}
+                >
+                  <div
+                    className="bg-zinc-950 border border-zinc-800 p-6 max-w-sm w-full"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="text-zinc-100 text-sm font-medium mb-1.5">
+                      Disconnect {getMarketplaceOption(disconnectTarget)?.label ?? disconnectTarget}
+                    </div>
+                    <p className="text-zinc-500 text-[12px] font-mono leading-relaxed mb-6">
+                      This deletes the stored credential — you&apos;ll need to reconnect to sync again. You can also
+                      choose to delete the order data already pulled from this marketplace.
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => confirmDisconnect(false)}
+                        disabled={disconnectBusy}
+                        className="inline-flex items-center justify-center h-10 px-4 border border-zinc-800 text-zinc-200 font-mono text-[12px] hover:bg-zinc-900 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
+                      >
+                        {disconnectBusy ? "Working…" : "Disconnect only — keep my data"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => confirmDisconnect(true)}
+                        disabled={disconnectBusy}
+                        className="inline-flex items-center justify-center h-10 px-4 border border-red-900/60 text-red-400 font-mono text-[12px] hover:bg-red-950/30 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+                      >
+                        {disconnectBusy ? "Working…" : "Disconnect and delete this marketplace's data"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDisconnectTarget(null)}
+                        disabled={disconnectBusy}
+                        className="inline-flex items-center justify-center h-9 px-4 text-zinc-500 font-mono text-[12px] hover:text-zinc-300 transition-colors disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* VIEW: COPILOT — Analyst Copilot tab, streaming from /api/chat (grounded via lib/engine) */}
           {currentTab === "Copilot" && (
             <div className="max-w-[900px] px-8 py-12 md:py-20">
-              <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-2 border-l border-zinc-800 pl-4">Analyst Copilot</h2>
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] border-l border-zinc-800 pl-4">Analyst Copilot</h2>
+                {!isAiConfigured() && (
+                  <span
+                    title="ANTHROPIC_API_KEY is not set in this environment — every answer below is a deterministic, rule-based lookup against the same decision data, not a language model."
+                    className="bg-zinc-900 text-amber-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase"
+                  >
+                    Rule-based (AI not configured)
+                  </span>
+                )}
+              </div>
               <div className="text-zinc-600 text-[11px] font-mono mb-12 pl-4">
                 {view.label} · {channelLabel(channel)}
               </div>
@@ -1097,8 +1548,25 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       </p>
                     )}
                     {aiAnswer && !aiLoading && (
-                      <p className="text-[11px] text-zinc-600 font-mono">
-                        Grounded in {view.label}&apos;s structured decision. No numbers invented.
+                      <p className="text-[11px] text-zinc-600 font-mono flex items-center gap-2 flex-wrap">
+                        <span>Grounded in {view.label}&apos;s structured decision. No numbers invented.</span>
+                        {(aiMode === "rule-based" || aiMode === "model-error") && (
+                          <span
+                            title={
+                              aiMode === "model-error"
+                                ? "The Claude call failed for this answer — a deterministic rule-based lookup against the same decision data was used instead."
+                                : "ANTHROPIC_API_KEY is not set — this is a deterministic rule-based lookup, not a language model response."
+                            }
+                            className="bg-zinc-900 text-amber-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase"
+                          >
+                            {aiMode === "model-error" ? "Rule-based (AI call failed)" : "Rule-based response"}
+                          </span>
+                        )}
+                        {aiMode === "model" && (
+                          <span className="bg-zinc-900 text-emerald-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase">
+                            Claude
+                          </span>
+                        )}
                       </p>
                     )}
                     {!aiAnswer && !aiLoading && (

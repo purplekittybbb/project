@@ -5,6 +5,10 @@
  *
  * - Per-marketplace "Connect" opens OAuth demo modal (no passwords)
  * - Connected list shows token-like refs + Disconnect
+ * - Disconnecting a "live" connection (Trendyol/Hepsiburada/N11/live Shopify)
+ *   calls /api/marketplace/disconnect to actually delete the encrypted
+ *   marketplace_credentials row server-side, with a choice to also delete the
+ *   order data already pulled — demo connections disconnect locally only.
  * - CSV path for manual_csv (real parse + save)
  * - Read-only trust copy throughout
  */
@@ -18,7 +22,8 @@ import { READ_ONLY_COPY, MarketplaceOAuthModal } from "@/components/MarketplaceO
 import { MarketplaceApiKeyModal } from "@/components/MarketplaceApiKeyModal";
 import { ShopifyConnectModal } from "@/components/ShopifyConnectModal";
 import { saveUserRows } from "@/lib/supabase/user-data";
-import { isAuthConfigured } from "@/lib/supabase/client";
+import { isAuthConfigured, getSupabaseClient } from "@/lib/supabase/client";
+import { isShopifyLiveEnabled } from "@/lib/shopify-api/live";
 import {
   MARKETPLACE_OPTIONS, REGION_ORDER, REGION_LABELS, getMarketplaceOption,
   type MarketplaceOption,
@@ -55,12 +60,20 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
   const [connections, setConnections] = useState<MarketplaceConnection[]>(() => getConnections());
   const [oauthTarget, setOauthTarget] = useState<string | null>(null);
   const [oauthOpen, setOauthOpen] = useState(false);
+  const [shopifyLiveOpen, setShopifyLiveOpen] = useState(false);
   const [apiKeyTarget, setApiKeyTarget] = useState<string | null>(null);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
-  const [shopifyOpen, setShopifyOpen] = useState(false);
   const [connectError, setConnectError] = useState("");
   const [csvRows, setCsvRows] = useState<UserRawRow[] | null>(null);
   const [csvBusy, setCsvBusy] = useState(false);
+
+  // Disconnect confirmation — ONLY for "live" connections (Trendyol/Hepsiburada/
+  // N11/live Shopify), which have a real, encrypted marketplace_credentials row
+  // server-side. Demo connections have nothing server-side to delete, so they
+  // disconnect immediately without a dialog.
+  const [disconnectTarget, setDisconnectTarget] = useState<MarketplaceConnection | null>(null);
+  const [disconnectBusy, setDisconnectBusy] = useState(false);
+  const [disconnectError, setDisconnectError] = useState("");
 
   function refresh() {
     setConnections(getConnections());
@@ -69,6 +82,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
 
   // Landed back here from a real Shopify OAuth redirect (see
   // app/api/shopify/oauth/callback) — pick up the result and clean the URL.
+  // Demo connect uses MarketplaceOAuthModal; this path remains for live OAuth.
   useEffect(() => {
     const shopifyResult = searchParams.get("shopify");
     if (!shopifyResult) return;
@@ -104,10 +118,12 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
       setApiKeyOpen(true);
       return;
     }
-    if (marketplaceId === "shopify") {
-      setShopifyOpen(true);
+    // Shopify: live Partner-app OAuth when SHOPIFY_CLIENT_ID is set; else demo modal.
+    if (marketplaceId === "shopify" && isShopifyLiveEnabled()) {
+      setShopifyLiveOpen(true);
       return;
     }
+    // oauth demo consent modal — eBay/Walmart/Etsy and Shopify-without-env.
     setOauthTarget(marketplaceId);
     setOauthOpen(true);
   }
@@ -116,9 +132,47 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
     refresh();
   }
 
-  function handleDisconnect(id: string) {
-    removeConnection(id);
+  function handleDisconnect(c: MarketplaceConnection) {
+    if (c.provider === "live" && isAuthConfigured()) {
+      setDisconnectError("");
+      setDisconnectTarget(c);
+      return;
+    }
+    removeConnection(c.id);
     refresh();
+  }
+
+  async function confirmDisconnect(deleteData: boolean) {
+    const target = disconnectTarget;
+    if (!target) return;
+    setDisconnectBusy(true);
+    setDisconnectError("");
+    try {
+      const supabase = getSupabaseClient();
+      const { data: sessionData } = supabase
+        ? await supabase.auth.getSession()
+        : { data: { session: null } };
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        setDisconnectError("Oturum bulunamadı — lütfen tekrar giriş yapın.");
+        return;
+      }
+      const res = await fetch("/api/marketplace/disconnect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ marketplace: target.marketplaceId, deleteData }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || !result.success) {
+        setDisconnectError(result.error ?? "Bağlantı kesilemedi.");
+        return;
+      }
+      removeConnection(target.id);
+      refresh();
+      setDisconnectTarget(null);
+    } finally {
+      setDisconnectBusy(false);
+    }
   }
 
   async function pickCsv(file: File) {
@@ -187,7 +241,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                     <span className="text-emerald-500/90 text-[10px] font-mono uppercase tracking-wider">Connected ✓</span>
                     <button
                       type="button"
-                      onClick={() => handleDisconnect(c.id)}
+                      onClick={() => handleDisconnect(c)}
                       className="ob-input text-[10px] font-mono uppercase tracking-widest text-zinc-500 hover:text-red-400 transition-colors px-2 py-1 border border-zinc-800 hover:border-red-400/40"
                     >
                       Disconnect
@@ -300,13 +354,64 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
         onClose={() => { setOauthOpen(false); setOauthTarget(null); }}
         onConnected={handleConnected}
       />
+      <ShopifyConnectModal
+        open={shopifyLiveOpen}
+        onClose={() => setShopifyLiveOpen(false)}
+      />
       <MarketplaceApiKeyModal
         marketplaceId={apiKeyTarget}
         open={apiKeyOpen}
         onClose={() => { setApiKeyOpen(false); setApiKeyTarget(null); }}
         onConnected={handleConnected}
       />
-      <ShopifyConnectModal open={shopifyOpen} onClose={() => setShopifyOpen(false)} />
+
+      {/* Disconnect confirmation — server-side credential deletion, PDF trust rule:
+          never destroy data silently, neither choice is pre-selected. */}
+      {disconnectTarget && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4"
+          onClick={() => !disconnectBusy && setDisconnectTarget(null)}
+        >
+          <div className="bg-zinc-950 border border-zinc-800 p-6 max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="text-zinc-100 text-sm font-medium mb-1.5">
+              Disconnect {getMarketplaceOption(disconnectTarget.marketplaceId)?.label ?? disconnectTarget.marketplaceId}
+            </div>
+            <p className="text-zinc-500 text-[12px] font-mono leading-relaxed mb-6">
+              This deletes the stored credential — you&apos;ll need to reconnect to sync again. You can also
+              choose to delete the order data already pulled from this marketplace.
+            </p>
+            {disconnectError && (
+              <p className="text-red-400 text-[11px] font-mono mb-4">{disconnectError}</p>
+            )}
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => confirmDisconnect(false)}
+                disabled={disconnectBusy}
+                className="inline-flex items-center justify-center h-10 px-4 border border-zinc-800 text-zinc-200 font-mono text-[12px] hover:bg-zinc-900 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
+              >
+                {disconnectBusy ? "Working…" : "Disconnect only — keep my data"}
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmDisconnect(true)}
+                disabled={disconnectBusy}
+                className="inline-flex items-center justify-center h-10 px-4 border border-red-900/60 text-red-400 font-mono text-[12px] hover:bg-red-950/30 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+              >
+                {disconnectBusy ? "Working…" : "Disconnect and delete this marketplace's data"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDisconnectTarget(null)}
+                disabled={disconnectBusy}
+                className="inline-flex items-center justify-center h-9 px-4 text-zinc-500 font-mono text-[12px] hover:text-zinc-300 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

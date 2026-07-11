@@ -37,7 +37,11 @@ export function encryptSecret(plaintext: string): string {
 export function decryptSecret(payload: string): string {
   const key = deriveKey();
   const [ivB64, authTagB64, dataB64] = payload.split(":");
-  if (!ivB64 || !authTagB64 || !dataB64) {
+  // A genuinely empty original secret (e.g. Shopify's unused api_secret_encrypted
+  // placeholder — see the OAuth callback route) encrypts to an EMPTY ciphertext
+  // segment, which is a valid third part, not a missing one — so this must check
+  // for `undefined` (segment absent) rather than falsy (segment empty but present).
+  if (ivB64 === undefined || authTagB64 === undefined || dataB64 === undefined) {
     throw new Error("Malformed encrypted payload.");
   }
   const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(ivB64, "base64"));

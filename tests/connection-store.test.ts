@@ -4,6 +4,7 @@ import {
   getConnections,
   isMarketplaceConnected,
   removeConnection,
+  removeConnectionByMarketplace,
   generateDemoTokenRef,
 } from "../lib/connect/store";
 
@@ -41,6 +42,17 @@ describe("connection store (Plaid/Rutter-style demo links)", () => {
     removeConnection(c.id);
     expect(getConnections()).toHaveLength(0);
     expect(isMarketplaceConnected("ebay")).toBe(false);
+  });
+
+  it("disconnect by marketplace id removes the matching connection only", () => {
+    addConnection("trendyol", "live");
+    addConnection("ebay", "demo");
+    expect(getConnections()).toHaveLength(2);
+    removeConnectionByMarketplace("trendyol");
+    const remaining = getConnections();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].marketplaceId).toBe("ebay");
+    expect(isMarketplaceConnected("trendyol")).toBe(false);
   });
 
   it("generateDemoTokenRef is stable format", () => {

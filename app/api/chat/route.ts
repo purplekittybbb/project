@@ -161,8 +161,13 @@ function deterministicChatAnswer(question: string, snapshot: NonNullable<ReturnT
   );
 }
 
+/** Client-visible marker of which path produced the answer — read by the Copilot
+ *  panel to show "Rule-based response (AI not configured)" instead of silently
+ *  presenting a deterministic answer as if it came from the model. */
+const COPILOT_MODE_HEADER = "X-Copilot-Mode";
+
 /** Stream plain text in small chunks so the fallback path renders identically to a real model stream. */
-function streamPlainText(text: string): Response {
+function streamPlainText(text: string, mode: "rule-based" | "model-error"): Response {
   const words = text.split(/(\s+)/);
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -174,7 +179,9 @@ function streamPlainText(text: string): Response {
       controller.close();
     },
   });
-  return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  return new Response(stream, {
+    headers: { "Content-Type": "text/plain; charset=utf-8", [COPILOT_MODE_HEADER]: mode },
+  });
 }
 
 export async function POST(req: Request) {
@@ -192,11 +199,11 @@ export async function POST(req: Request) {
 
   const snapshot = buildDataSnapshot(tenantId, channel);
   if (!snapshot) {
-    return streamPlainText("I don't have data for this seller/channel combination.");
+    return streamPlainText("I don't have data for this seller/channel combination.", "rule-based");
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    return streamPlainText(deterministicChatAnswer(lastUserMessage, snapshot));
+    return streamPlainText(deterministicChatAnswer(lastUserMessage, snapshot), "rule-based");
   }
 
   try {
@@ -212,9 +219,9 @@ export async function POST(req: Request) {
       messages: modelMessages,
       temperature: 0.2,
     });
-    return result.toTextStreamResponse();
+    return result.toTextStreamResponse({ headers: { [COPILOT_MODE_HEADER]: "model" } });
   } catch {
     // Never fail the panel: fall back to the grounded rule-based answer.
-    return streamPlainText(deterministicChatAnswer(lastUserMessage, snapshot));
+    return streamPlainText(deterministicChatAnswer(lastUserMessage, snapshot), "model-error");
   }
 }

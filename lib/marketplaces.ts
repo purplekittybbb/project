@@ -8,10 +8,10 @@
  * compute today.
  *
  * `engineChannel` is set ONLY when a real adapter + data path exists (Trendyol,
- * Amazon US, Hepsiburada). Everything else is demo-mode: selectable and shown as a
- * connected source, but with no live engine channel yet (so we never call the
- * engine with an unsupported channel and break it) — the dashboard renders these
- * as "coming soon" ghost tabs automatically.
+ * Amazon US, Hepsiburada, N11, Shopify). Everything else is demo-mode: selectable
+ * and shown as a connected source, but with no live engine channel yet (so we
+ * never call the engine with an unsupported channel and break it) — the dashboard
+ * renders these as "coming soon" ghost tabs automatically.
  */
 
 import type { ConnectionMethod, CredentialField } from "./connect/types";
