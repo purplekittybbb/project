@@ -10,8 +10,8 @@
  *   - kargoGelir   → waterfall.shipping / waterfall.grossRevenue × 100
  *
  * Sector averages and Top-10% thresholds are REPRESENTATIVE (modelled on
- * publicly available Turkish e-commerce benchmarks). They are clearly labelled
- * "(Temsili)" so no fake-real conflation occurs.
+ * publicly available US marketplace e-commerce benchmarks). They are clearly
+ * labelled "(Representative)" so no fake-real conflation occurs.
  */
 
 import { AlertTriangle, BarChart3, CheckCircle2, Minus, TrendingDown, TrendingUp } from "lucide-react";
@@ -46,9 +46,9 @@ function getStanding(m: BenchmarkMetric): Standing {
 }
 
 const STANDING_CONFIG = {
-  behind: { badge: "Sektörün Gerisinde", badgeClass: "border border-red-500/30 bg-red-500/10 text-red-400",     Icon: AlertTriangle },
-  good:   { badge: "Sektörden İyi",      badgeClass: "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400", Icon: CheckCircle2 },
-  near:   { badge: "Sektör Ortalaması",  badgeClass: "border border-amber-500/30 bg-amber-500/10 text-amber-400",  Icon: Minus },
+  behind: { badge: "Below sector", badgeClass: "border border-red-500/30 bg-red-500/10 text-red-400",     Icon: AlertTriangle },
+  good:   { badge: "Above sector", badgeClass: "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400", Icon: CheckCircle2 },
+  near:   { badge: "Near average", badgeClass: "border border-amber-500/30 bg-amber-500/10 text-amber-400",  Icon: Minus },
 } as const;
 
 /** Clamp a value onto a 0–100 bar anchored to [best, worst]. */
@@ -122,7 +122,7 @@ function MetricCard({ metric }: { metric: BenchmarkMetric }) {
           <span className="font-mono text-xl font-bold tabular-nums text-zinc-100">
             {metric.formatValue(metric.yoursRaw)}
           </span>
-          <span className="text-[11px] text-zinc-500 font-mono">gerçek (motordan)</span>
+          <span className="text-[11px] text-zinc-500 font-mono">yours (engine)</span>
         </div>
 
         <BarTrack metric={metric} />
@@ -156,38 +156,38 @@ export function PeerBenchmarkingSection({ view }: Props) {
       ? (waterfall.shipping / waterfall.grossRevenue) * 100
       : 0;
 
-  // ── Representative sector benchmarks (clearly labelled Temsili) ─────────────
+  // ── Representative US sector benchmarks (clearly labelled) ─────────────
   const METRICS: BenchmarkMetric[] = [
     {
       id: "return-rate",
-      label: "İade Oranı",
-      sublabel: "Gerçek değer: SKU iade ortalaması (motordan)",
+      label: "Return rate",
+      sublabel: "Yours: SKU return average (engine)",
       icon: TrendingDown,
       yoursRaw: avgReturnRate,
-      categoryAvgRaw: 5.4,   // Temsili
-      top10Raw: 2.1,          // Temsili
+      categoryAvgRaw: 8.5,
+      top10Raw: 4.0,
       lowerIsBetter: true,
       formatValue: (v) => `${v.toFixed(1)}%`,
     },
     {
       id: "acos",
-      label: "Reklam Verimliliği (ACOS)",
-      sublabel: "Gerçek değer: reklam harcaması / brüt gelir (motordan)",
+      label: "Ad efficiency (ACOS)",
+      sublabel: "Yours: ad spend / gross revenue (engine)",
       icon: BarChart3,
       yoursRaw: acos,
-      categoryAvgRaw: 18.0,  // Temsili
-      top10Raw: 10.0,         // Temsili
+      categoryAvgRaw: 26.0,
+      top10Raw: 15.0,
       lowerIsBetter: true,
       formatValue: (v) => `${v.toFixed(1)}%`,
     },
     {
       id: "shipping-ratio",
-      label: "Kargo / Gelir Oranı",
-      sublabel: "Gerçek değer: kargo maliyeti / brüt gelir (motordan)",
+      label: "Shipping / revenue",
+      sublabel: "Yours: shipping cost / gross revenue (engine)",
       icon: TrendingUp,
       yoursRaw: kargoGelir,
-      categoryAvgRaw: 5.5,   // Temsili
-      top10Raw: 3.2,          // Temsili
+      categoryAvgRaw: 12.0,
+      top10Raw: 7.5,
       lowerIsBetter: true,
       formatValue: (v) => `${v.toFixed(1)}%`,
     },
@@ -197,10 +197,10 @@ export function PeerBenchmarkingSection({ view }: Props) {
     <section aria-labelledby="peer-benchmarking-title">
       <div className="mb-6 flex items-center gap-4">
         <h2 id="peer-benchmarking-title" className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em]">
-          Sektör Kıyaslaması
+          Sector benchmark
         </h2>
         <span className="text-zinc-700 text-[10px] font-mono border border-zinc-800 px-2 py-0.5">
-          Sektör ortalamaları temsilidir
+          Sector averages are representative (US)
         </span>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">

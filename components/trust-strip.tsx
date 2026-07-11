@@ -14,7 +14,7 @@ const stats = [
   {
     value: '4',
     label: 'Marketplaces supported',
-    context: 'Trendyol, Amazon, Hepsiburada, +1',
+    context: 'Trendyol, Hepsiburada, N11, + Shopify',
   },
 ]
 

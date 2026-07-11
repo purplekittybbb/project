@@ -15,7 +15,7 @@ const features = [
   {
     icon: Store,
     title: 'Any marketplace',
-    body: 'Trendyol, Amazon, Hepsiburada, or your own store — one unified view.',
+    body: 'Trendyol, Hepsiburada, N11, Amazon & Shopify — one unified view. US expansion next.',
   },
 ]
 

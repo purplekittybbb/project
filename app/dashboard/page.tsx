@@ -45,7 +45,7 @@ import type { UserRawRow } from "@/lib/adapters/csv";
 import { MyDataPanel } from "@/components/MyDataPanel";
 import {
   getSellers, getSeller, getFinancing, recomputeMargin, getBacktest, getBenchmarkRows, getPortfolioMetrics,
-  registerRuntimeSeller, clearRuntimeSellers, hasRuntimeSeller, getSilentLoserInsight,
+  registerRuntimeSeller, clearRuntimeSellers, hasRuntimeSeller, getSilentLoserInsight, getSellerChannels,
   MARKETPLACE_LABELS, LOW_SAMPLE_HISTORY_MONTHS, type Channel,
 } from "@/lib/engine";
 import { CampaignSimulator } from "@/components/CampaignSimulator";
@@ -60,6 +60,7 @@ import {
 } from "@/lib/marketplaces";
 import { getConnections, removeConnectionByMarketplace } from "@/lib/connect/store";
 import type { MarketplaceConnection } from "@/lib/connect/types";
+import { DEFAULT_CHANNEL, DEFAULT_DASHBOARD_CHANNELS } from "@/lib/product-market";
 import { isAiConfigured } from "@/lib/copilot/ai-configured";
 
 const AI_PRESETS = [
@@ -76,7 +77,7 @@ interface DashboardPageProps {
 
 export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const router = useRouter();
-  const [channel, setChannel] = useState<Channel>("trendyol");
+  const [channel, setChannel] = useState<Channel>(DEFAULT_CHANNEL);
   // dataVersion is bumped whenever the runtime (user) seller registry changes,
   // forcing getSellers/getSeller below to recompute with the latest data.
   const [dataVersion, setDataVersion] = useState(0);
@@ -194,7 +195,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     await saveUserRows(rows);
     await refreshUserData();
     setTenant(USER_TENANT_ID);
-    setChannel("trendyol");
+    setChannel(DEFAULT_CHANNEL);
     setDataBusy(false);
   }
 
@@ -305,6 +306,44 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authConfigured]);
 
+  interface BillingStatusView {
+    stripeConfigured: boolean;
+    plan: { currency: string; amount: number; formattedAfterTrial: string };
+    subscription: {
+      status: string;
+      trialEnd: string | null;
+      hasActiveSubscription: boolean;
+      isDemo?: boolean;
+      updatedAt: string;
+    } | null;
+  }
+  const [billingStatus, setBillingStatus] = useState<BillingStatusView | null>(null);
+  const [billingStatusError, setBillingStatusError] = useState<string | null>(null);
+
+  async function loadBillingStatus() {
+    if (!authConfigured) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) return;
+    try {
+      const res = await fetch("/api/billing/status", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBillingStatusError(result.error ?? "Abonelik bilgisi yüklenemedi.");
+        return;
+      }
+      setBillingStatusError(null);
+      setBillingStatus(result as BillingStatusView);
+    } catch {
+      setBillingStatusError("Abonelik bilgisi yüklenemedi.");
+    }
+  }
+  useEffect(() => { loadBillingStatus(); }, [authConfigured]);
+
   // Settings → "Connected marketplaces" list. Merges two sources of truth so the
   // list is never silently wrong: localStorage connections (this browser's
   // record of what was linked, incl. demo-only links) UNIONed with
@@ -376,7 +415,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // Read from the X-Copilot-Mode response header — never inferred client-side.
   const [aiMode, setAiMode] = useState<"model" | "rule-based" | "model-error" | null>(null);
 
-  const view = getSeller(tenant, channel) ?? getSeller("seller-b", channel)!;
+  // Safety net for the case where `channel` doesn't have this seller's data (e.g.
+  // right after mount, before the channel-sync effect below has run): a real,
+  // signed-in seller ALWAYS falls back to their own combined view — never to a
+  // seed demo seller. Only the no-auth demo path uses the seed fallback.
+  const view =
+    getSeller(tenant, channel) ??
+    (authConfigured ? getSeller(tenant, "combined") : getSeller("seller-b", channel))!;
   const fin = getFinancing(tenant) ?? getFinancing("seller-b")!;
   const currency = view.currency;
   const w = view.waterfall;
@@ -433,14 +478,25 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // supported marketplaces become live data channels; anything else is shown as a
   // demo "ghost" tab (not clickable) so we never call the engine with a channel it
   // can't compute. With no selection (e.g. demo mode) we fall back to all three.
-  const DEFAULT_CHANNELS: Channel[] = ["trendyol", "amazon_us", "hepsiburada"];
-  const dataChannels: Channel[] =
-    connectedIds && connectedIds.length > 0
-      ? (() => {
-          const chans = supportedChannels(connectedIds) as Channel[];
-          return chans.length > 0 ? chans : DEFAULT_CHANNELS;
-        })()
-      : DEFAULT_CHANNELS;
+  const DEFAULT_CHANNELS: Channel[] = [...DEFAULT_DASHBOARD_CHANNELS];
+  // `connectedIds` is a client-only (localStorage) record of what THIS browser
+  // connected — it can be empty/stale on a different device or after the site
+  // data was cleared, even though the user's real data (server-side) covers a
+  // different marketplace. Union it with the marketplaces the signed-in seller
+  // ACTUALLY has transactions for, so a tab always exists for real data.
+  const realSellerChannels: Channel[] = authConfigured ? (getSellerChannels(USER_TENANT_ID) as Channel[]) : [];
+  const dataChannels: Channel[] = (() => {
+    const base =
+      connectedIds && connectedIds.length > 0
+        ? (() => {
+            const chans = supportedChannels(connectedIds) as Channel[];
+            return chans.length > 0 ? chans : DEFAULT_CHANNELS;
+          })()
+        : DEFAULT_CHANNELS;
+    return realSellerChannels.length > 0
+      ? Array.from(new Set([...base, ...realSellerChannels]))
+      : base;
+  })();
   const ghostOptions: MarketplaceOption[] =
     connectedIds && connectedIds.length > 0
       ? connectedIds
@@ -449,14 +505,21 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       : [];
 
   // Keep `channel` valid: if the active channel isn't among the available tabs,
-  // snap to the first data channel.
+  // snap to the first data channel. For a signed-in real user, ALSO make sure the
+  // channel actually has this seller's data — a tab can exist (e.g. the
+  // DEFAULT_CHANNELS fallback) while having zero transactions for this specific
+  // seller, which previously fell through to a seed demo seller's numbers below.
   useEffect(() => {
     if (connectedIds === null) return;
     if (channel !== "combined" && !dataChannels.includes(channel)) {
       setChannel(dataChannels[0]);
+      return;
+    }
+    if (authConfigured && channel !== "combined" && realSellerChannels.length > 0 && !realSellerChannels.includes(channel)) {
+      setChannel(realSellerChannels[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectedIds]);
+  }, [connectedIds, authConfigured, dataVersion]);
 
   async function handleSignOut() {
     const supabase = getSupabaseClient();
@@ -1328,6 +1391,48 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   <p className="text-zinc-600 font-mono text-[12px]">
                     Supabase not configured in this environment — account identity unavailable.
                   </p>
+                )}
+              </div>
+
+              {/* Billing — Stripe subscription row from billing_subscriptions. */}
+              <div className="mt-8 border border-zinc-900 bg-zinc-950/50 p-6">
+                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">Billing &amp; trial</div>
+                {!authConfigured ? (
+                  <p className="text-zinc-600 font-mono text-[12px]">Sign in to view subscription status.</p>
+                ) : billingStatusError ? (
+                  <p className="text-red-400 font-mono text-[12px]">{billingStatusError}</p>
+                ) : !billingStatus ? (
+                  <p className="text-zinc-600 font-mono text-[12px]">Loading…</p>
+                ) : (
+                  <div className="space-y-3 text-sm font-mono">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-zinc-600">Plan after trial</span>
+                      <span className="text-zinc-200 tabular-nums">{billingStatus.plan.formattedAfterTrial}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-zinc-600">Stripe</span>
+                      <span className={billingStatus.stripeConfigured ? "text-emerald-400" : "text-amber-400"}>
+                        {billingStatus.stripeConfigured ? "Configured" : "Not configured (demo card on /connect)"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-zinc-600">Subscription</span>
+                      <span className="text-zinc-200 capitalize tabular-nums">
+                        {billingStatus.subscription?.status ?? "Not started"}
+                        {billingStatus.subscription?.isDemo && (
+                          <span className="text-amber-400/90 normal-case text-[11px] ml-1">(demo — no card)</span>
+                        )}
+                      </span>
+                    </div>
+                    {billingStatus.subscription?.trialEnd && (
+                      <div className="flex justify-between gap-4">
+                        <span className="text-zinc-600">Trial ends</span>
+                        <span className="text-zinc-200 tabular-nums">
+                          {billingStatus.subscription.trialEnd.slice(0, 10)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 

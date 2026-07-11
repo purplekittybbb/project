@@ -52,9 +52,9 @@ export function Hero() {
 
           <Reveal delay={80}>
             <p className="mt-8 max-w-xl text-lg leading-relaxed text-white/70">
-              Marketplace sellers discover their true per-SKU profit —
-              commission, VAT, shipping, returns and ad spend, all deducted —
-              then access capital priced on real margin, not guesswork.
+              US-built for marketplace sellers — launching first in Turkey with Trendyol,
+              Hepsiburada &amp; N11. True per-SKU margin, then capital priced on real
+              contribution profit, not guesswork.
             </p>
           </Reveal>
 

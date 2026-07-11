@@ -72,6 +72,19 @@ export function hasRuntimeSeller(tenantId: string): boolean {
   return RUNTIME_SELLERS.some((s) => s.tenantId === tenantId);
 }
 
+/**
+ * Distinct marketplaces a seller actually has transactions for — the server-side
+ * truth, independent of any client-only "which marketplaces did this browser
+ * connect" state. Used by the dashboard to pick a channel tab that isn't empty,
+ * instead of defaulting to a hardcoded channel that may have zero data for this
+ * particular seller (which would otherwise fall through to the demo fallback).
+ */
+export function getSellerChannels(tenantId: string): Marketplace[] {
+  const s = findSeller(tenantId);
+  if (!s) return [];
+  return Array.from(new Set(s.transactions.map((t) => t.marketplace)));
+}
+
 /** Resolve a seller by id — runtime (user) sellers take precedence over seed. */
 function findSeller(tenantId: string): SeededSeller | undefined {
   return (

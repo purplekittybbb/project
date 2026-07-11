@@ -1,6 +1,7 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { streamText, type ModelMessage } from "ai";
 import { getFinancing, getSeller, type Channel } from "@/lib/engine";
+import { DEFAULT_CHANNEL } from "@/lib/product-market";
 
 /**
  * Analyst Copilot — real multi-turn chat, grounded ONLY in the engine's own output.
@@ -44,7 +45,7 @@ function round1(n: number): number {
 
 /** Rebuild the grounded data snapshot for one seller straight from the engine — never trust client-sent numbers. */
 function buildDataSnapshot(tenantId: string, channel: Channel) {
-  const view = getSeller(tenantId, channel) ?? getSeller(tenantId, "trendyol");
+  const view = getSeller(tenantId, channel) ?? getSeller(tenantId, DEFAULT_CHANNEL) ?? getSeller(tenantId, "combined");
   if (!view) return null;
   const fin = getFinancing(tenantId);
   const d = view.decision;
@@ -193,7 +194,7 @@ export async function POST(req: Request) {
   }
 
   const tenantId = body.tenantId ?? "seller-b";
-  const channel: Channel = body.channel ?? "trendyol";
+  const channel: Channel = body.channel ?? DEFAULT_CHANNEL;
   const history = Array.isArray(body.messages) ? body.messages : [];
   const lastUserMessage = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
 

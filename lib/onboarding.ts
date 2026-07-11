@@ -3,7 +3,8 @@
  *
  * This is intentionally lightweight and NON-financial: it tracks whether a user
  * has walked the post-login onboarding flow and when their 30-day trial started.
- * No payment is taken anywhere (Stripe is not wired) — the card step is a demo.
+ * Card capture uses Stripe when STRIPE_SECRET_KEY is configured; otherwise the
+ * card step stays a local demo (no charge, no persistence).
  *
  * SSR-safe: every accessor guards `typeof window` so it can be imported anywhere.
  */

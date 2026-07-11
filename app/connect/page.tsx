@@ -11,7 +11,7 @@
  *
  * Step 1: Plaid/Rutter-style marketplace connect (OAuth demo modal per channel)
  * Step 2: Free trial plan
- * Step 3: Card demo (no charge)
+ * Step 3: Card — Stripe Payment Element when configured, else demo (no charge)
  * → /dashboard
  */
 
@@ -26,6 +26,9 @@ import {
   completeOnboarding, isOnboardingDone, setConnectedMarketplaces,
   getConnectedMarketplaces, TRIAL_DAYS,
 } from "@/lib/onboarding";
+import { isStripeLiveEnabled } from "@/lib/billing/is-stripe-live-enabled";
+import { StripePaymentForm } from "@/components/StripePaymentForm";
+import { launchPlanDisplay } from "@/lib/product-market";
 
 /**
  * Silently re-syncs every marketplace this signed-in user has stored (but
@@ -76,7 +79,6 @@ function LockIcon({ size = 12 }: { size?: number }) {
 }
 
 type Step = "connect" | "plan" | "card";
-const PLAN_PRICE = 2400;
 
 function StepRail({ step }: { step: Step }) {
   const order: Step[] = ["connect", "plan", "card"];
@@ -109,6 +111,19 @@ function ConnectFlow() {
   const [cardNo, setCardNo] = useState("");
   const [exp, setExp] = useState("");
   const [cvc, setCvc] = useState("");
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [cardBusy, setCardBusy] = useState(false);
+  const [cardError, setCardError] = useState("");
+  const stripeLive = isStripeLiveEnabled();
+
+  useEffect(() => {
+    if (!isAuthConfigured()) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      setAccessToken(data.session?.access_token ?? null);
+    });
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -169,9 +184,32 @@ function ConnectFlow() {
     setStep("plan");
   }
 
-  function finish() {
+  async function finish() {
     const ids = getConnections().map((c) => c.marketplaceId);
     setConnectedMarketplaces(ids);
+
+    if (isAuthConfigured() && accessToken && !stripeLive) {
+      setCardBusy(true);
+      setCardError("");
+      try {
+        const res = await fetch("/api/billing/start-demo-trial", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok || !result.success) {
+          setCardError(result.error ?? "Deneme kaydı oluşturulamadı.");
+          setCardBusy(false);
+          return;
+        }
+      } catch {
+        setCardError("Sunucuya bağlanılamadı.");
+        setCardBusy(false);
+        return;
+      }
+      setCardBusy(false);
+    }
+
     completeOnboarding(ids[0]);
     router.push("/dashboard");
   }
@@ -191,6 +229,8 @@ function ConnectFlow() {
       </div>
     );
   }
+
+  const plan = launchPlanDisplay();
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-200 font-sans flex flex-col items-center px-4 py-14">
@@ -221,8 +261,8 @@ function ConnectFlow() {
                   <div className="text-zinc-600 text-[11px]">Full engine · all marketplaces</div>
                 </div>
                 <div className="text-right">
-                  <div className="font-mono text-zinc-100 text-lg tabular-nums">₺0<span className="text-zinc-500 text-sm">/mo</span></div>
-                  <div className="text-zinc-600 text-[11px] font-mono tabular-nums">then ₺{PLAN_PRICE.toLocaleString("tr-TR")}/mo</div>
+                  <div className="font-mono text-zinc-100 text-lg tabular-nums">{plan.symbol}0<span className="text-zinc-500 text-sm">/mo</span></div>
+                  <div className="text-zinc-600 text-[11px] font-mono tabular-nums">then {plan.formattedAfterTrial}</div>
                 </div>
               </div>
               <ul className="space-y-2 border-t border-zinc-800 pt-4">
@@ -248,30 +288,44 @@ function ConnectFlow() {
             <p className="text-sm text-zinc-500 mb-6 leading-relaxed">
               Required to start the trial. <span className="text-zinc-300">No charge today — your first month is free.</span>
             </p>
+            {!stripeLive && (
+              <p className="mb-4 text-[11px] font-mono text-amber-400/90 border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                Demo card form — Stripe not configured (no real charge or saved payment method).
+              </p>
+            )}
             <div className="border border-zinc-800 bg-zinc-900/30 p-5">
               <div className="flex items-center gap-1.5 text-zinc-500 text-[11px] mb-4 pb-3 border-b border-zinc-800">
                 <LockIcon /><span>No charge today. First month free.</span>
               </div>
-              <form onSubmit={(e) => { e.preventDefault(); finish(); }} className="space-y-4">
-                <div>
-                  <label htmlFor="cardno" className="block text-[12px] font-medium text-zinc-400 mb-1.5">Card number</label>
-                  <input id="cardno" inputMode="numeric" autoComplete="off" value={cardNo} onChange={(e) => onCardNo(e.target.value)} placeholder="4242 4242 4242 4242" className="ob-input w-full border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-700 font-mono tabular-nums" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+              {isAuthConfigured() && stripeLive && accessToken ? (
+                <StripePaymentForm accessToken={accessToken} onSuccess={finish} />
+              ) : (
+                <form onSubmit={(e) => { e.preventDefault(); void finish(); }} className="space-y-4">
                   <div>
-                    <label htmlFor="exp" className="block text-[12px] font-medium text-zinc-400 mb-1.5">Expiry</label>
-                    <input id="exp" inputMode="numeric" autoComplete="off" value={exp} onChange={(e) => onExp(e.target.value)} placeholder="MM/YY" className="ob-input w-full border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm font-mono tabular-nums" />
+                    <label htmlFor="cardno" className="block text-[12px] font-medium text-zinc-400 mb-1.5">Card number</label>
+                    <input id="cardno" inputMode="numeric" autoComplete="off" value={cardNo} onChange={(e) => onCardNo(e.target.value)} placeholder="4242 4242 4242 4242" className="ob-input w-full border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-700 font-mono tabular-nums" />
                   </div>
-                  <div>
-                    <label htmlFor="cvc" className="block text-[12px] font-medium text-zinc-400 mb-1.5">CVC</label>
-                    <input id="cvc" inputMode="numeric" autoComplete="off" value={cvc} onChange={(e) => setCvc(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="123" className="ob-input w-full border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm font-mono tabular-nums" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="exp" className="block text-[12px] font-medium text-zinc-400 mb-1.5">Expiry</label>
+                      <input id="exp" inputMode="numeric" autoComplete="off" value={exp} onChange={(e) => onExp(e.target.value)} placeholder="MM/YY" className="ob-input w-full border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm font-mono tabular-nums" />
+                    </div>
+                    <div>
+                      <label htmlFor="cvc" className="block text-[12px] font-medium text-zinc-400 mb-1.5">CVC</label>
+                      <input id="cvc" inputMode="numeric" autoComplete="off" value={cvc} onChange={(e) => setCvc(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="123" className="ob-input w-full border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm font-mono tabular-nums" />
+                    </div>
                   </div>
-                </div>
-                <button type="submit" className="ob-input w-full h-11 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors">Start free month</button>
-                <div className="flex items-center justify-center gap-1.5 text-zinc-500 text-[11px]">
-                  <LockIcon /><span>Encrypted &amp; secure · demo — no real payment</span>
-                </div>
-              </form>
+                  <button type="submit" disabled={cardBusy} className="ob-input w-full h-11 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 disabled:opacity-50 transition-colors">
+                    {cardBusy ? "Starting trial…" : "Start free month"}
+                  </button>
+                  {cardError && (
+                    <p className="text-red-400 text-[11px] font-mono">{cardError}</p>
+                  )}
+                  <div className="flex items-center justify-center gap-1.5 text-zinc-500 text-[11px]">
+                    <LockIcon /><span>Encrypted &amp; secure · demo — no real payment</span>
+                  </div>
+                </form>
+              )}
             </div>
             <button type="button" onClick={() => setStep("plan")} className="mt-4 text-[11px] font-mono text-zinc-600 hover:text-zinc-400 uppercase tracking-widest">← Back</button>
           </section>

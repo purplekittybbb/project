@@ -8,14 +8,13 @@
  * compute today.
  *
  * `engineChannel` is set ONLY when a real adapter + data path exists (Trendyol,
- * Amazon US, Hepsiburada, N11, Shopify). Everything else is demo-mode: selectable
- * and shown as a connected source, but with no live engine channel yet (so we
- * never call the engine with an unsupported channel and break it) — the dashboard
- * renders these as "coming soon" ghost tabs automatically.
+ * Amazon US, Hepsiburada, N11, Shopify). Platforms without a backend use
+ * `coming_soon` so the connect UI never fakes OAuth/API flows.
  */
 
 import type { ConnectionMethod, CredentialField } from "./connect/types";
 import type { Marketplace } from "./engine";
+import { CONNECT_REGION_ORDER } from "./product-market";
 
 export type MarketplaceRegion = "tr" | "own_store" | "us" | "other" | "individual";
 
@@ -36,7 +35,26 @@ export interface MarketplaceOption {
 }
 
 export const MARKETPLACE_OPTIONS: MarketplaceOption[] = [
-  // ── Turkish marketplaces — seller self-service API keys ──
+  // ── US marketplaces (primary) ──
+  {
+    id: "amazon_us", label: "Amazon (US)", region: "us", description: "SP-API — requires Amazon approval",
+    currency: "USD", engineChannel: "amazon_us", connectionMethod: "coming_soon",
+  },
+  { id: "walmart", label: "Walmart Marketplace", region: "us", description: "Integration in development", currency: "USD", connectionMethod: "coming_soon" },
+  { id: "ebay", label: "eBay", region: "us", description: "Integration in development", currency: "USD", connectionMethod: "coming_soon" },
+  { id: "etsy", label: "Etsy", region: "us", description: "Integration in development", currency: "USD", connectionMethod: "coming_soon" },
+
+  // ── Your store / website ──
+  {
+    id: "shopify", label: "Shopify", region: "own_store", description: "Your own storefront",
+    currency: "USD", engineChannel: "shopify", connectionMethod: "oauth",
+  },
+  {
+    id: "woocommerce", label: "WooCommerce", region: "own_store", description: "Integration in development",
+    currency: "USD", connectionMethod: "coming_soon",
+  },
+
+  // ── Turkish marketplaces (secondary) ──
   {
     id: "trendyol", label: "Trendyol (TR)", region: "tr", description: "Auto-sync settlement data",
     currency: "TRY", engineChannel: "trendyol", connectionMethod: "api_key",
@@ -67,78 +85,28 @@ export const MARKETPLACE_OPTIONS: MarketplaceOption[] = [
     credentialHelp: "so.n11.com/selleroffice/integration/apiAccounts → Yeni Hesap Oluştur'dan alın.",
   },
   {
-    id: "pazarama", label: "Pazarama", region: "tr", description: "Auto-sync settlement data",
-    currency: "TRY", connectionMethod: "api_key",
-    credentialFields: [
-      { key: "apiKey", label: "API Key", secret: true },
-      { key: "apiSecret", label: "API Secret", secret: true },
-    ],
-    credentialHelp: "Pazarama Satıcı Paneli → Entegrasyon Ayarları'ndan alın.",
+    id: "pazarama", label: "Pazarama", region: "tr", description: "Integration in development",
+    currency: "TRY", connectionMethod: "coming_soon",
   },
   {
-    id: "ciceksepeti", label: "Çiçeksepeti", region: "tr", description: "Auto-sync settlement data",
-    currency: "TRY", connectionMethod: "api_key",
-    credentialFields: [
-      { key: "sellerId", label: "Seller ID", placeholder: "cicek-seller-id" },
-      { key: "apiKey", label: "API Key", secret: true },
-    ],
-    credentialHelp: "Çiçeksepeti Satıcı Paneli → Entegrasyon'dan alın.",
+    id: "ciceksepeti", label: "Çiçeksepeti", region: "tr", description: "Integration in development",
+    currency: "TRY", connectionMethod: "coming_soon",
   },
   {
-    id: "pttavm", label: "PttAVM", region: "tr", description: "Auto-sync settlement data",
-    currency: "TRY", connectionMethod: "api_key",
-    credentialFields: [
-      { key: "sellerId", label: "Seller ID", placeholder: "pttavm-seller-id" },
-      { key: "apiKey", label: "API Key", secret: true },
-    ],
-    credentialHelp: "PttAVM Satıcı Paneli → API Ayarları'ndan alın.",
-  },
-
-  // ── Your store / website ──
-  {
-    id: "shopify", label: "Shopify", region: "own_store", description: "Your own storefront",
-    currency: "USD", engineChannel: "shopify", connectionMethod: "oauth",
+    id: "pttavm", label: "PttAVM", region: "tr", description: "Integration in development",
+    currency: "TRY", connectionMethod: "coming_soon",
   },
   {
-    id: "woocommerce", label: "WooCommerce", region: "own_store", description: "Your WordPress store",
-    currency: "USD", connectionMethod: "api_key",
-    credentialFields: [
-      { key: "storeUrl", label: "Store URL", placeholder: "https://yourstore.com" },
-      { key: "consumerKey", label: "Consumer Key", secret: true },
-      { key: "consumerSecret", label: "Consumer Secret", secret: true },
-    ],
-    credentialHelp: "WordPress Yönetici Paneli → WooCommerce → Ayarlar → Gelişmiş → REST API'den anahtar oluşturun.",
+    id: "ikas", label: "ikas", region: "tr", description: "Integration in development",
+    currency: "TRY", connectionMethod: "coming_soon",
   },
   {
-    id: "ikas", label: "ikas", region: "own_store", description: "Your ikas storefront",
-    currency: "TRY", connectionMethod: "api_key",
-    credentialFields: [
-      { key: "apiKey", label: "API Key", secret: true },
-      { key: "apiSecret", label: "API Secret", secret: true },
-    ],
-    credentialHelp: "ikas Panel → Entegrasyonlar → API Anahtarları'ndan alın.",
+    id: "ticimax", label: "Ticimax", region: "tr", description: "Integration in development",
+    currency: "TRY", connectionMethod: "coming_soon",
   },
-  {
-    id: "ticimax", label: "Ticimax", region: "own_store", description: "Your Ticimax storefront",
-    currency: "TRY", connectionMethod: "api_key",
-    credentialFields: [
-      { key: "storeCode", label: "Store Code", placeholder: "ticimax-store-code" },
-      { key: "apiKey", label: "API Key", secret: true },
-    ],
-    credentialHelp: "Ticimax Yönetim Paneli → Ayarlar → API Erişim Bilgileri'nden alın.",
-  },
-
-  // ── Global ──
-  {
-    id: "amazon_us", label: "Amazon (US)", region: "us", description: "SP-API — requires Amazon approval",
-    currency: "USD", engineChannel: "amazon_us", connectionMethod: "coming_soon",
-  },
-  { id: "walmart", label: "Walmart Marketplace", region: "us", description: "Auto-sync settlement data", currency: "USD", connectionMethod: "oauth" },
-  { id: "ebay",    label: "eBay",                region: "us", description: "Auto-sync settlement data", currency: "USD", connectionMethod: "oauth" },
-  { id: "etsy",    label: "Etsy",                region: "us", description: "Auto-sync settlement data", currency: "USD", connectionMethod: "oauth" },
 
   // ── Other regions ──
-  { id: "noon", label: "Noon (MENA)", region: "other", description: "Auto-sync settlement data", currency: "AED", connectionMethod: "oauth" },
+  { id: "noon", label: "Noon (MENA)", region: "other", description: "Integration in development", currency: "AED", connectionMethod: "coming_soon" },
 
   // ── Individual / manual ──
   {
@@ -151,19 +119,19 @@ export const MARKETPLACE_OPTIONS: MarketplaceOption[] = [
   },
   {
     id: "own_site", label: "Other website / platform", region: "individual",
-    description: "Any other platform — connect manually for now", currency: "—", connectionMethod: "oauth",
+    description: "Integration in development — use CSV or manual entry for now", currency: "—", connectionMethod: "coming_soon",
   },
 ];
 
 export const REGION_LABELS: Record<MarketplaceRegion, string> = {
-  tr: "Turkish marketplaces",
+  us: "US marketplaces",
   own_store: "Your store / website",
-  us: "US & Global",
+  tr: "Turkish marketplaces",
   other: "Other regions",
   individual: "Individual / manual",
 };
 
-export const REGION_ORDER: MarketplaceRegion[] = ["tr", "own_store", "us", "other", "individual"];
+export const REGION_ORDER: MarketplaceRegion[] = [...CONNECT_REGION_ORDER];
 
 export function getMarketplaceOption(id: string): MarketplaceOption | undefined {
   return MARKETPLACE_OPTIONS.find((m) => m.id === id);
