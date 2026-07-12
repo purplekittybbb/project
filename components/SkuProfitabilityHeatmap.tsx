@@ -10,9 +10,15 @@
 
 import { useMemo, useState } from "react";
 import {
-  AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Package, TrendingDown, TrendingUp,
+  AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Package, TrendingDown, TrendingUp, X,
 } from "lucide-react";
-import type { SkuMargin } from "@/lib/engine";
+import {
+  getSkuBreakEven,
+  getSkuFinancingEstimate,
+  simulateSkuAdSpend,
+  type Channel,
+  type SkuMargin,
+} from "@/lib/engine";
 
 // ─── Bucket logic ─────────────────────────────────────────────────────────────
 
@@ -80,6 +86,202 @@ const BUCKET_ORDER: Record<BucketKey, number> = {
 };
 
 const pct = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
+
+function money(v: number, currency: string) {
+  const sym = currency === "USD" ? "$" : "₺";
+  return `${sym}${Math.abs(v).toLocaleString("tr-TR", { maximumFractionDigits: 0 })}`;
+}
+
+/** Every panel below computes ONE real number from an existing engine
+ *  function (getSkuFinancingEstimate / simulateSkuAdSpend / getSkuBreakEven) —
+ *  scoped to this one SKU's own transactions. None of them submit anything;
+ *  the disclaimer at the bottom of each panel says so explicitly. */
+function SimNote() {
+  return (
+    <p className="mt-3 text-[10px] text-slate-400">
+      Bu bir simülasyon/öneridir — otomatik bir işlem yapılmaz.
+    </p>
+  );
+}
+
+function PanelShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-600">{title}</h4>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Kapat"
+          className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function FundInventoryPanel({
+  row, tenantId, channel, onClose, onGoToFinancing,
+}: {
+  row: SkuMargin; tenantId: string; channel: Channel; onClose: () => void; onGoToFinancing?: () => void;
+}) {
+  const estimate = useMemo(() => getSkuFinancingEstimate(tenantId, channel, row.sku), [tenantId, channel, row.sku]);
+  return (
+    <PanelShell title={`Fund Inventory · ${row.sku}`} onClose={onClose}>
+      {!estimate ? (
+        <p className="text-xs text-slate-500">Bu SKU için finansman tahmini hesaplanamadı.</p>
+      ) : (
+        <>
+          <p className="text-xs text-slate-600">
+            Bu SKU'nun aylık katkı payı ({money(estimate.monthlyContribution, estimate.currency)}) tek başına
+            underwriting motorundan geçirildiğinde:
+          </p>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="font-mono text-2xl font-bold tabular-nums text-slate-900">
+              {money(estimate.approvedLimit, estimate.currency)}
+            </span>
+            <span className="text-[11px] text-slate-500">bu ürüne özel ek stok finansmanı tahmini</span>
+          </div>
+          {onGoToFinancing && (
+            <button
+              type="button"
+              onClick={onGoToFinancing}
+              className="mt-4 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+            >
+              Financing sekmesine git
+            </button>
+          )}
+          <SimNote />
+        </>
+      )}
+    </PanelShell>
+  );
+}
+
+function ScaleAdsPanel({
+  row, tenantId, channel, onClose,
+}: {
+  row: SkuMargin; tenantId: string; channel: Channel; onClose: () => void;
+}) {
+  const [boostPct, setBoostPct] = useState(50);
+  const base = useMemo(() => simulateSkuAdSpend(tenantId, channel, row.sku, 0), [tenantId, channel, row.sku]);
+  const scenario = useMemo(() => {
+    const currentAd = base?.currentAdSpend ?? 0;
+    const target = currentAd > 0 ? currentAd * (1 + boostPct / 100) : boostPct;
+    return simulateSkuAdSpend(tenantId, channel, row.sku, target);
+  }, [tenantId, channel, row.sku, boostPct, base]);
+
+  return (
+    <PanelShell title={`Scale Ads · ${row.sku}`} onClose={onClose}>
+      {!scenario ? (
+        <p className="text-xs text-slate-500">Bu SKU için reklam senaryosu hesaplanamadı.</p>
+      ) : (
+        <>
+          <div className="flex items-baseline justify-between">
+            <span className="text-[11px] uppercase tracking-wider text-slate-500">Ek reklam bütçesi</span>
+            <span className="font-mono text-sm font-semibold tabular-nums text-slate-900">+{boostPct}%</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={200}
+            step={10}
+            value={boostPct}
+            onChange={(e) => setBoostPct(Number(e.target.value))}
+            className="mt-2 w-full h-1 cursor-pointer appearance-none bg-slate-200 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-slate-700"
+          />
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-3">
+              <div className="text-[10px] uppercase tracking-wider text-slate-400">Şimdi</div>
+              <div className="mt-1 font-mono text-sm font-semibold tabular-nums text-slate-700">
+                {pct(scenario.currentMarginPct)}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-3">
+              <div className="text-[10px] uppercase tracking-wider text-slate-400">Ek reklamla</div>
+              <div
+                className={`mt-1 font-mono text-sm font-semibold tabular-nums ${
+                  scenario.projectedMarginPct >= scenario.currentMarginPct ? "text-emerald-600" : "text-red-600"
+                }`}
+              >
+                {pct(scenario.projectedMarginPct)}
+              </div>
+            </div>
+          </div>
+          <SimNote />
+        </>
+      )}
+    </PanelShell>
+  );
+}
+
+function AdjustPricePanel({
+  row, tenantId, channel, onClose,
+}: {
+  row: SkuMargin; tenantId: string; channel: Channel; onClose: () => void;
+}) {
+  const breakEven = useMemo(() => getSkuBreakEven(tenantId, channel, row.sku), [tenantId, channel, row.sku]);
+  return (
+    <PanelShell title={`Adjust Price · ${row.sku}`} onClose={onClose}>
+      {!breakEven ? (
+        <p className="text-xs text-slate-500">Bu SKU için başabaş fiyatı hesaplanamadı.</p>
+      ) : (
+        <>
+          <div className="flex items-baseline justify-between">
+            <span className="text-[11px] uppercase tracking-wider text-slate-500">Ortalama satış fiyatı</span>
+            <span className="font-mono text-sm tabular-nums text-slate-600">
+              {money(breakEven.avgSellingPrice, breakEven.currency)}
+            </span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="font-mono text-2xl font-bold tabular-nums text-slate-900">
+              {money(breakEven.breakEvenPrice, breakEven.currency)}
+            </span>
+            <span className="text-[11px] text-slate-500">bu ürünü kârlı yapmak için minimum fiyat</span>
+          </div>
+          <SimNote />
+        </>
+      )}
+    </PanelShell>
+  );
+}
+
+function StopAdsPanel({
+  row, tenantId, channel, onClose,
+}: {
+  row: SkuMargin; tenantId: string; channel: Channel; onClose: () => void;
+}) {
+  const scenario = useMemo(() => simulateSkuAdSpend(tenantId, channel, row.sku, 0), [tenantId, channel, row.sku]);
+  return (
+    <PanelShell title={`Stop Ads · ${row.sku}`} onClose={onClose}>
+      {!scenario ? (
+        <p className="text-xs text-slate-500">Bu SKU için reklam senaryosu hesaplanamadı.</p>
+      ) : (
+        <>
+          <p className="text-xs text-slate-600">
+            Şu an bu SKU'ya ayrılan reklam harcaması {money(scenario.currentAdSpend, scenario.currency)}. Reklamı
+            tamamen durdursan:
+          </p>
+          <div className="mt-3 flex items-center gap-3">
+            <span className="font-mono text-sm tabular-nums text-slate-500">{pct(scenario.currentMarginPct)}</span>
+            <span className="text-slate-400">→</span>
+            <span
+              className={`font-mono text-2xl font-bold tabular-nums ${
+                scenario.projectedMarginPct >= scenario.currentMarginPct ? "text-emerald-600" : "text-red-600"
+              }`}
+            >
+              {pct(scenario.projectedMarginPct)}
+            </span>
+          </div>
+          <SimNote />
+        </>
+      )}
+    </PanelShell>
+  );
+}
 
 // ─── Sort header ──────────────────────────────────────────────────────────────
 
@@ -177,11 +379,17 @@ function MarginTooltip({ row }: { row: SkuMargin }) {
 
 interface Props {
   skus: SkuMargin[];
+  tenantId: string;
+  channel: Channel;
+  /** Products tab has no navigation of its own — Fund Inventory's "go to
+   *  Financing" needs the parent dashboard's tab switcher. */
+  onGoToFinancing?: () => void;
 }
 
-export function SkuProfitabilityHeatmap({ skus }: Props) {
+export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinancing }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("trueMarginPct");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [expandedSku, setExpandedSku] = useState<string | null>(null);
 
   const sorted = useMemo(() => {
     const arr = [...skus];
@@ -350,6 +558,8 @@ export function SkuProfitabilityHeatmap({ skus }: Props) {
                   <td className="border-b border-slate-100 px-6 py-3 text-right">
                     <button
                       type="button"
+                      onClick={() => setExpandedSku((cur) => (cur === row.sku ? null : row.sku))}
+                      aria-expanded={expandedSku === row.sku}
                       className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${bucket.actionClass}`}
                     >
                       {row.trueMarginPct < 0 && <AlertCircle size={12} className="mr-1.5" />}
@@ -359,6 +569,30 @@ export function SkuProfitabilityHeatmap({ skus }: Props) {
                 </tr>
               );
             })}
+            {expandedSku && (() => {
+              const row = sorted.find((r) => r.sku === expandedSku);
+              if (!row) return null;
+              const bucket = marginBucket(row.trueMarginPct);
+              const close = () => setExpandedSku(null);
+              return (
+                <tr key={`${expandedSku}-panel`}>
+                  <td colSpan={8} className="border-b border-slate-100 bg-slate-100/60 px-6 py-5">
+                    {bucket.key === "cash-cow" && (
+                      <FundInventoryPanel row={row} tenantId={tenantId} channel={channel} onClose={close} onGoToFinancing={onGoToFinancing} />
+                    )}
+                    {bucket.key === "profitable" && (
+                      <ScaleAdsPanel row={row} tenantId={tenantId} channel={channel} onClose={close} />
+                    )}
+                    {bucket.key === "bleeding" && (
+                      <AdjustPricePanel row={row} tenantId={tenantId} channel={channel} onClose={close} />
+                    )}
+                    {bucket.key === "silent-loser" && (
+                      <StopAdsPanel row={row} tenantId={tenantId} channel={channel} onClose={close} />
+                    )}
+                  </td>
+                </tr>
+              );
+            })()}
           </tbody>
         </table>
       </div>

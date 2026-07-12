@@ -30,7 +30,7 @@
  *  - Analyst Copilot → its own sidebar tab, streaming from /api/chat (grounded in lib/engine)
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown, Sparkles, ArrowUpRight,
@@ -53,12 +53,12 @@ import { CashFlowPanel } from "@/components/CashFlowPanel";
 import { SkuProfitabilityHeatmap } from "@/components/SkuProfitabilityHeatmap";
 import { PeerBenchmarkingSection } from "@/components/PeerBenchmarkingSection";
 import { AuthGuard } from "@/components/auth-guard";
-import { getTrialDaysLeft, getConnectedMarketplaces } from "@/lib/onboarding";
+import { getTrialDaysLeft, getConnectedMarketplaces, resetOnboarding } from "@/lib/onboarding";
 import {
   supportedChannels, getMarketplaceOption,
   type MarketplaceOption,
 } from "@/lib/marketplaces";
-import { getConnections, removeConnectionByMarketplace } from "@/lib/connect/store";
+import { getConnections, removeConnectionByMarketplace, clearAllConnections } from "@/lib/connect/store";
 import type { MarketplaceConnection } from "@/lib/connect/types";
 import { DEFAULT_CHANNEL, DEFAULT_DASHBOARD_CHANNELS } from "@/lib/product-market";
 import { isAiConfigured } from "@/lib/copilot/ai-configured";
@@ -68,6 +68,11 @@ const AI_PRESETS = [
   "Why this take-rate?",
   "What's the backtest vs incumbent?",
 ];
+
+// Mirrors app/api/chat/route.ts's X-Copilot-Mode values — which path produced
+// an answer, so the badge always names the actual provider (never "Claude"
+// for a Gemini-generated reply, or vice versa).
+type CopilotMode = "model-claude" | "model-gemini" | "rule-based" | "model-error";
 
 interface DashboardPageProps {
   /** Unauthenticated seed-data preview (route: /demo). Never touches Supabase,
@@ -90,7 +95,16 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const authConfigured = !demoMode && isAuthConfigured();
   // A real signed-in account only ever sees its own tenant in the switcher —
   // never the seed Seller A/B/C portfolio. Demo mode shows the full seed set.
-  const sellers = authConfigured ? getSellers(channel).filter((s) => s.tenantId === USER_TENANT_ID) : getSellers(channel);
+  //
+  // Same fallback the main `view` below applies: a signed-in user with no
+  // transactions on the currently-selected channel (e.g. they clicked a
+  // marketplace tab they haven't connected) would otherwise make `sellers`
+  // come back empty and disappear from the seller switcher / Sellers tab —
+  // fall back to their combined view instead of vanishing.
+  const sellersChannel: Channel = authConfigured && !getSeller(USER_TENANT_ID, channel) ? "combined" : channel;
+  const sellers = authConfigured
+    ? getSellers(sellersChannel).filter((s) => s.tenantId === USER_TENANT_ID)
+    : getSellers(channel);
   const [tenant, setTenant] = useState(authConfigured ? USER_TENANT_ID : "seller-b");
   const [initialDataLoadDone, setInitialDataLoadDone] = useState(!authConfigured);
 
@@ -189,6 +203,11 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   useEffect(() => {
     if (needsOnboarding) router.replace("/connect");
   }, [needsOnboarding, router]);
+
+  // The initial-load effect above hasn't resolved yet — `view` above is
+  // temporarily the seed fallback. Never show that to a real signed-in user;
+  // wait for their own data (or the onboarding redirect) instead.
+  const isLoadingInitialData = authConfigured && !initialDataLoadDone;
 
   async function handleUserUpload(rows: UserRawRow[]) {
     setDataBusy(true);
@@ -407,37 +426,93 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   }
 
   const [aiInput, setAiInput] = useState("");
-  const [askedQ, setAskedQ] = useState<string | null>(null);
-  const [aiAnswer, setAiAnswer] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
-  // "model" = real Claude response; "rule-based" = ANTHROPIC_API_KEY not configured;
-  // "model-error" = key configured but the model call failed, deterministic fallback used.
-  // Read from the X-Copilot-Mode response header — never inferred client-side.
-  const [aiMode, setAiMode] = useState<"model" | "rule-based" | "model-error" | null>(null);
+  // Full thread, not just the latest Q/A — lets the server resolve a
+  // follow-up like "onun iade oranı ne?" against whatever the previous
+  // answer was about, and lets the panel show past turns after a reload.
+  // "system-note" entries are local-only markers (e.g. "grounding changed");
+  // they're never sent to the server and never persisted.
+  const [copilotMessages, setCopilotMessages] = useState<
+    { role: "user" | "assistant" | "system-note"; content: string; mode?: CopilotMode }[]
+  >([]);
+  const [copilotHistoryLoaded, setCopilotHistoryLoaded] = useState(false);
+
+  // Real signed-in users: load their persisted conversation once so it
+  // survives a reload or a sign-in on another device. Demo/no-auth mode has
+  // no server-side identity to scope a conversation_history table to, so it
+  // just starts fresh every time (session-only, in React state).
+  useEffect(() => {
+    if (!authConfigured) {
+      setCopilotHistoryLoaded(true);
+      return;
+    }
+    let active = true;
+    (async () => {
+      const loaded = await withAccessToken(async (token) => {
+        const res = await fetch("/api/copilot/history", { headers: { Authorization: `Bearer ${token}` } });
+        const result = await res.json().catch(() => ({}));
+        return Array.isArray(result.messages) ? result.messages : [];
+      });
+      if (!active) return;
+      if (loaded) {
+        setCopilotMessages(
+          loaded.map((m: { role: "user" | "assistant"; content: string; mode: CopilotMode | null }) => ({
+            role: m.role,
+            content: m.content,
+            mode: m.mode,
+          }))
+        );
+      }
+      setCopilotHistoryLoaded(true);
+    })();
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authConfigured]);
 
   // Safety net for the case where `channel` doesn't have this seller's data (e.g.
   // right after mount, before the channel-sync effect below has run): a real,
   // signed-in seller ALWAYS falls back to their own combined view — never to a
   // seed demo seller. Only the no-auth demo path uses the seed fallback.
+  //
+  // A real signed-in seller can ALSO have zero runtime data on the very first
+  // render — the initial-load effect above is still in flight (async Supabase
+  // fetch), so `getSeller(tenant, ...)` is undefined for a beat. Without this
+  // final seed fallback that render crashes (`view` undefined) for every real
+  // user, every time, before their data has had a chance to load. The
+  // `isLoadingInitialData` gate below keeps that seed data off-screen — this
+  // fallback exists purely so the render doesn't throw before the gate runs.
   const view =
     getSeller(tenant, channel) ??
-    (authConfigured ? getSeller(tenant, "combined") : getSeller("seller-b", channel))!;
+    (authConfigured ? getSeller(tenant, "combined") : undefined) ??
+    getSeller("seller-b", channel)!;
   const fin = getFinancing(tenant) ?? getFinancing("seller-b")!;
   const currency = view.currency;
   const w = view.waterfall;
   const grossRev = w.grossRevenue;
   // Highest-impact "drop this SKU" insight, shown as a single card under the SKU table.
-  const silentLoserInsight = getSilentLoserInsight(view.tenantId, channel);
+  //
+  // Everything below re-derives numbers straight from `tenant`/`channel`, which
+  // is WRONG whenever `view` above fell back (e.g. the user clicked a
+  // marketplace tab they have no data in, or a channel with no data still
+  // showing while demo-tenant fallback applies): `tenant`/`channel` point at
+  // the empty combination, while `view` already resolved to the real one
+  // (`view.tenantId`/`view.channel`). Using the raw values here reintroduces
+  // exactly the mismatch `view`'s fallback exists to avoid — e.g. clicking an
+  // unconnected marketplace tab showed a nonsensical "0% margin" hero number
+  // while the fee waterfall and SKU table underneath (driven by `view`) kept
+  // showing the real combined data. Always derive from `view.tenantId`/
+  // `view.channel`, never the raw state.
+  const silentLoserInsight = getSilentLoserInsight(view.tenantId, view.channel);
 
   // Ad spend is interactive; reset to the seller's real base whenever the seller or channel changes.
   const [adSpendVal, setAdSpendVal] = useState(w.adSpendAllocated);
   useEffect(() => {
-    const base = getSeller(tenant, channel)?.waterfall.adSpendAllocated ?? 0;
-    setAdSpendVal(base);
-  }, [tenant, channel]);
+    setAdSpendVal(w.adSpendAllocated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.tenantId, view.channel]);
 
   // Live recompute through aggregateTrueMargin as the slider moves.
-  const live = recomputeMargin(tenant, adSpendVal, channel);
+  const live = recomputeMargin(view.tenantId, adSpendVal, view.channel);
   const marginPercent = live.marginPct;
   const netContribution = live.netContribution;
 
@@ -524,50 +599,96 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   async function handleSignOut() {
     const supabase = getSupabaseClient();
     if (supabase) await supabase.auth.signOut();
+    // Sign-out only ever ended the Supabase session — every client-only cache
+    // (onboarding/trial-start/"connected marketplaces" in localStorage, and
+    // this tab's in-memory RUNTIME_SELLERS) survived it untouched. On a
+    // shared/reused browser, the NEXT person to sign in inherited the
+    // previous account's "connected marketplaces" list and trial countdown
+    // (confirmed live: a fresh signup showed a prior test account's demo
+    // Trendyol connection as already "Connected ✓"). None of this ever
+    // exposed the previous user's real financial data — that's RLS/
+    // auth.uid()-scoped server-side — but it's stale, misleading client
+    // state that belongs to nobody currently signed in, so it must go now.
+    clearRuntimeSellers();
+    resetOnboarding();
+    clearAllConnections();
     router.replace("/login");
   }
 
-  // Single question -> streamed, grounded answer. Server re-derives the seller's data from
-  // lib/engine (tenant + channel only); the client never supplies numbers.
+  // Full-thread question -> streamed, grounded answer. Server re-derives the
+  // seller's data from lib/engine (tenant + channel only); the client never
+  // supplies numbers. Sends the WHOLE conversation so far (not just this one
+  // question) so the server can resolve a referential follow-up ("onun iade
+  // oranı ne?") against the previous turn, and so real multi-turn LLM
+  // conversations (when ANTHROPIC_API_KEY is set) actually have memory.
   async function askCopilot(text: string) {
     const question = text.trim();
     if (!question || aiLoading) return;
-    setAskedQ(question);
-    setAiAnswer("");
-    setAiMode(null);
+    const threadForServer = [...copilotMessages.filter((m) => m.role !== "system-note"), { role: "user" as const, content: question }];
+    setCopilotMessages((prev) => [...prev, { role: "user", content: question }]);
     setAiInput("");
     setAiLoading(true);
 
     try {
+      // Seed sellers (demo mode) need no token; a real signed-in user's own
+      // tenant requires it — the server re-fetches their data by token rather
+      // than trusting a client-sent snapshot. See app/api/chat/route.ts.
+      const accessToken = await withAccessToken(async (token) => token);
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "user", content: question }], tenantId: tenant, channel }),
+        headers: {
+          "content-type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({
+          messages: threadForServer.map(({ role, content }) => ({ role, content })),
+          tenantId: tenant,
+          channel,
+        }),
       });
-      const mode = res.headers.get("X-Copilot-Mode");
-      if (mode === "model" || mode === "rule-based" || mode === "model-error") setAiMode(mode);
+      const modeHeader = res.headers.get("X-Copilot-Mode");
+      const mode: CopilotMode | undefined =
+        modeHeader === "model-claude" || modeHeader === "model-gemini" || modeHeader === "rule-based" || modeHeader === "model-error"
+          ? modeHeader
+          : undefined;
       if (!res.body) throw new Error("No response body");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let acc = "";
+      setCopilotMessages((prev) => [...prev, { role: "assistant", content: "", mode }]);
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         acc += decoder.decode(value, { stream: true });
-        setAiAnswer(acc);
+        setCopilotMessages((prev) => {
+          const next = [...prev];
+          next[next.length - 1] = { role: "assistant", content: acc, mode };
+          return next;
+        });
       }
     } catch {
-      setAiAnswer("Could not reach the Analyst Copilot.");
+      setCopilotMessages((prev) => [...prev, { role: "assistant", content: "Could not reach the Analyst Copilot." }]);
     } finally {
       setAiLoading(false);
     }
   }
 
-  // Grounding changes with seller/channel — clear the last answer so it can't be misread as current.
+  // Grounding (seller/channel) changed mid-conversation — never silently
+  // pretend the thread above still applies to the new context. Rather than
+  // wipe the conversation (losing the memory this thread exists to provide),
+  // drop a visible local-only marker; it's filtered out of both the payload
+  // sent to /api/chat and anything persisted server-side.
+  const groundingKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    setAskedQ(null);
-    setAiAnswer("");
-    setAiMode(null);
+    const key = `${tenant}:${channel}`;
+    if (groundingKeyRef.current && groundingKeyRef.current !== key && copilotMessages.length > 0) {
+      setCopilotMessages((prev) => [
+        ...prev,
+        { role: "system-note", content: `— Kanal değişti: ${view.label} · ${channelLabel(view.channel)} —` },
+      ]);
+    }
+    groundingKeyRef.current = key;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenant, channel]);
 
   const renderCostRow = (label: string, value: number) => {
@@ -597,6 +718,20 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     { id: "History", icon: HistoryIcon },
     { id: "Settings", icon: Settings },
   ];
+
+  // Still waiting on the initial Supabase fetch for a real signed-in user —
+  // `view`/`fin` above are the seed fallback for this one frame; never paint
+  // that, just show a loading state until the effect resolves.
+  if (isLoadingInitialData) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="flex items-center gap-2 text-zinc-600 font-mono text-[11px] uppercase tracking-[0.2em]">
+          <span className="inline-block w-1.5 h-1.5 bg-zinc-600 animate-pulse" />
+          Verileriniz yükleniyor
+        </div>
+      </div>
+    );
+  }
 
   // Real signed-in seller with no data yet — never render the dashboard shell
   // around them. The effect above already kicked off the redirect; this is the
@@ -740,7 +875,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {/* VIEW: DASHBOARD */}
           {currentTab === "Dashboard" && (
             <div className="max-w-[1300px] mx-auto px-8 py-12 md:py-20">
-              {channel === "combined" && view.marketplaceMargins && (
+              {view.channel === "combined" && view.marketplaceMargins && (
                 <div className="mb-16">
                   <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-6">
                     Per marketplace · combined total in TRY (USD→TRY @33)
@@ -785,7 +920,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   <div className="mb-20 lg:mb-24 relative">
                     <div className="absolute -left-6 lg:-left-8 top-1 bottom-1 w-px bg-zinc-900"></div>
                     <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-6">
-                      Real Margin · {channelLabel(channel)}
+                      Real Margin · {channelLabel(view.channel)}
                     </h2>
                     <div className={`text-7xl lg:text-[96px] leading-none font-mono tracking-tighter tabular-nums ${marginPercent >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                       {marginPercent > 0 ? "+" : ""}{marginPercent.toFixed(1)}%
@@ -853,8 +988,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                               </div>
                             ) : (
                               <div className="mt-1.5 font-mono text-[12px] text-zinc-500 leading-relaxed max-w-sm">
-                                {s.marketplaceLabel} için henüz gerçek hakediş/ödeme dosyası bağlı değil — gösterilen
-                                &quot;{s.isRealSettlementData ? "Gerçek" : "Temsili"}&quot; tutar beklenen tutarla aynı kabul edilmiştir, doğrulanmış bir ödeme farkı değildir.
+                                {`${s.marketplaceLabel} için henüz gerçek hakediş/ödeme dosyası bağlı değil — gösterilen "Temsili" tutar beklenen tutarla aynı kabul edilmiştir, doğrulanmış bir ödeme farkı değildir.`}
                               </div>
                             )}
                           </div>
@@ -1133,8 +1267,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {currentTab === "Campaign" && view && (
             <div className="max-w-[1100px] mx-auto px-8 py-12 md:py-20">
               <CampaignSimulator
-                tenantId={tenant}
-                channel={channel}
+                tenantId={view.tenantId}
+                channel={view.channel}
                 currency={view.currency}
               />
             </div>
@@ -1144,8 +1278,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {currentTab === "Nakit" && view && (
             <div className="max-w-[1000px] mx-auto px-8 py-12 md:py-20">
               <CashFlowPanel
-                tenantId={tenant}
-                channel={channel}
+                tenantId={view.tenantId}
+                channel={view.channel}
                 currency={view.currency}
               />
             </div>
@@ -1154,7 +1288,12 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {/* VIEW: PRODUCTS — SKU profitability heatmap (real engine data) */}
           {currentTab === "Products" && view && (
             <div className="max-w-[1300px] mx-auto px-8 py-12 md:py-16">
-              <SkuProfitabilityHeatmap skus={view.skus} />
+              <SkuProfitabilityHeatmap
+                skus={view.skus}
+                tenantId={view.tenantId}
+                channel={view.channel}
+                onGoToFinancing={() => setCurrentTab("Financing")}
+              />
             </div>
           )}
 
@@ -1613,7 +1752,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 )}
               </div>
               <div className="text-zinc-600 text-[11px] font-mono mb-12 pl-4">
-                {view.label} · {channelLabel(channel)}
+                {view.label} · {channelLabel(view.channel)}
               </div>
 
               <div className="flex flex-wrap gap-2 mb-12">
@@ -1621,11 +1760,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   <button
                     key={p}
                     onClick={() => askCopilot(p)}
-                    className={`text-xs font-mono px-3 py-1.5 border transition-colors ${
-                      askedQ === p
-                        ? "border-zinc-100 bg-zinc-100 text-zinc-900"
-                        : "border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
-                    }`}
+                    disabled={aiLoading}
+                    className="text-xs font-mono px-3 py-1.5 border transition-colors border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 disabled:opacity-40"
                   >
                     {p}
                   </button>
@@ -1633,51 +1769,67 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               </div>
 
               <div className="max-w-2xl">
-                <div className="flex flex-col gap-3 mb-10">
-                  <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-mono">Query · {view.label}</div>
-                  <div className="text-zinc-100 text-lg tracking-tight font-medium">
-                    {askedQ ?? "Pick a preset or ask your own question below."}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-4 mb-12">
-                  <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-mono flex items-center gap-3">
-                    Analysis <span className="h-px bg-zinc-900 flex-1"></span>
-                  </div>
-                  <div className="text-zinc-400 space-y-5 text-sm leading-relaxed">
-                    {aiLoading && !aiAnswer && <p className="text-zinc-500">Reading the decision data…</p>}
-                    {aiAnswer && (
-                      <p className="whitespace-pre-line">
-                        {aiAnswer}
-                        {aiLoading && <span className="inline-block w-1.5 h-4 bg-zinc-500 ml-1 align-middle animate-pulse" />}
-                      </p>
-                    )}
-                    {aiAnswer && !aiLoading && (
-                      <p className="text-[11px] text-zinc-600 font-mono flex items-center gap-2 flex-wrap">
-                        <span>Grounded in {view.label}&apos;s structured decision. No numbers invented.</span>
-                        {(aiMode === "rule-based" || aiMode === "model-error") && (
-                          <span
-                            title={
-                              aiMode === "model-error"
-                                ? "The Claude call failed for this answer — a deterministic rule-based lookup against the same decision data was used instead."
-                                : "ANTHROPIC_API_KEY is not set — this is a deterministic rule-based lookup, not a language model response."
-                            }
-                            className="bg-zinc-900 text-amber-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase"
-                          >
-                            {aiMode === "model-error" ? "Rule-based (AI call failed)" : "Rule-based response"}
-                          </span>
-                        )}
-                        {aiMode === "model" && (
-                          <span className="bg-zinc-900 text-emerald-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase">
-                            Claude
-                          </span>
-                        )}
-                      </p>
-                    )}
-                    {!aiAnswer && !aiLoading && (
-                      <p className="text-zinc-600">Ask a question to see the grounded explanation.</p>
-                    )}
-                  </div>
+                <div className="flex flex-col gap-6 mb-8 max-h-[55vh] overflow-y-auto pr-1">
+                  {!copilotHistoryLoaded && <p className="text-zinc-600 text-sm">Loading conversation…</p>}
+                  {copilotHistoryLoaded && copilotMessages.length === 0 && (
+                    <p className="text-zinc-600 text-sm">Pick a preset or ask your own question below.</p>
+                  )}
+                  {copilotMessages.map((m, i) => {
+                    if (m.role === "system-note") {
+                      return (
+                        <div key={i} className="text-center text-[10px] text-zinc-700 font-mono uppercase tracking-widest py-1">
+                          {m.content}
+                        </div>
+                      );
+                    }
+                    if (m.role === "user") {
+                      return (
+                        <div key={i} className="flex flex-col gap-1">
+                          <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-mono">Query · {view.label}</div>
+                          <div className="text-zinc-100 text-base tracking-tight font-medium">{m.content}</div>
+                        </div>
+                      );
+                    }
+                    const isPending = aiLoading && i === copilotMessages.length - 1;
+                    return (
+                      <div key={i} className="flex flex-col gap-3">
+                        <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-mono flex items-center gap-3">
+                          Analysis <span className="h-px bg-zinc-900 flex-1"></span>
+                        </div>
+                        <div className="text-zinc-400 text-sm leading-relaxed">
+                          {isPending && !m.content && <p className="text-zinc-500">Reading the decision data…</p>}
+                          {m.content && (
+                            <p className="whitespace-pre-line">
+                              {m.content}
+                              {isPending && <span className="inline-block w-1.5 h-4 bg-zinc-500 ml-1 align-middle animate-pulse" />}
+                            </p>
+                          )}
+                          {m.content && !isPending && (
+                            <p className="text-[11px] text-zinc-600 font-mono flex items-center gap-2 flex-wrap mt-2">
+                              <span>Grounded in {view.label}&apos;s structured decision. No numbers invented.</span>
+                              {(m.mode === "rule-based" || m.mode === "model-error") && (
+                                <span
+                                  title={
+                                    m.mode === "model-error"
+                                      ? "The LLM call failed for this answer (rate limit, quota, or network) — a deterministic rule-based lookup against the same decision data was used instead."
+                                      : "No LLM is configured — this is a deterministic rule-based lookup, not a language model response."
+                                  }
+                                  className="bg-zinc-900 text-amber-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase"
+                                >
+                                  {m.mode === "model-error" ? "Rule-based (AI call failed)" : "Rule-based response"}
+                                </span>
+                              )}
+                              {(m.mode === "model-claude" || m.mode === "model-gemini") && (
+                                <span className="bg-zinc-900 text-emerald-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase">
+                                  {m.mode === "model-claude" ? "Claude" : "Gemini"}
+                                </span>
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 <form

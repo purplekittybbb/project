@@ -1,7 +1,13 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { streamText, type ModelMessage } from "ai";
-import { getFinancing, getSeller, type Channel } from "@/lib/engine";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { after } from "next/server";
+import {
+  buildFinancingView, buildSellerView, getFinancing, getSeller, LOW_SAMPLE_HISTORY_MONTHS,
+  type Channel, type FinancingView, type SellerView,
+} from "@/lib/engine";
 import { DEFAULT_CHANNEL } from "@/lib/product-market";
+import { buildUserSeller, USER_TENANT_ID } from "@/lib/supabase/user-data";
 
 /**
  * Analyst Copilot — real multi-turn chat, grounded ONLY in the engine's own output.
@@ -11,9 +17,13 @@ import { DEFAULT_CHANNEL } from "@/lib/product-market";
  * lib/engine (margin, fee waterfall, the rule-based underwriting decision, and the
  * true-margin-vs-incumbent backtest) and embeds it in the system prompt. The model is
  * instructed to explain that snapshot only — never invent numbers, never issue or
- * revise a lending decision. If ANTHROPIC_API_KEY is not set, a deterministic
- * rule-based answer is streamed instead, so the panel always works and never
- * hallucinates.
+ * revise a lending decision. Two LLM backends are supported — Claude
+ * (ANTHROPIC_API_KEY, via @ai-sdk/anthropic) takes priority if configured,
+ * else Gemini (GEMINI_API_KEY, direct REST call to generateContent — see
+ * callGemini below). If neither is set, or the configured one errors (rate
+ * limit, quota, network), a deterministic rule-based answer is streamed
+ * instead — visibly marked via X-Copilot-Mode, never silently — so the panel
+ * always works and never hallucinates.
  */
 
 export const runtime = "nodejs";
@@ -43,16 +53,93 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-/** Rebuild the grounded data snapshot for one seller straight from the engine — never trust client-sent numbers. */
-function buildDataSnapshot(tenantId: string, channel: Channel) {
-  const view = getSeller(tenantId, channel) ?? getSeller(tenantId, DEFAULT_CHANNEL) ?? getSeller(tenantId, "combined");
+function userScopedClient(accessToken: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) return null;
+  return createClient(url, anonKey, {
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+/**
+ * Resolve the (view, financing) pair for this request.
+ *
+ * Seed sellers (demo mode's seller-a/b/c) are looked up straight from the
+ * engine — no auth needed, unchanged from before. A real signed-in user's own
+ * tenant ("user-data") is NEVER in that lookup: their data only ever lived in
+ * the BROWSER's copy of lib/engine's RUNTIME_SELLERS (populated client-side
+ * after their Supabase fetch), which this server process never shares — so
+ * `getSeller`/`getFinancing` always returned undefined for them here, and the
+ * panel always said "I don't have data for this seller/channel combination."
+ *
+ * The fix: for that tenant, re-fetch the user's own `user_transactions` here,
+ * server-side, scoped by their access token (RLS enforces it's only their
+ * rows), and build the view/financing straight from that seller object via
+ * the pure `buildSellerView`/`buildFinancingView` — never through the shared
+ * RUNTIME_SELLERS registry, which would leak one user's data into another
+ * concurrent request on a warm server instance.
+ */
+async function resolveSellerData(
+  tenantId: string,
+  channel: Channel,
+  accessToken: string | null
+): Promise<{ view: SellerView; fin: FinancingView | null; userId: string | null; supabase: SupabaseClient | null } | null> {
+  const seedView = getSeller(tenantId, channel) ?? getSeller(tenantId, DEFAULT_CHANNEL) ?? getSeller(tenantId, "combined");
+  if (seedView) {
+    // Demo/seed sellers have no real signed-in user behind them (usually no
+    // accessToken at all) — nothing to persist a conversation against.
+    return { view: seedView, fin: getFinancing(tenantId) ?? null, userId: null, supabase: null };
+  }
+
+  if (tenantId !== USER_TENANT_ID || !accessToken) return null;
+
+  const supabase = userScopedClient(accessToken);
+  if (!supabase) return null;
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) return null;
+
+  const { data: rows } = await supabase
+    .from("user_transactions")
+    .select("order_id, sku, category, sale_date, units, gross_revenue, unit_cost, shipping, return_rate, ad_spend, marketplace");
+  const userRawRows = (rows ?? []).map((r) => ({
+    order_id: (r as { order_id: string }).order_id,
+    sku: (r as { sku: string }).sku,
+    category: (r as { category: string }).category,
+    sale_date: String((r as { sale_date: string }).sale_date).slice(0, 10),
+    units: Number((r as { units: number }).units),
+    gross_revenue: Number((r as { gross_revenue: number }).gross_revenue),
+    unit_cost: Number((r as { unit_cost: number }).unit_cost),
+    shipping: Number((r as { shipping: number }).shipping),
+    return_rate: Number((r as { return_rate: number }).return_rate),
+    ad_spend: Number((r as { ad_spend: number }).ad_spend),
+    marketplace: (r as { marketplace: string }).marketplace,
+  }));
+
+  const seller = buildUserSeller(userRawRows, USER_TENANT_ID);
+  if (!seller) return null;
+
+  const view = buildSellerView(seller, channel) ?? buildSellerView(seller, DEFAULT_CHANNEL) ?? buildSellerView(seller, "combined");
   if (!view) return null;
-  const fin = getFinancing(tenantId);
+  // RUNTIME_LABELS (the friendly "Verilerim" label) only ever gets populated
+  // client-side — this server process never sees it — so relabel here rather
+  // than let the raw tenant id ("user-data") leak into the copilot's answer.
+  return {
+    view: { ...view, label: "Verilerim" },
+    fin: buildFinancingView(seller) ?? null,
+    userId: userData.user.id,
+    supabase,
+  };
+}
+
+/** Rebuild the grounded data snapshot for one seller straight from the engine — never trust client-sent numbers. */
+function buildDataSnapshot(view: SellerView, fin: FinancingView | null) {
   const d = view.decision;
 
   return {
     seller: view.label,
-    channel,
+    channel: view.channel,
     currency: view.currency,
     margin: {
       perceivedMarginPct: round1(view.perceivedMarginPct),
@@ -75,6 +162,28 @@ function buildDataSnapshot(tenantId: string, channel: Channel) {
       sku: s.sku,
       perceivedMarginPct: round1(s.perceivedMarginPct),
       trueMarginPct: round1(s.trueMarginPct),
+    })),
+    // Every SKU (not just silent losers) so "which product is most/least
+    // profitable" has real data to answer from — sorted best true margin
+    // first, so index 0 / last are the concrete best/worst answer.
+    allSkus: [...view.skus]
+      .sort((a, b) => b.trueMarginPct - a.trueMarginPct)
+      .map((s) => ({
+        sku: s.sku,
+        perceivedMarginPct: round1(s.perceivedMarginPct),
+        trueMarginPct: round1(s.trueMarginPct),
+        returnRatePct: round1(s.returnRatePct),
+      })),
+    // Real monthly history, exactly what the Dashboard's "Dönemsel Gerçek
+    // Marj" chart plots — the ONLY basis scenario answers (Optimistic/Base/
+    // Pessimistic) are allowed to use. Below LOW_SAMPLE_HISTORY_MONTHS
+    // distinct months, the chat route refuses to generate scenarios rather
+    // than project off too little data (same threshold Financing already
+    // uses to gate its own "Sınırlı veri" disclosure).
+    marginHistory: view.marginHistory.map((p) => ({
+      period: p.period,
+      label: p.label,
+      trueMarginPct: round1(p.trueMarginPct),
     })),
     underwritingDecision: {
       approvedLimit: Math.round(d.approvedLimit),
@@ -111,55 +220,331 @@ const OVERRIDE_KEYWORDS = [
   "limiti art", "limiti yükselt", "daha fazla ver", "krediyi artır", "riski gözard",
 ];
 
-/** Deterministic, fully-grounded reply — used with no API key, or if the model call fails. */
-function deterministicChatAnswer(question: string, snapshot: NonNullable<ReturnType<typeof buildDataSnapshot>>): string {
+/** Every branch below is a Turkish/English keyword pair over the SAME
+ *  underlying question — the rule-based path has no real language
+ *  understanding, so each realistic question shape needs its own explicit
+ *  trigger words in both languages, or it silently falls through to the
+ *  catch-all. Confirmed live: before this, almost every Turkish free-text
+ *  question (including a plain "merhaba, nasılsın?") fell through and
+ *  returned the exact same canned decision summary regardless of what was
+ *  asked — only the 3 English preset buttons ever matched a real branch. */
+const PRODUCT_KEYWORDS = [
+  "en karlı", "en çok kazandıran", "en çok kar", "en iyi ürün", "en kötü ürün", "en çok zarar",
+  "hangi ürünü", "hangi ürün", "ürün hangisi", "sku hangisi", "bıraksam", "durdurmalı", "kaldırmalı",
+  "most profitable", "least profitable", "best product", "worst product", "which product", "which sku",
+];
+const RETURN_RATE_KEYWORDS = ["iade", "return rate", "değişim oranı"];
+const SHIPPING_KEYWORDS = ["kargo", "shipping", "nakliye"];
+const AD_SPEND_KEYWORDS = ["reklam", "ad spend", "acos"];
+const TENURE_KEYWORDS = ["kaç ay", "kaç aylık", "ne kadar süredir", "geçmiş", "tenure", "history"];
+const BACKTEST_KEYWORDS = ["backtest", "incumbent", "karşılaştır", "rakip model"];
+const LIMIT_KEYWORDS = ["limit", "take-rate", "take rate", "approv", "onay", "kredi", "komisyon oran"];
+const MARGIN_KEYWORDS = ["margin", "marj", "waterfall", "fee", "maliyet", "kâr", "kar "];
+const SILENT_LOSER_KEYWORDS = ["silent", "sku", "zarar eden"];
+const SCENARIO_KEYWORDS = [
+  "nakit ak", "projeksiyon", "senaryo", "önümüzdeki ay", "gelecek ay", "ne olur", "tahmin",
+  "cash flow", "projection", "forecast", "scenario",
+];
+/** Signals "the subject of my new question is whatever we were just talking
+ *  about" — the closest this rule-based path gets to real pronoun resolution. */
+const REFERENTIAL_WORDS = ["onun", "onu", "ona", "onların", "bunun", "bunu", "buna", "şunun", "peki ya", "ya onun"];
+const MARKETPLACE_ALIASES: Record<string, Channel> = {
+  "trendyol": "trendyol",
+  "hepsiburada": "hepsiburada",
+  "n11": "n11",
+  "shopify": "shopify",
+  "amazon": "amazon_us",
+};
+const CHANNEL_DISPLAY_NAME: Record<string, string> = {
+  trendyol: "Trendyol", hepsiburada: "Hepsiburada", n11: "N11", shopify: "Shopify",
+  amazon_us: "Amazon US", combined: "Combined",
+};
+
+type Snapshot = NonNullable<ReturnType<typeof buildDataSnapshot>>;
+
+/** Picks one template, avoiding an exact repeat of the assistant's immediately
+ *  previous message (if determinable) — this is what makes "ask the exact
+ *  same question 3 times" return 3 differently-worded (but equally grounded)
+ *  answers instead of one memorized string pasted back verbatim each time. */
+function pickVariant(templates: string[], lastAssistantMessage: string | undefined): string {
+  if (templates.length <= 1) return templates[0] ?? "";
+  const start = Math.floor(Math.random() * templates.length);
+  for (let i = 0; i < templates.length; i++) {
+    const candidate = templates[(start + i) % templates.length];
+    if (candidate !== lastAssistantMessage) return candidate;
+  }
+  return templates[start];
+}
+
+/** Scans backwards through the assistant's own past replies for a mention of
+ *  a real SKU from this seller — lets "onun iade oranı ne?" after "en kötü
+ *  ürün hangisi?" resolve "onun" to that specific SKU instead of the seller
+ *  as a whole. */
+// Deliberately NOT "hangi ürün"/"ürün hangisi" — those are neutral ("which
+// product") and appear equally in "en KARLI ürün hangisi" and "en KÖTÜ ürün
+// hangisi"; including them here made a best-product question misresolve as
+// a worst-product one whenever it happened to end in that neutral phrase.
+const WORST_LEANING_KEYWORDS = [
+  "en kötü", "en çok zarar", "bıraksam", "durdurmalı", "kaldırmalı", "worst product", "least profitable",
+];
+
+function focusedSkuFromHistory(history: ChatTurn[], snapshot: Snapshot): Snapshot["allSkus"][number] | null {
+  // Walking the assistant's OWN reply text is ambiguous — the product answer
+  // template mentions BOTH the best and the worst SKU in the same sentence,
+  // so a plain substring scan picks whichever one happens to appear first in
+  // `allSkus`, regardless of which one the conversation was actually about.
+  // Instead, re-derive intent from the most recent USER question: if it named
+  // a real SKU directly, that's the subject; if it was a best/worst product
+  // question, re-run the same best-vs-worst distinction PRODUCT_KEYWORDS'
+  // own answer used, so "onun" after "en kötü ürün hangisi?" resolves to the
+  // worst SKU, not whichever one sorts first.
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    if (m.role !== "user") continue;
+    const named = snapshot.allSkus.find((s) => m.content.includes(s.sku));
+    if (named) return named;
+    const mq = m.content.toLowerCase();
+    if (PRODUCT_KEYWORDS.some((k) => mq.includes(k)) && snapshot.allSkus.length > 0) {
+      const wantsWorst = WORST_LEANING_KEYWORDS.some((k) => mq.includes(k));
+      return wantsWorst ? snapshot.allSkus[snapshot.allSkus.length - 1] : snapshot.allSkus[0];
+    }
+  }
+  return null;
+}
+
+/** A question naming a marketplace this snapshot ISN'T currently grounded in
+ *  must say so plainly rather than silently answer for the wrong channel —
+ *  e.g. asking about Hepsiburada while viewing Trendyol. Never fabricates a
+ *  number for a channel it has no data for. */
+function marketplaceMismatch(q: string, snapshot: Snapshot): string | null {
+  for (const [word, ch] of Object.entries(MARKETPLACE_ALIASES)) {
+    if (!q.includes(word)) continue;
+    if (snapshot.channel === ch) return null;
+    const current = CHANNEL_DISPLAY_NAME[snapshot.channel] ?? snapshot.channel;
+    const asked = CHANNEL_DISPLAY_NAME[ch] ?? word;
+    return (
+      `Şu anda ${current} görünümündesiniz, bu veri ${asked} için değil. ` +
+      `${asked} kanalına özgü bir cevap için üstteki kanal sekmesinden ${asked}'i seçip tekrar sorun — ` +
+      `bağlı değilse veya veri yoksa uydurma bir sayı vermem.`
+    );
+  }
+  return null;
+}
+
+/** Deterministic, fully-grounded reply — used with no API key, or if the model call fails.
+ *  Takes the full turn history (not just the latest question) so it can (a) resolve a
+ *  referential follow-up to whatever SKU the previous answer was about, and (b) never
+ *  paste back the exact same sentence it used last time for the same question. */
+function deterministicChatAnswer(history: ChatTurn[], question: string, snapshot: Snapshot): string {
   const q = question.toLowerCase();
   const cur = snapshot.currency;
   const d = snapshot.underwritingDecision;
+  const has = (keywords: string[]) => keywords.some((k) => q.includes(k));
+  const lastAssistant = [...history].reverse().find((m) => m.role === "assistant")?.content;
+  const pick = (templates: string[]) => pickVariant(templates, lastAssistant);
 
-  if (OVERRIDE_KEYWORDS.some((k) => q.includes(k))) {
+  if (has(OVERRIDE_KEYWORDS)) {
     return (
       `I can't change or override this decision — it was produced by a deterministic rule-based model, not by me. ` +
       `Here is why it landed where it did: ${d.rationale.join(" ")}`
     );
   }
 
-  if (q.includes("backtest") || q.includes("incumbent")) {
+  const mismatch = marketplaceMismatch(q, snapshot);
+  if (mismatch) return mismatch;
+
+  if (has(SCENARIO_KEYWORDS)) {
+    const months = snapshot.marginHistory.length;
+    if (months < LOW_SAMPLE_HISTORY_MONTHS) {
+      return (
+        `Güvenilir bir projeksiyon için en az ${LOW_SAMPLE_HISTORY_MONTHS} aylık gerçek sipariş geçmişi gerekiyor, ` +
+        `şu an elimde ${months} ay var. Bu kadar az veriyle senaryo üretmiyorum — sayı uydurmak yerine daha fazla veri birikmesini bekleyin.`
+      );
+    }
+    const pcts = snapshot.marginHistory.map((p) => p.trueMarginPct);
+    const bestPct = Math.max(...pcts);
+    const worstPct = Math.min(...pcts);
+    const bestMonth = snapshot.marginHistory.find((p) => p.trueMarginPct === bestPct)!;
+    const worstMonth = snapshot.marginHistory.find((p) => p.trueMarginPct === worstPct)!;
+    // All three scenarios must share the SAME basis (a single projected
+    // month) — mixing a per-month % against the cumulative multi-month
+    // revenue would silently inflate optimistic/pessimistic relative to
+    // base. d.inputs.monthlyRevenue and .trailingMonthlyContribution are the
+    // engine's own average-month figures (same ones underwriting is priced
+    // off), so re-using them keeps optimistic/base/pessimistic comparable.
+    const monthlyRevenue = d.inputs.monthlyRevenue;
+    const optimistic = money((bestPct / 100) * monthlyRevenue, cur);
+    const base = money(d.inputs.trailingMonthlyContribution, cur);
+    const pessimistic = money((worstPct / 100) * monthlyRevenue, cur);
+    return (
+      `${months} aylık gerçek geçmişinize göre (varsayım değil, kendi verinizden), önümüzdeki AY için 3 senaryo:\n` +
+      `İyimser: %${round1(bestPct)} marj — ${bestMonth.label} ayınız gibi giderse aylık net katkı ${optimistic}.\n` +
+      `Baz: %${round1(snapshot.margin.trueMarginPct)} marj — mevcut trend devam ederse aylık net katkı ${base}.\n` +
+      `Kötümser: %${round1(worstPct)} marj — ${worstMonth.label} ayınız gibi giderse aylık net katkı ${pessimistic}.`
+    );
+  }
+
+  if (has(PRODUCT_KEYWORDS)) {
+    if (snapshot.allSkus.length === 0) return `${snapshot.seller} için bu kanalda SKU verisi yok.`;
+    const best = snapshot.allSkus[0];
+    const worst = snapshot.allSkus[snapshot.allSkus.length - 1];
+    const worstNote = worst.trueMarginPct < 0 ? " Gerçekte zarar ediyor — durdurmayı düşünebilirsiniz." : "";
+    return pick([
+      `En yüksek gerçek marjlı ürün ${best.sku} (%${best.trueMarginPct}, algılanan %${best.perceivedMarginPct}). En düşük ${worst.sku} (%${worst.trueMarginPct}, algılanan %${worst.perceivedMarginPct}).${worstNote}`,
+      `${snapshot.allSkus.length} SKU arasında ${worst.sku} en düşük gerçek marja sahip (%${worst.trueMarginPct}) — algılananı %${worst.perceivedMarginPct} olduğu için fark edilmesi zor.${worstNote} En iyisi ${best.sku}, %${best.trueMarginPct} gerçek marjla.`,
+      `Kıyaslarsanız: ${best.sku} ile ${worst.sku} arasında ${round1(best.trueMarginPct - worst.trueMarginPct)} puanlık gerçek marj farkı var (%${best.trueMarginPct} vs %${worst.trueMarginPct}).${worstNote}`,
+    ]);
+  }
+
+  if (has(RETURN_RATE_KEYWORDS)) {
+    const focused = has(REFERENTIAL_WORDS) ? focusedSkuFromHistory(history, snapshot) : null;
+    if (focused) {
+      return pick([
+        `${focused.sku}'nun iade oranı %${focused.returnRatePct} — bu SKU'ya özel, seller genelinden farklı olabilir.`,
+        `Az önce bahsettiğimiz ${focused.sku} için iade oranı %${focused.returnRatePct}.`,
+        `${focused.sku}: %${focused.returnRatePct} iade oranı (seller geneli %${d.inputs.returnRatePct}).`,
+      ]);
+    }
+    const rationale = d.rationale.find((r) => r.toLowerCase().includes("return")) ?? d.rationale.join(" ");
+    return pick([
+      `${snapshot.seller}'ın iade oranı %${d.inputs.returnRatePct}. Bu oran underwriting kararına doğrudan yansıyor: ${rationale}`,
+      `İade oranı %${d.inputs.returnRatePct} — underwriting modelinde bu şekilde fiyatlandı: ${rationale}`,
+      `Genel iade oranınız %${d.inputs.returnRatePct}. Belirli bir SKU'yu mu kastediyorsunuz — "onun iade oranı" diye sorarsanız o ürüne özel rakamı verebilirim.`,
+    ]);
+  }
+
+  if (has(SHIPPING_KEYWORDS)) {
+    const pct = snapshot.margin.grossRevenue > 0 ? round1((snapshot.feeWaterfall.shipping / snapshot.margin.grossRevenue) * 100) : 0;
+    return pick([
+      `Kargo maliyeti toplam ${money(snapshot.feeWaterfall.shipping, cur)} — brüt gelirin %${pct}'i.`,
+      `Brüt gelirinizin %${pct}'i kargoya gidiyor (${money(snapshot.feeWaterfall.shipping, cur)}).`,
+      `Kargo: ${money(snapshot.feeWaterfall.shipping, cur)}. Bu, ${money(snapshot.margin.grossRevenue, cur)} gelirin %${pct}'ine denk geliyor.`,
+    ]);
+  }
+
+  if (has(AD_SPEND_KEYWORDS)) {
+    const pct = snapshot.margin.grossRevenue > 0 ? round1((snapshot.feeWaterfall.adSpendAllocated / snapshot.margin.grossRevenue) * 100) : 0;
+    return pick([
+      `Reklam harcaması toplam ${money(snapshot.feeWaterfall.adSpendAllocated, cur)} — brüt gelirin %${pct}'i (ACOS).`,
+      `ACOS'unuz %${pct} (${money(snapshot.feeWaterfall.adSpendAllocated, cur)} reklam harcaması / ${money(snapshot.margin.grossRevenue, cur)} gelir).`,
+      `Reklama ayrılan pay %${pct} — toplamda ${money(snapshot.feeWaterfall.adSpendAllocated, cur)}.`,
+    ]);
+  }
+
+  if (has(TENURE_KEYWORDS)) {
+    return pick([
+      `${snapshot.seller}'ın ${d.inputs.tenureMonths} aylık gerçek sipariş geçmişi var — underwriting kararı bu süreye göre fiyatlandı.`,
+      `Elimde ${d.inputs.tenureMonths} aylık gerçek veri var. ${d.inputs.tenureMonths < LOW_SAMPLE_HISTORY_MONTHS ? "Bu, güvenilir bir trend/projeksiyon için henüz yeterli değil." : "Bu, bir trend okumak için makul bir süre."}`,
+      `Sipariş geçmişiniz ${d.inputs.tenureMonths} ay. Underwriting modelinin tenure girdisi bu.`,
+    ]);
+  }
+
+  if (has(BACKTEST_KEYWORDS)) {
     if (!snapshot.backtestVsIncumbent) return "No backtest data is available for this seller.";
     const b = snapshot.backtestVsIncumbent;
-    return (
-      `Backtesting both models on this portfolio: TrueMargin's charge-off rate is ${b.trueMarginChargeOffPct}% vs the incumbent's ${b.incumbentChargeOffPct}%, ` +
-      `a ${b.lossReductionVsIncumbentPct}% reduction in loss — because the incumbent sizes credit off revenue alone and can't see that ${snapshot.seller}'s true margin is ${snapshot.margin.trueMarginPct}%.`
-    );
+    return pick([
+      `Backtesting both models on this portfolio: TrueMargin's charge-off rate is ${b.trueMarginChargeOffPct}% vs the incumbent's ${b.incumbentChargeOffPct}%, a ${b.lossReductionVsIncumbentPct}% reduction in loss — because the incumbent sizes credit off revenue alone and can't see that ${snapshot.seller}'s true margin is ${snapshot.margin.trueMarginPct}%.`,
+      `Incumbent model charge-off: ${b.incumbentChargeOffPct}%. TrueMargin: ${b.trueMarginChargeOffPct}%. The gap (${b.lossReductionVsIncumbentPct}% loss reduction) comes entirely from pricing off true margin (${snapshot.margin.trueMarginPct}%) instead of revenue alone.`,
+      `Two models, same seller: incumbent ${b.incumbentChargeOffPct}% charge-off, TrueMargin ${b.trueMarginChargeOffPct}% — ${b.lossReductionVsIncumbentPct}% better, because it can see the ${snapshot.margin.trueMarginPct}% true margin the incumbent can't.`,
+    ]);
   }
 
-  if (q.includes("limit") || q.includes("take-rate") || q.includes("take rate") || q.includes("approv")) {
-    return (
-      `${snapshot.seller} was ${d.approved ? `approved ${money(d.approvedLimit, cur)} at a ${d.takeRatePct}% take-rate` : "declined a new advance"}. ` +
-      `The limit is anchored to trailing monthly contribution (${money(d.inputs.trailingMonthlyContribution, cur)}), discounted for revenue volatility (CoV ${d.inputs.revenueVolatility}). ` +
-      `Rule trace: ${d.rationale.join(" ")}`
-    );
+  if (has(LIMIT_KEYWORDS)) {
+    return pick([
+      `${snapshot.seller} was ${d.approved ? `approved ${money(d.approvedLimit, cur)} at a ${d.takeRatePct}% take-rate` : "declined a new advance"}. The limit is anchored to trailing monthly contribution (${money(d.inputs.trailingMonthlyContribution, cur)}), discounted for revenue volatility (CoV ${d.inputs.revenueVolatility}). Rule trace: ${d.rationale.join(" ")}`,
+      `${d.approved ? `Approved: ${money(d.approvedLimit, cur)} at ${d.takeRatePct}% take-rate.` : "Declined."} Why: ${d.rationale.join(" ")}`,
+      `The decision — ${d.approved ? `${money(d.approvedLimit, cur)} / ${d.takeRatePct}%` : "declined"} — comes from trailing monthly contribution (${money(d.inputs.trailingMonthlyContribution, cur)}) and a volatility haircut (CoV ${d.inputs.revenueVolatility}). Full trace: ${d.rationale.join(" ")}`,
+    ]);
   }
 
-  if (q.includes("margin") || q.includes("marj") || q.includes("waterfall") || q.includes("fee")) {
-    return (
-      `${snapshot.seller} believes their margin is ${snapshot.margin.sellerBelievesMarginPct}%, and the naive perceived-margin math (revenue − COGS − commission) shows ${snapshot.margin.perceivedMarginPct}%. ` +
-      `Once the full waterfall is allocated (VAT, shipping, returns, ad spend, payment fees), the true margin is ${snapshot.margin.trueMarginPct}% — a net contribution of ${money(snapshot.margin.netContribution, cur)} on ${money(snapshot.margin.grossRevenue, cur)} revenue. ` +
-      `Break-even price (COGS + shipping + payment fees, grossed up for commission) is ${money(snapshot.margin.breakEvenPrice, cur)}.`
-    );
+  if (has(MARGIN_KEYWORDS)) {
+    const trendNote = snapshot.marginHistory.length >= 2
+      ? ` Son ay %${snapshot.marginHistory[snapshot.marginHistory.length - 1].trueMarginPct}, bir önceki ay %${snapshot.marginHistory[snapshot.marginHistory.length - 2].trueMarginPct} idi.`
+      : "";
+    return pick([
+      `${snapshot.seller} believes their margin is ${snapshot.margin.sellerBelievesMarginPct}%, and the naive perceived-margin math shows ${snapshot.margin.perceivedMarginPct}%. Once the full waterfall is allocated, the true margin is ${snapshot.margin.trueMarginPct}% — a net contribution of ${money(snapshot.margin.netContribution, cur)} on ${money(snapshot.margin.grossRevenue, cur)} revenue.${trendNote}`,
+      `Gerçek marj %${snapshot.margin.trueMarginPct} (algılanan %${snapshot.margin.perceivedMarginPct}, siz %${snapshot.margin.sellerBelievesMarginPct} sanıyordunuz) — net katkı ${money(snapshot.margin.netContribution, cur)}.${trendNote}`,
+      `Break-even fiyat ${money(snapshot.margin.breakEvenPrice, cur)}. Bunun üzerinde gerçek marjınız %${snapshot.margin.trueMarginPct}, ${money(snapshot.margin.grossRevenue, cur)} gelir üzerinden ${money(snapshot.margin.netContribution, cur)} net katkı demek.${trendNote}`,
+    ]);
   }
 
-  if (q.includes("silent") || q.includes("sku")) {
+  if (has(SILENT_LOSER_KEYWORDS)) {
     if (snapshot.silentLoserSkus.length === 0) return `No silent-loser SKUs are flagged for ${snapshot.seller} on this channel.`;
     const list = snapshot.silentLoserSkus.map((s) => `${s.sku} (perceived ${s.perceivedMarginPct}% → true ${s.trueMarginPct}%)`).join(", ");
-    return `${snapshot.seller} has ${snapshot.silentLoserSkus.length} silent-loser SKU(s) — look profitable, are actually negative once the full waterfall lands: ${list}.`;
+    return pick([
+      `${snapshot.seller} has ${snapshot.silentLoserSkus.length} silent-loser SKU(s) — look profitable, are actually negative once the full waterfall lands: ${list}.`,
+      `${snapshot.silentLoserSkus.length} ürün "sessiz zarar" ediyor (algılanan kâr, gerçek zarar): ${list}.`,
+    ]);
   }
 
-  return (
-    `${snapshot.seller}'s true margin is ${snapshot.margin.trueMarginPct}% (they believe ${snapshot.margin.sellerBelievesMarginPct}%). ` +
-    `Based on that, they were ${d.approved ? `approved ${money(d.approvedLimit, cur)} at a ${d.takeRatePct}% take-rate` : "declined"}. ` +
-    `Rule trace: ${d.rationale.join(" ")}`
-  );
+  // Nothing matched. Per the same guardrail the real-model path follows ("if
+  // a question cannot be answered from DATA_SNAPSHOT, say so plainly instead
+  // of guessing"), never paper over an unrecognized question with the
+  // decision summary as if it answered it. If the PREVIOUS user turn matched
+  // a real topic, name it — a bounded, honest stand-in for "did you mean X?"
+  // since this path has no real language understanding to guess further.
+  const priorUserQuestion = [...history].reverse().find((m) => m.role === "user")?.content;
+  const priorTopic = priorUserQuestion ? topicLabel(priorUserQuestion.toLowerCase()) : null;
+  const menu = "gerçek marj, onaylanan limit/take-rate, backtest vs. incumbent, iade oranı, kargo/reklam maliyeti, sipariş geçmişi (kaç ay), nakit akışı senaryoları, veya en karlı/en kötü ürün";
+  if (priorTopic) {
+    return `Bu soruyu anlayamadım. Az önce ${priorTopic} hakkında konuşuyorduk — onu mu sürdürmek istiyorsunuz, yoksa şunlardan birini mi: ${menu}?`;
+  }
+  return `Bu soruyu rule-based modda anlayamadım. Şunlar hakkında sorabilirsiniz: ${menu}. (AI destekli mod için ANTHROPIC_API_KEY yapılandırılmalı.)`;
+}
+
+/** Best-effort label for what a past question was about — only used to phrase
+ *  the "did you mean the same thing as before?" fallback, never to answer. */
+function topicLabel(q: string): string | null {
+  const has = (keywords: string[]) => keywords.some((k) => q.includes(k));
+  if (has(SCENARIO_KEYWORDS)) return "nakit akışı senaryoları";
+  if (has(PRODUCT_KEYWORDS)) return "en karlı/en kötü ürün";
+  if (has(RETURN_RATE_KEYWORDS)) return "iade oranı";
+  if (has(SHIPPING_KEYWORDS)) return "kargo maliyeti";
+  if (has(AD_SPEND_KEYWORDS)) return "reklam harcaması";
+  if (has(TENURE_KEYWORDS)) return "sipariş geçmişi";
+  if (has(BACKTEST_KEYWORDS)) return "backtest vs. incumbent";
+  if (has(LIMIT_KEYWORDS)) return "onaylanan limit/take-rate";
+  if (has(MARGIN_KEYWORDS)) return "gerçek marj";
+  if (has(SILENT_LOSER_KEYWORDS)) return "sessiz zarar eden ürünler";
+  return null;
+}
+
+/** Persists one exchange (user question + assistant answer) to copilot_messages
+ *  so the thread survives a reload or a sign-in on another device. Fire-and-forget
+ *  via next/server's `after()` — never adds latency to the streamed response, and a
+ *  failed write here must never break the panel (it already answered the user). RLS
+ *  (auth.uid() = user_id) is what actually enforces this can only ever write to the
+ *  signed-in user's own rows; supabase is null for demo/seed sellers (nothing to
+ *  persist against), so this silently no-ops for them. */
+async function persistTurn(
+  supabase: SupabaseClient | null,
+  userId: string | null,
+  userQuestion: string,
+  assistantAnswer: string,
+  mode: CopilotMode
+): Promise<void> {
+  if (!supabase || !userId) return;
+  try {
+    await supabase.from("copilot_messages").insert([
+      { user_id: userId, role: "user", content: userQuestion, mode: null },
+      { user_id: userId, role: "assistant", content: assistantAnswer, mode },
+    ]);
+  } catch (err) {
+    console.error("[chat] failed to persist conversation turn:", err);
+  }
+}
+
+/** `after()` requires a genuine Next.js request scope — it throws when a route
+ *  handler is invoked directly (e.g. unit tests calling `POST()` themselves,
+ *  bypassing Next's server). Persistence is a nice-to-have, never something
+ *  that may break the answer the user already received, so swallow that one
+ *  specific failure mode here rather than let it propagate. */
+function safeAfter(task: () => Promise<void>): void {
+  try {
+    after(task);
+  } catch (err) {
+    console.error("[chat] after() unavailable in this context, skipping persistence:", err);
+  }
 }
 
 /** Client-visible marker of which path produced the answer — read by the Copilot
@@ -168,7 +553,11 @@ function deterministicChatAnswer(question: string, snapshot: NonNullable<ReturnT
 const COPILOT_MODE_HEADER = "X-Copilot-Mode";
 
 /** Stream plain text in small chunks so the fallback path renders identically to a real model stream. */
-function streamPlainText(text: string, mode: "rule-based" | "model-error"): Response {
+/** Which path produced an answer — the client shows a different badge for
+ *  each so "Claude" is never shown for a Gemini-generated answer or vice versa. */
+type CopilotMode = "model-claude" | "model-gemini" | "rule-based" | "model-error";
+
+function streamPlainText(text: string, mode: CopilotMode): Response {
   const words = text.split(/(\s+)/);
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -185,6 +574,70 @@ function streamPlainText(text: string, mode: "rule-based" | "model-error"): Resp
   });
 }
 
+// "gemini-2.5-flash" (the dated model this was originally wired to) rejects
+// generateContent calls from this API key with a 404 ("no longer available
+// to new users") even though it still shows up in models.list — confirmed
+// live. "gemini-flash-latest" is Google's own stable alias for whichever
+// flash model is currently recommended, which avoids re-hardcoding a model
+// slug that Google can deprecate again later.
+const GEMINI_MODEL = "gemini-flash-latest";
+
+interface GeminiContent {
+  role: "user" | "model";
+  parts: { text: string }[];
+}
+
+/**
+ * Direct REST call to Gemini's `generateContent` endpoint (Google AI Studio,
+ * free tier) — no SDK dependency, since this project's only other LLM
+ * integration (Claude, via @ai-sdk/anthropic) uses a different wire format
+ * entirely: Gemini has no "assistant" role (it's "model"), and each turn's
+ * content is `parts: [{ text }]`, not a flat string. The same
+ * GUARDRAIL_SYSTEM_PROMPT + DATA_SNAPSHOT grounding is reused as-is via
+ * `system_instruction` — only the transport differs.
+ *
+ * Non-streaming on purpose: Gemini's OWN answer only ever reaches the client
+ * after this whole call has already succeeded, so a rate-limit (429), quota,
+ * or network failure is caught here and turns into the same visible
+ * "model-error" fallback the Claude path uses — never a half-delivered
+ * answer. The full text is then handed to `streamPlainText`, so the client
+ * sees the identical word-by-word delivery either way.
+ */
+async function callGemini(system: string, history: ChatTurn[]): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+
+  const contents: GeminiContent[] = history
+    .filter((m) => m.content?.trim())
+    .slice(-10)
+    .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: system }] },
+        contents,
+        generationConfig: { temperature: 0.2 },
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    // Covers rate limiting (429), quota exhaustion, and any other API-level
+    // rejection — all treated identically by the caller (fall back, visibly).
+    throw new Error(`Gemini API error ${res.status}: ${detail.slice(0, 300)}`);
+  }
+
+  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  if (!text.trim()) throw new Error("Gemini returned no text content");
+  return text;
+}
+
 export async function POST(req: Request) {
   let body: ChatRequestBody;
   try {
@@ -198,31 +651,66 @@ export async function POST(req: Request) {
   const history = Array.isArray(body.messages) ? body.messages : [];
   const lastUserMessage = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
 
-  const snapshot = buildDataSnapshot(tenantId, channel);
-  if (!snapshot) {
+  const authHeader = req.headers.get("authorization") ?? "";
+  const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  const resolved = await resolveSellerData(tenantId, channel, accessToken);
+  if (!resolved) {
     return streamPlainText("I don't have data for this seller/channel combination.", "rule-based");
   }
+  const snapshot = buildDataSnapshot(resolved.view, resolved.fin);
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return streamPlainText(deterministicChatAnswer(lastUserMessage, snapshot), "rule-based");
+  const system = `${GUARDRAIL_SYSTEM_PROMPT}\n\nDATA_SNAPSHOT:\n${JSON.stringify(snapshot, null, 2)}`;
+
+  if (process.env.ANTHROPIC_API_KEY) {
+    try {
+      const modelMessages: ModelMessage[] = history
+        .filter((m) => m.content?.trim())
+        .slice(-12)
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      const result = streamText({
+        model: anthropic("claude-opus-4-8"),
+        system,
+        messages: modelMessages,
+        temperature: 0.2,
+      });
+      safeAfter(async () => {
+        try {
+          const fullText = await result.text;
+          await persistTurn(resolved.supabase, resolved.userId, lastUserMessage, fullText, "model-claude");
+        } catch {
+          // Stream errored after we already committed to the "model-claude" response — nothing to persist.
+        }
+      });
+      return result.toTextStreamResponse({ headers: { [COPILOT_MODE_HEADER]: "model-claude" } });
+    } catch {
+      // Never fail the panel: fall back to the grounded rule-based answer,
+      // and mark it visibly (X-Copilot-Mode: model-error) — never silently.
+      const answer = deterministicChatAnswer(history, lastUserMessage, snapshot);
+      safeAfter(() => persistTurn(resolved.supabase, resolved.userId, lastUserMessage, answer, "model-error"));
+      return streamPlainText(answer, "model-error");
+    }
   }
 
-  try {
-    const system = `${GUARDRAIL_SYSTEM_PROMPT}\n\nDATA_SNAPSHOT:\n${JSON.stringify(snapshot, null, 2)}`;
-    const modelMessages: ModelMessage[] = history
-      .filter((m) => m.content?.trim())
-      .slice(-12)
-      .map((m) => ({ role: m.role, content: m.content }));
-
-    const result = streamText({
-      model: anthropic("claude-opus-4-8"),
-      system,
-      messages: modelMessages,
-      temperature: 0.2,
-    });
-    return result.toTextStreamResponse({ headers: { [COPILOT_MODE_HEADER]: "model" } });
-  } catch {
-    // Never fail the panel: fall back to the grounded rule-based answer.
-    return streamPlainText(deterministicChatAnswer(lastUserMessage, snapshot), "model-error");
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const fullText = await callGemini(system, history);
+      safeAfter(() => persistTurn(resolved.supabase, resolved.userId, lastUserMessage, fullText, "model-gemini"));
+      return streamPlainText(fullText, "model-gemini");
+    } catch (err) {
+      // Rate limit, quota, or network failure — fall back to the grounded
+      // rule-based answer, and mark it visibly (X-Copilot-Mode: model-error)
+      // so the panel shows "Rule-based (AI call failed)", never a silent swap.
+      console.warn("[chat] Gemini call failed, falling back to rule-based:", err);
+      const answer = deterministicChatAnswer(history, lastUserMessage, snapshot);
+      safeAfter(() => persistTurn(resolved.supabase, resolved.userId, lastUserMessage, answer, "model-error"));
+      return streamPlainText(answer, "model-error");
+    }
   }
+
+  // No LLM configured at all.
+  const answer = deterministicChatAnswer(history, lastUserMessage, snapshot);
+  safeAfter(() => persistTurn(resolved.supabase, resolved.userId, lastUserMessage, answer, "rule-based"));
+  return streamPlainText(answer, "rule-based");
 }

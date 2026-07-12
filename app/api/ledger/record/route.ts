@@ -35,12 +35,6 @@ function userScopedClient(accessToken: string) {
   });
 }
 
-interface LedgerRow {
-  approved_limit: number;
-  take_rate: number;
-  currency: string;
-}
-
 export async function POST(req: Request) {
   const authHeader = req.headers.get("authorization") ?? "";
   const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
@@ -89,38 +83,21 @@ export async function POST(req: Request) {
   const inputs = deriveUnderwritingInputsFromTransactions(seller.transactions, seller.tenureMonths);
   const decision = trueMarginModel(userId, inputs, currency);
 
-  const { data: lastRow, error: lastRowError } = await supabase
-    .from("decision_ledger")
-    .select("approved_limit, take_rate, currency")
-    .eq("user_id", userId)
-    .order("recorded_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (lastRowError) {
-    return NextResponse.json({ error: "Geçmiş kararlar okunamadı." }, { status: 502 });
-  }
-
-  const last = lastRow as LedgerRow | null;
-  const unchanged =
-    !!last &&
-    last.approved_limit === decision.approvedLimit &&
-    Math.abs(last.take_rate - decision.takeRate) < 1e-9 &&
-    last.currency === decision.currency;
-  if (unchanged) {
-    return NextResponse.json({ recorded: false, reason: "unchanged" });
-  }
-
-  const { error: insertError } = await supabase.from("decision_ledger").insert({
-    user_id: userId,
-    tenant_id: userId,
-    approved_limit: decision.approvedLimit,
-    take_rate: decision.takeRate,
-    currency: decision.currency,
-    model_version: decision.modelVersion,
+  // Atomic read-compare-insert (see supabase/migrations/0006_decision_ledger_atomic_record.sql)
+  // — two concurrent calls for the same user (e.g. a double-invoked mount
+  // effect) used to both read the same "last row" via separate queries here
+  // and both insert, producing duplicate ledger rows. The RPC serializes that
+  // with a per-user advisory lock instead.
+  const { data: inserted, error: rpcError } = await supabase.rpc("record_decision_if_changed", {
+    p_tenant_id: userId,
+    p_approved_limit: decision.approvedLimit,
+    p_take_rate: decision.takeRate,
+    p_currency: decision.currency,
+    p_model_version: decision.modelVersion,
   });
-  if (insertError) {
+  if (rpcError) {
     return NextResponse.json({ error: "Karar kaydedilemedi." }, { status: 502 });
   }
 
-  return NextResponse.json({ recorded: true });
+  return NextResponse.json({ recorded: !!inserted });
 }

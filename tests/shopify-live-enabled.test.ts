@@ -12,13 +12,13 @@ describe("isShopifyLiveEnabled", () => {
     else process.env.SHOPIFY_LIVE_ENABLED = prevLiveFlag;
   });
 
-  it("returns true when SHOPIFY_CLIENT_ID is set (live → ShopifyConnectModal)", () => {
+  it("returns true when SHOPIFY_CLIENT_ID is set", () => {
     process.env.SHOPIFY_CLIENT_ID = "test-client-id";
     delete process.env.SHOPIFY_LIVE_ENABLED;
     expect(isShopifyLiveEnabled()).toBe(true);
   });
 
-  it("returns false when SHOPIFY_CLIENT_ID is missing (demo → MarketplaceOAuthModal)", () => {
+  it("returns false when SHOPIFY_CLIENT_ID is missing", () => {
     delete process.env.SHOPIFY_CLIENT_ID;
     delete process.env.SHOPIFY_LIVE_ENABLED;
     expect(isShopifyLiveEnabled()).toBe(false);
@@ -38,19 +38,20 @@ describe("isShopifyLiveEnabled", () => {
 });
 
 /**
- * Mirrors MarketplaceConnectStep.startConnect branching for Shopify only.
- * Keeps the decision table explicit and regression-proof without mounting React.
+ * Connect-step policy: Shopify always uses the demo MarketplaceOAuthModal,
+ * matching eBay/Walmart/Etsy. Live OAuth (ShopifyConnectModal + /api/shopify/oauth/*)
+ * stays available but is not the /connect default — even when live credentials exist.
  */
-function pickShopifyModal(liveEnabled: boolean): "ShopifyConnectModal" | "MarketplaceOAuthModal" {
-  return liveEnabled ? "ShopifyConnectModal" : "MarketplaceOAuthModal";
+function pickShopifyConnectStepModal(_liveEnabled: boolean): "MarketplaceOAuthModal" {
+  return "MarketplaceOAuthModal";
 }
 
 describe("Shopify connect modal selection (/connect)", () => {
-  it("opens ShopifyConnectModal when live OAuth is enabled", () => {
-    expect(pickShopifyModal(true)).toBe("ShopifyConnectModal");
+  it("uses MarketplaceOAuthModal even when live OAuth is enabled", () => {
+    expect(pickShopifyConnectStepModal(true)).toBe("MarketplaceOAuthModal");
   });
 
-  it("falls back to MarketplaceOAuthModal when live OAuth is disabled", () => {
-    expect(pickShopifyModal(false)).toBe("MarketplaceOAuthModal");
+  it("uses MarketplaceOAuthModal when live OAuth is disabled", () => {
+    expect(pickShopifyConnectStepModal(false)).toBe("MarketplaceOAuthModal");
   });
 });

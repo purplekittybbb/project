@@ -495,7 +495,12 @@ const LABELS: Record<string, string> = {
   "seller-c": "Seller C",
 };
 
-function buildSellerView(seller: SeededSeller, channel: Channel = "trendyol"): SellerView | undefined {
+/** Pure — computes a view straight from a seller object, no lookup into any
+ *  shared registry. Safe to call server-side with a seller built on the fly
+ *  from a single request's own data (see app/api/chat/route.ts): unlike
+ *  `getSeller`, it never reads or writes RUNTIME_SELLERS, so concurrent
+ *  requests for different users can never see each other's data. */
+export function buildSellerView(seller: SeededSeller, channel: Channel = "trendyol"): SellerView | undefined {
   const mpMargins = channel === "combined" ? perMarketplaceMargins(seller.tenantId) : undefined;
   const txs = transactionsForChannel(seller, channel);
   if (txs.length === 0) return undefined;
@@ -610,6 +615,116 @@ export function getSilentLoserInsight(tenantId: string, channel: Channel = "tren
     }
   }
   return best;
+}
+
+// ─── Per-SKU actions (Products tab) ─────────────────────────────────────────
+//
+// The four SKU-row actions (Fund Inventory / Scale Ads / Adjust Price / Stop
+// Ads) each need a real number computed from ONLY that one SKU's own
+// transactions — not the whole channel. Every function below re-runs an
+// EXISTING engine function (aggregateTrueMargin, computeBreakEvenPrice,
+// trueMarginModel) on that SKU-filtered transaction set; none of them
+// introduce new margin math.
+
+function skuTransactions(tenantId: string, channel: Channel, sku: string): Transaction[] | undefined {
+  const seller = findSeller(tenantId);
+  if (!seller) return undefined;
+  const txs = transactionsForChannel(seller, channel).filter((t) => t.sku === sku);
+  return txs.length > 0 ? txs : undefined;
+}
+
+export interface SkuFinancingEstimate {
+  sku: string;
+  currency: string;
+  monthlyContribution: number;
+  approvedLimit: number;
+}
+
+/** Fund Inventory — the same trueMarginModel decision used for the seller-
+ *  level Financing tab, computed from just this SKU's own contribution. */
+export function getSkuFinancingEstimate(tenantId: string, channel: Channel, sku: string): SkuFinancingEstimate | undefined {
+  const txs = skuTransactions(tenantId, channel, sku);
+  if (!txs) return undefined;
+  const seller = findSeller(tenantId)!;
+  const currency = (txs[0]?.currency ?? "TRY") as Currency;
+  const inputs = deriveUnderwritingInputsFromTransactions(txs, seller.tenureMonths);
+  const decision = trueMarginModel(`${tenantId}:sku:${sku}`, inputs, currency);
+  return {
+    sku,
+    currency,
+    monthlyContribution: inputs.trailingMonthlyContribution,
+    approvedLimit: decision.approvedLimit,
+  };
+}
+
+export interface SkuAdSpendScenario {
+  sku: string;
+  currency: string;
+  currentAdSpend: number;
+  currentMarginPct: number;
+  projectedMarginPct: number;
+  projectedNetContribution: number;
+}
+
+/** Scale Ads / Stop Ads — rescales this SKU's own ad spend to
+ *  `newAdSpendTotal` and recomputes true margin through aggregateTrueMargin.
+ *  Identical rescale math to `recomputeMargin` above, just SKU-scoped: Scale
+ *  Ads calls this with a higher total, Stop Ads calls it with 0. */
+export function simulateSkuAdSpend(
+  tenantId: string,
+  channel: Channel,
+  sku: string,
+  newAdSpendTotal: number
+): SkuAdSpendScenario | undefined {
+  const txs = skuTransactions(tenantId, channel, sku);
+  if (!txs) return undefined;
+  const currency = (txs[0]?.currency ?? "TRY") as Currency;
+  const current = aggregateTrueMargin(txs);
+  const baseAd = txs.reduce((a, t) => a + t.fees.adSpendAllocated, 0);
+  const modified: Transaction[] = txs.map((t) => ({
+    ...t,
+    fees: {
+      ...t.fees,
+      adSpendAllocated:
+        baseAd > 0 ? t.fees.adSpendAllocated * (newAdSpendTotal / baseAd) : newAdSpendTotal / txs.length,
+    },
+  }));
+  const projected = aggregateTrueMargin(modified);
+  return {
+    sku,
+    currency,
+    currentAdSpend: baseAd,
+    currentMarginPct: current.marginPct,
+    projectedMarginPct: projected.marginPct,
+    projectedNetContribution: projected.netContribution,
+  };
+}
+
+export interface SkuBreakEven {
+  sku: string;
+  currency: string;
+  breakEvenPrice: number;
+  avgSellingPrice: number;
+}
+
+/** Adjust Price — the same computeBreakEvenPrice formula used for the
+ *  seller-level break-even card, applied to just this SKU's own waterfall.
+ *  computeBreakEvenPrice returns a threshold against the AGGREGATE waterfall
+ *  (total COGS/shipping/payment fees across every unit sold) — dividing by
+ *  unit count turns that into a genuine per-unit price, comparable to
+ *  avgSellingPrice below (also per-unit). Without this, the two numbers are
+ *  are apples-to-oranges — e.g. a ₺450 average price sitting next to an
+ *  ₺8,218 "minimum price" computed over 20 units. */
+export function getSkuBreakEven(tenantId: string, channel: Channel, sku: string): SkuBreakEven | undefined {
+  const txs = skuTransactions(tenantId, channel, sku);
+  if (!txs) return undefined;
+  const currency = (txs[0]?.currency ?? "TRY") as Currency;
+  const waterfall = aggregateWaterfall(txs);
+  const { breakEvenPrice: aggregateBreakEven } = computeBreakEvenPrice(waterfall);
+  const units = txs.reduce((s, t) => s + t.units, 0);
+  const avgSellingPrice = units > 0 ? waterfall.grossRevenue / units : 0;
+  const breakEvenPrice = units > 0 ? aggregateBreakEven / units : aggregateBreakEven;
+  return { sku, currency, breakEvenPrice, avgSellingPrice };
 }
 
 /** One append-only audit-trail row, as surfaced to the UI (the "decision trace"). */
@@ -896,6 +1011,33 @@ export interface FinancingView {
   historyMonths: number;
 }
 
+/** Pure — computes a financing view straight from a seller object, no lookup
+ *  into RUNTIME_SELLERS. Same concurrency-safety reason as `buildSellerView`. */
+export function buildFinancingView(seller: SeededSeller): FinancingView | undefined {
+  if (seller.transactions.length === 0) return undefined;
+
+  const tenantId = seller.tenantId;
+  const currency = (seller.transactions[0]?.currency ?? "TRY") as Currency;
+  const inputs = deriveUnderwritingInputsFromTransactions(seller.transactions, seller.tenureMonths);
+  const decision = trueMarginModel(tenantId, inputs, currency);
+  const incumbentDecision = incumbentModel(tenantId, inputs, currency);
+  const report = runBacktest([{ tenantId, currency, inputs }]);
+  const historyMonths = new Set(seller.transactions.map((t) => t.saleDate.slice(0, 7))).size;
+
+  return {
+    tenantId,
+    label: RUNTIME_LABELS[tenantId] ?? tenantId,
+    currency,
+    decision,
+    ourOutcome: simulateOutcome(decision),
+    incumbentDecision,
+    incumbentOutcome: simulateOutcome(incumbentDecision),
+    report,
+    isSelfBacktest: true,
+    historyMonths,
+  };
+}
+
 export function getFinancing(tenantId: string): FinancingView | undefined {
   const sellers = seededBacktestSellers();
   const idx = sellers.findIndex((s) => s.tenantId === tenantId);
@@ -915,33 +1057,10 @@ export function getFinancing(tenantId: string): FinancingView | undefined {
     };
   }
 
-  // Runtime (user) seller — not part of the seeded backtest portfolio. Compute a
-  // real underwriting decision straight from their own transactions. The backtest
-  // comparison (report) is now ALSO computed from this one seller's own inputs —
-  // both models replayed against the SAME real data — instead of silently
-  // substituting the seed portfolio's numbers under this seller's name.
+  // Runtime (user) seller — not part of the seeded backtest portfolio.
   const runtime = RUNTIME_SELLERS.find((s) => s.tenantId === tenantId);
-  if (!runtime || runtime.transactions.length === 0) return undefined;
-
-  const currency = (runtime.transactions[0]?.currency ?? "TRY") as Currency;
-  const inputs = deriveUnderwritingInputsFromTransactions(runtime.transactions, runtime.tenureMonths);
-  const decision = trueMarginModel(tenantId, inputs, currency);
-  const incumbentDecision = incumbentModel(tenantId, inputs, currency);
-  const report = runBacktest([{ tenantId, currency, inputs }]);
-  const historyMonths = new Set(runtime.transactions.map((t) => t.saleDate.slice(0, 7))).size;
-
-  return {
-    tenantId,
-    label: RUNTIME_LABELS[tenantId] ?? tenantId,
-    currency,
-    decision,
-    ourOutcome: simulateOutcome(decision),
-    incumbentDecision,
-    incumbentOutcome: simulateOutcome(incumbentDecision),
-    report,
-    isSelfBacktest: true,
-    historyMonths,
-  };
+  if (!runtime) return undefined;
+  return buildFinancingView(runtime);
 }
 
 /** Below this many distinct months of real order history, a single-seller

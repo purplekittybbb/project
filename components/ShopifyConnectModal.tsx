@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Shopify connect — real OAuth (live path), not an API-key form.
+ * Shopify connect — real Partner-app OAuth (live path), not an API-key form.
  *
- * Opened from MarketplaceConnectStep when isShopifyLiveEnabled() is true
- * (SHOPIFY_CLIENT_ID set). Collects store domain → POST /api/shopify/oauth/start
- * → top-level redirect to Shopify. When env is missing, Connect falls back to
- * MarketplaceOAuthModal (demo) instead.
+ * Collects store domain → POST /api/shopify/oauth/start → top-level redirect
+ * to Shopify. Kept available for live OAuth flows; MarketplaceConnectStep
+ * defaults to MarketplaceOAuthModal (demo) instead so Connect does not require
+ * a session + SHOPIFY_CLIENT_ID.
  */
 
 import { useState } from "react";

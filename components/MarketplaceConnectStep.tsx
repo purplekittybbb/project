@@ -9,6 +9,8 @@
  *   calls /api/marketplace/disconnect to actually delete the encrypted
  *   marketplace_credentials row server-side, with a choice to also delete the
  *   order data already pulled — demo connections disconnect locally only.
+ * - Shopify Connect uses MarketplaceOAuthModal (demo) by default; live Partner
+ *   OAuth routes + ShopifyConnectModal remain available outside this default.
  * - CSV path for manual_csv (real parse + save)
  * - Read-only trust copy throughout
  */
@@ -20,10 +22,8 @@ import { getConnections, isMarketplaceConnected, removeConnection, addConnection
 import type { MarketplaceConnection } from "@/lib/connect/types";
 import { READ_ONLY_COPY, MarketplaceOAuthModal } from "@/components/MarketplaceOAuthModal";
 import { MarketplaceApiKeyModal } from "@/components/MarketplaceApiKeyModal";
-import { ShopifyConnectModal } from "@/components/ShopifyConnectModal";
 import { saveUserRows } from "@/lib/supabase/user-data";
 import { isAuthConfigured, getSupabaseClient } from "@/lib/supabase/client";
-import { isShopifyLiveEnabled } from "@/lib/shopify-api/live";
 import {
   MARKETPLACE_OPTIONS, REGION_ORDER, REGION_LABELS, getMarketplaceOption,
   type MarketplaceOption,
@@ -60,7 +60,6 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
   const [connections, setConnections] = useState<MarketplaceConnection[]>(() => getConnections());
   const [oauthTarget, setOauthTarget] = useState<string | null>(null);
   const [oauthOpen, setOauthOpen] = useState(false);
-  const [shopifyLiveOpen, setShopifyLiveOpen] = useState(false);
   const [apiKeyTarget, setApiKeyTarget] = useState<string | null>(null);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
   const [connectError, setConnectError] = useState("");
@@ -118,12 +117,9 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
       setApiKeyOpen(true);
       return;
     }
-    // Shopify: live Partner-app OAuth when SHOPIFY_CLIENT_ID is set; else demo modal.
-    if (marketplaceId === "shopify" && isShopifyLiveEnabled()) {
-      setShopifyLiveOpen(true);
-      return;
-    }
-    // oauth demo consent modal — eBay/Walmart/Etsy and Shopify-without-env.
+    // oauth demo consent modal (Shopify included — same as eBay/Walmart/Etsy).
+    // Live Partner OAuth stays available via /api/shopify/oauth/* + ShopifyConnectModal,
+    // but is not the connect-step default (avoids requiring session + SHOPIFY_CLIENT_ID).
     setOauthTarget(marketplaceId);
     setOauthOpen(true);
   }
@@ -353,10 +349,6 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
         open={oauthOpen}
         onClose={() => { setOauthOpen(false); setOauthTarget(null); }}
         onConnected={handleConnected}
-      />
-      <ShopifyConnectModal
-        open={shopifyLiveOpen}
-        onClose={() => setShopifyLiveOpen(false)}
       />
       <MarketplaceApiKeyModal
         marketplaceId={apiKeyTarget}
