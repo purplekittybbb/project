@@ -31,7 +31,11 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useRouter } from "next/navigation";
+import { useLanguage } from "@/lib/i18n/useLanguage";
+import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "@/lib/i18n/config";
+import { translateRationale, translateBenchmarkLabel } from "@/lib/i18n/translateRationale";
 import {
   ChevronDown, Sparkles, ArrowUpRight,
   LayoutDashboard, Users, Briefcase, History as HistoryIcon, Settings, Package, Tag, Landmark, Database,
@@ -53,7 +57,7 @@ import { CashFlowPanel } from "@/components/CashFlowPanel";
 import { SkuProfitabilityHeatmap } from "@/components/SkuProfitabilityHeatmap";
 import { PeerBenchmarkingSection } from "@/components/PeerBenchmarkingSection";
 import { AuthGuard } from "@/components/auth-guard";
-import { getTrialDaysLeft, getConnectedMarketplaces, resetOnboarding } from "@/lib/onboarding";
+import { getTrialDaysLeft, getConnectedMarketplaces, resetOnboarding, isOnboardingDone } from "@/lib/onboarding";
 import {
   supportedChannels, getMarketplaceOption,
   type MarketplaceOption,
@@ -63,10 +67,15 @@ import type { MarketplaceConnection } from "@/lib/connect/types";
 import { DEFAULT_CHANNEL, DEFAULT_DASHBOARD_CHANNELS } from "@/lib/product-market";
 import { isAiConfigured } from "@/lib/copilot/ai-configured";
 
-const AI_PRESETS = [
-  "Why did this seller get this limit?",
-  "Why this take-rate?",
-  "What's the backtest vs incumbent?",
+// Translation keys, not display strings — AI_PRESET_KEYS lives at module
+// scope (t() needs the hook, only available inside the component), so the
+// actual text is resolved via t(key) both for display AND as the literal
+// question text sent to askCopilot() — a Turkish preset sends a Turkish
+// question when Turkish is selected.
+const AI_PRESET_KEYS = [
+  "copilot.presets.whyLimit",
+  "copilot.presets.whyTakeRate",
+  "copilot.presets.backtest",
 ];
 
 // Mirrors app/api/chat/route.ts's X-Copilot-Mode values — which path produced
@@ -82,6 +91,8 @@ interface DashboardPageProps {
 
 export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const router = useRouter();
+  const { t } = useTranslation();
+  const { language, setLanguage } = useLanguage(demoMode);
   const [channel, setChannel] = useState<Channel>(DEFAULT_CHANNEL);
   // dataVersion is bumped whenever the runtime (user) seller registry changes,
   // forcing getSellers/getSeller below to recompute with the latest data.
@@ -107,6 +118,12 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     : getSellers(channel);
   const [tenant, setTenant] = useState(authConfigured ? USER_TENANT_ID : "seller-b");
   const [initialDataLoadDone, setInitialDataLoadDone] = useState(!authConfigured);
+  // Onboarding-complete signals other than "has real transaction data" — see
+  // the needsOnboarding guard below for why these matter.
+  const [billingStatusLoaded, setBillingStatusLoaded] = useState(!authConfigured);
+  const [hasBillingHistory, setHasBillingHistory] = useState(false);
+  const [onboardingLocallyDone, setOnboardingLocallyDone] = useState(false);
+  useEffect(() => { setOnboardingLocallyDone(isOnboardingDone()); }, []);
 
   // Load the signed-in user's persisted data once on mount, register it with the
   // engine, and switch to it so returning users see their own numbers immediately.
@@ -197,17 +214,38 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     });
   }
 
-  // A real signed-in seller who hasn't connected/entered any data yet — send them
-  // to onboarding instead of ever rendering the dashboard shell around them.
-  const needsOnboarding = authConfigured && initialDataLoadDone && !hasRuntimeSeller(USER_TENANT_ID);
+  // A real signed-in seller who has NEVER been through onboarding — send them
+  // there instead of ever rendering the dashboard shell around them.
+  //
+  // Real transaction data (hasRuntimeSeller) is NOT the right signal on its
+  // own: connecting a marketplace in /connect (components/MarketplaceConnectStep.tsx
+  // → lib/connect/store.ts's addConnection) is entirely localStorage — it never
+  // writes to user_transactions. Only a CSV upload or a real marketplace API
+  // sync does. So a user who completed /connect via the demo OAuth connectors
+  // (the only option without real Trendyol/Hepsiburada/N11/Shopify credentials
+  // on hand) would have zero transaction rows forever, and this guard would
+  // bounce them back to /connect every single time they reached /dashboard —
+  // an inescapable redirect loop, confirmed live. onboardingLocallyDone
+  // (set by /connect's finish() via completeOnboarding()) and hasBillingHistory
+  // (a billing_subscriptions row exists — proof they finished the card step,
+  // works cross-device) are both independent proof the flow was completed at
+  // least once; either one is enough to let them through even with no data yet.
+  const needsOnboarding =
+    authConfigured &&
+    initialDataLoadDone &&
+    billingStatusLoaded &&
+    !hasRuntimeSeller(USER_TENANT_ID) &&
+    !onboardingLocallyDone &&
+    !hasBillingHistory;
   useEffect(() => {
     if (needsOnboarding) router.replace("/connect");
   }, [needsOnboarding, router]);
 
-  // The initial-load effect above hasn't resolved yet — `view` above is
-  // temporarily the seed fallback. Never show that to a real signed-in user;
-  // wait for their own data (or the onboarding redirect) instead.
-  const isLoadingInitialData = authConfigured && !initialDataLoadDone;
+  // The initial-load effects above haven't resolved yet — `view` above is
+  // temporarily the seed fallback. Never show that (or decide needsOnboarding)
+  // to a real signed-in user; wait for their own data AND billing status
+  // (or the onboarding redirect) instead.
+  const isLoadingInitialData = authConfigured && (!initialDataLoadDone || !billingStatusLoaded);
 
   async function handleUserUpload(rows: UserRawRow[]) {
     setDataBusy(true);
@@ -341,12 +379,12 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
 
   async function loadBillingStatus() {
     if (!authConfigured) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
-    if (!accessToken) return;
     try {
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) return;
       const res = await fetch("/api/billing/status", {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -357,8 +395,16 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       }
       setBillingStatusError(null);
       setBillingStatus(result as BillingStatusView);
+      // Any subscription row (trialing/active/etc.) is proof this account
+      // already finished /connect's card step at least once — see the
+      // needsOnboarding guard above.
+      setHasBillingHistory(!!(result as BillingStatusView).subscription);
     } catch {
       setBillingStatusError("Abonelik bilgisi yüklenemedi.");
+    } finally {
+      // Runs even on an early return (not authConfigured is the one exception —
+      // that path never needs this, since needsOnboarding is already false then).
+      setBillingStatusLoaded(true);
     }
   }
   useEffect(() => { loadBillingStatus(); }, [authConfigured]);
@@ -481,10 +527,24 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // user, every time, before their data has had a chance to load. The
   // `isLoadingInitialData` gate below keeps that seed data off-screen — this
   // fallback exists purely so the render doesn't throw before the gate runs.
+  // The final seed fallback MUST be channel-proof. `getSeller("seller-b", channel)`
+  // is undefined whenever the current `channel` is one the seed seller has no
+  // transactions for — e.g. a real signed-in user who connected Shopify/N11
+  // has their `channel` snapped to it (see the channel-sync effect above), but
+  // seed seller-b only carries trendyol/amazon/hepsiburada data (lib/data/seed.ts).
+  // That made the `!` a lie, `view` undefined, and `view.currency` on the next
+  // line crashed the ENTIRE dashboard to Next's "This page couldn't load" for
+  // every such user on entry — indistinguishable to them from being unable to
+  // get past onboarding. `getSeller("seller-b", "combined")` aggregates ALL of
+  // the seed seller's transactions across every marketplace, so it is
+  // guaranteed to resolve regardless of the selected channel — a safe,
+  // never-undefined stand-in purely so the render reaches the loading /
+  // no-data / onboarding gates below (which replace it before it's ever shown).
   const view =
     getSeller(tenant, channel) ??
     (authConfigured ? getSeller(tenant, "combined") : undefined) ??
-    getSeller("seller-b", channel)!;
+    getSeller("seller-b", channel) ??
+    getSeller("seller-b", "combined")!;
   const fin = getFinancing(tenant) ?? getFinancing("seller-b")!;
   const currency = view.currency;
   const w = view.waterfall;
@@ -644,6 +704,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           messages: threadForServer.map(({ role, content }) => ({ role, content })),
           tenantId: tenant,
           channel,
+          language,
         }),
       });
       const modeHeader = res.headers.get("X-Copilot-Mode");
@@ -667,7 +728,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
         });
       }
     } catch {
-      setCopilotMessages((prev) => [...prev, { role: "assistant", content: "Could not reach the Analyst Copilot." }]);
+      setCopilotMessages((prev) => [...prev, { role: "assistant", content: t("copilot.couldNotReach") }]);
     } finally {
       setAiLoading(false);
     }
@@ -684,7 +745,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     if (groundingKeyRef.current && groundingKeyRef.current !== key && copilotMessages.length > 0) {
       setCopilotMessages((prev) => [
         ...prev,
-        { role: "system-note", content: `— Kanal değişti: ${view.label} · ${channelLabel(view.channel)} —` },
+        { role: "system-note", content: t("copilot.gradingChanged", { seller: view.label, channel: channelLabel(view.channel) }) },
       ]);
     }
     groundingKeyRef.current = key;
@@ -706,17 +767,19 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     );
   };
 
+  // `id` stays the internal English state key (currentTab === "Dashboard" etc.,
+  // compared throughout this file) — only the DISPLAYED label is translated.
   const navItems = [
-    { id: "Dashboard", icon: LayoutDashboard },
-    { id: "Verilerim", icon: Database },
-    { id: "Sellers", icon: Users },
-    { id: "Financing", icon: Briefcase },
-    { id: "Campaign", icon: Tag },
-    { id: "Nakit", icon: Landmark },
-    { id: "Products", icon: Package },
-    { id: "Copilot", icon: Sparkles },
-    { id: "History", icon: HistoryIcon },
-    { id: "Settings", icon: Settings },
+    { id: "Dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
+    { id: "Verilerim", labelKey: "nav.myData", icon: Database },
+    { id: "Sellers", labelKey: "nav.sellers", icon: Users },
+    { id: "Financing", labelKey: "nav.financing", icon: Briefcase },
+    { id: "Campaign", labelKey: "nav.campaign", icon: Tag },
+    { id: "Nakit", labelKey: "nav.cashFlow", icon: Landmark },
+    { id: "Products", labelKey: "nav.products", icon: Package },
+    { id: "Copilot", labelKey: "nav.copilot", icon: Sparkles },
+    { id: "History", labelKey: "nav.history", icon: HistoryIcon },
+    { id: "Settings", labelKey: "nav.settings", icon: Settings },
   ];
 
   // Still waiting on the initial Supabase fetch for a real signed-in user —
@@ -740,6 +803,40 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <span className="text-zinc-600 font-mono text-[11px] uppercase tracking-[0.2em]">Redirecting to connect…</span>
+      </div>
+    );
+  }
+
+  // A real signed-in seller who HAS completed onboarding (see needsOnboarding's
+  // comment above) but still has zero real transaction data — e.g. they only
+  // used /connect's demo marketplace connectors, which never write to
+  // user_transactions. `view` below would otherwise silently fall back to the
+  // seed seller ("seller-b") for render-safety, which would show them fake
+  // demo numbers as if they were their own — never acceptable. Show an honest
+  // empty state instead, with a real path to actual data (CSV upload or a
+  // genuine marketplace connection), rather than either bleeding seed data or
+  // trapping them in the /connect loop this whole guard exists to avoid.
+  const hasNoRealDataYet = authConfigured && initialDataLoadDone && !hasRuntimeSeller(USER_TENANT_ID);
+  if (hasNoRealDataYet) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
+        <div className="max-w-sm text-center space-y-4">
+          <div className="text-zinc-200 font-sans text-lg font-medium">No data yet</div>
+          <p className="text-zinc-500 text-sm leading-relaxed">
+            Your account is set up, but there&apos;s no real order data to show yet — connecting a marketplace
+            during onboarding links the account, but doesn&apos;t pull in past orders on its own. Upload a CSV
+            or connect a marketplace with real API access to see your numbers here.
+          </p>
+          <div className="flex flex-col gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => router.push("/connect")}
+              className="h-10 px-4 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors"
+            >
+              Connect a marketplace
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -772,7 +869,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               }`}
             >
               <item.icon size={16} className={currentTab === item.id ? "text-zinc-300" : "text-zinc-600"} />
-              <span>{item.id}</span>
+              <span>{t(item.labelKey)}</span>
             </button>
           ))}
         </nav>
@@ -1242,9 +1339,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 </div>
               </div>
 
-              {/* Peer Benchmarking — real engine metrics vs representative sector averages */}
+              {/* Peer Benchmarking — real engine metrics ranked against segmented,
+                  k-anonymous peer percentiles (pooled where available, else published) */}
               <div className="mt-20">
-                <PeerBenchmarkingSection view={view} />
+                <PeerBenchmarkingSection view={view} channel={view.channel} authConfigured={authConfigured} />
               </div>
             </div>
           )}
@@ -1327,30 +1425,28 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {currentTab === "Financing" && (
             <div className="max-w-[1200px] mx-auto px-8 py-12 md:py-20">
               <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-12 border-l border-zinc-800 pl-4">
-                Active Credit Line · {view.label}
+                {t("financing.activeCreditLine", { seller: view.label })}
               </h2>
 
               <div className="grid gap-16 lg:grid-cols-2 mb-20">
                 {/* LEFT: the unlock */}
                 <section>
                   <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">
-                    {approved ? "Approved limit" : "Underwriting decision"}
+                    {approved ? t("financing.approvedLimit") : t("financing.underwritingDecision")}
                   </h3>
                   <div className={`font-mono text-6xl tracking-tight tabular-nums ${approved ? "text-zinc-100" : "text-red-400"}`}>
-                    {approved ? money(fin.decision.approvedLimit) : "Declined"}
+                    {approved ? money(fin.decision.approvedLimit) : t("financing.declined")}
                   </div>
                   <p className="mt-4 max-w-md text-sm leading-relaxed text-zinc-500">
-                    {approved ? (
-                      <>Priced at a take-rate of <span className="tabular-nums text-zinc-200">{takeRate}%</span> (target band 3–6%). Sized to real contribution profit, not a revenue snapshot.</>
-                    ) : (
-                      <>This seller&apos;s true margin can&apos;t service new debt, so the model advances {money(0)}. A revenue-snapshot lender would not see this — and would lend anyway.</>
-                    )}
+                    {approved
+                      ? t("financing.approvedCopy", { rate: takeRate })
+                      : t("financing.declinedCopy", { amount: money(0) })}
                   </p>
 
                   <div className="mt-8">
-                    <h4 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">Decision trace</h4>
+                    <h4 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">{t("financing.decisionTrace")}</h4>
                     <ol className="space-y-2">
-                      {fin.decision.rationale.map((r, i) => (
+                      {translateRationale(fin.decision.rationale, language).map((r, i) => (
                         <li key={i} className="flex gap-3 text-sm text-zinc-400">
                           <span className="tabular-nums shrink-0 text-zinc-700 font-mono">{String(i + 1).padStart(2, "0")}</span>
                           <span>{r}</span>
@@ -1358,7 +1454,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       ))}
                     </ol>
                     <p className="mt-3 text-[11px] text-zinc-600 font-mono">
-                      Rule-based and explainable (EU AI Act) — recorded immutably as a decision trace, seq #{ledger.find((l) => l.tenantId === tenant)?.seq ?? "—"} in the append-only ledger.
+                      {t("financing.ruleBasedExplainable", { seq: ledger.find((l) => l.tenantId === tenant)?.seq ?? "—" })}
                     </p>
                   </div>
                 </section>
@@ -1366,7 +1462,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 {/* RIGHT: backtest — us vs incumbent */}
                 <section>
                   <div className="flex items-center gap-3 mb-3">
-                    <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans">Backtest — us vs incumbent</h3>
+                    <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans">{t("financing.backtestTitle")}</h3>
                     {fin.isSelfBacktest && (
                       <span className="bg-zinc-900 text-zinc-500 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800">
                         N=1 · {fin.historyMonths} mo.
@@ -1375,32 +1471,35 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   </div>
                   <div className="grid grid-cols-2 gap-px bg-zinc-800 border border-zinc-800 mt-4">
                     <div className="bg-zinc-950 p-4 lg:p-5">
-                      <div className="text-zinc-400 font-sans text-xs mb-3">TrueMargin</div>
+                      <div className="text-zinc-400 font-sans text-xs mb-3">{t("financing.trueMargin")}</div>
                       <dl className="space-y-1.5 text-sm font-mono">
-                        <div className="flex justify-between"><dt className="text-zinc-600">Limit</dt><dd className="tabular-nums text-zinc-200">{money(fin.decision.approvedLimit)}</dd></div>
-                        <div className="flex justify-between"><dt className="text-zinc-600">Take-rate</dt><dd className="tabular-nums text-zinc-200">{approved ? `${takeRate}%` : "—"}</dd></div>
-                        <div className="flex justify-between"><dt className="text-zinc-600">Outcome</dt><dd className={fin.ourOutcome.impaired ? "text-red-400" : "text-emerald-400"}>{fin.ourOutcome.isLoan ? (fin.ourOutcome.impaired ? "Impaired" : "Performing") : "Declined"}</dd></div>
-                        <div className="flex justify-between"><dt className="text-zinc-600">Sim. loss</dt><dd className="tabular-nums text-zinc-200">{money(fin.ourOutcome.loss)}</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.limit")}</dt><dd className="tabular-nums text-zinc-200">{money(fin.decision.approvedLimit)}</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.takeRate")}</dt><dd className="tabular-nums text-zinc-200">{approved ? `${takeRate}%` : "—"}</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.outcome")}</dt><dd className={fin.ourOutcome.impaired ? "text-red-400" : "text-emerald-400"}>{fin.ourOutcome.isLoan ? (fin.ourOutcome.impaired ? t("financing.impaired") : t("financing.performing")) : t("financing.declined")}</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.simLoss")}</dt><dd className="tabular-nums text-zinc-200">{money(fin.ourOutcome.loss)}</dd></div>
                       </dl>
                     </div>
                     <div className="bg-zinc-950 p-4 lg:p-5">
-                      <div className="text-zinc-500 font-sans text-xs mb-3">Incumbent</div>
+                      <div className="text-zinc-500 font-sans text-xs mb-3">{t("financing.incumbent")}</div>
                       <dl className="space-y-1.5 text-sm font-mono">
-                        <div className="flex justify-between"><dt className="text-zinc-600">Limit</dt><dd className="tabular-nums text-zinc-400">{money(fin.incumbentDecision.approvedLimit)}</dd></div>
-                        <div className="flex justify-between"><dt className="text-zinc-600">Take-rate</dt><dd className="tabular-nums text-zinc-400">{(fin.incumbentDecision.takeRate * 100).toFixed(1)}%</dd></div>
-                        <div className="flex justify-between"><dt className="text-zinc-600">Outcome</dt><dd className={fin.incumbentOutcome.impaired ? "text-red-400" : "text-zinc-400"}>{fin.incumbentOutcome.isLoan ? (fin.incumbentOutcome.impaired ? "Impaired" : "Performing") : "Declined"}</dd></div>
-                        <div className="flex justify-between"><dt className="text-zinc-600">Sim. loss</dt><dd className="tabular-nums text-zinc-400">{money(fin.incumbentOutcome.loss)}</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.limit")}</dt><dd className="tabular-nums text-zinc-400">{money(fin.incumbentDecision.approvedLimit)}</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.takeRate")}</dt><dd className="tabular-nums text-zinc-400">{(fin.incumbentDecision.takeRate * 100).toFixed(1)}%</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.outcome")}</dt><dd className={fin.incumbentOutcome.impaired ? "text-red-400" : "text-zinc-400"}>{fin.incumbentOutcome.isLoan ? (fin.incumbentOutcome.impaired ? t("financing.impaired") : t("financing.performing")) : t("financing.declined")}</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.simLoss")}</dt><dd className="tabular-nums text-zinc-400">{money(fin.incumbentOutcome.loss)}</dd></div>
                       </dl>
                     </div>
                   </div>
                   {fin.isSelfBacktest && fin.historyMonths < LOW_SAMPLE_HISTORY_MONTHS ? (
                     <div className="mt-4 text-xs text-amber-400/90 font-mono tracking-wide leading-relaxed">
-                      Sınırlı veri (N={fin.historyMonths} ay) — sonuçlar öngörücü değil, bilgilendirici.
+                      {t("financing.limitedData", { months: fin.historyMonths })}
                     </div>
                   ) : (
                     <div className="mt-4 text-xs text-emerald-400/80 font-mono tracking-wide flex items-center gap-3">
-                      <span className="text-emerald-500">↓</span> {lossRed}% loss reduction vs incumbent{" "}
-                      {fin.isSelfBacktest ? `(your own data, N=1)` : "(N=3 design partners)"}
+                      <span className="text-emerald-500">↓</span>{" "}
+                      {t("financing.lossReduction", {
+                        pct: lossRed,
+                        source: fin.isSelfBacktest ? t("financing.yourOwnData") : t("financing.designPartnersSource"),
+                      })}
                     </div>
                   )}
                 </section>
@@ -1409,36 +1508,36 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               {/* Investor / technical-credibility proof points — from the seed-stage diligence memo */}
               <div className="border-t border-zinc-900 pt-12">
                 <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-6">
-                  Category-specific proof points
+                  {t("financing.proofPoints")}
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-zinc-800 border border-zinc-800 mb-10">
                   <div className="bg-zinc-950 p-4 lg:p-6">
                     <div className="text-2xl font-mono tabular-nums text-zinc-100">{portfolio.designPartners}</div>
-                    <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">Design partners</div>
+                    <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">{t("financing.designPartners")}</div>
                   </div>
                   <div className="bg-zinc-950 p-4 lg:p-6">
                     <div className="text-2xl font-mono tabular-nums text-zinc-100">{portfolio.marketplacesConnected}</div>
-                    <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">Marketplace connectors</div>
+                    <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">{t("financing.marketplaceConnectors")}</div>
                   </div>
                   <div className="bg-zinc-950 p-4 lg:p-6">
                     <div className="text-2xl font-mono tabular-nums text-zinc-100">{portfolio.gmvCoveragePct.toFixed(0)}%</div>
-                    <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">GMV coverage</div>
+                    <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">{t("financing.gmvCoverage")}</div>
                   </div>
                 </div>
 
                 <h4 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">
-                  vs. seed-stage embedded-lending benchmark
+                  {t("financing.benchmarkTitle")}
                 </h4>
                 <div className="text-sm font-mono w-full">
                   <div className="flex w-full border-b border-zinc-900 pb-3 mb-1 text-zinc-600 text-[10px] uppercase tracking-[0.1em]">
-                    <div className="w-5/12">Metric</div>
-                    <div className="w-3/12 text-right">Ours (live)</div>
-                    <div className="w-3/12 text-right">Target</div>
-                    <div className="w-1/12 text-right">Status</div>
+                    <div className="w-5/12">{t("financing.metric")}</div>
+                    <div className="w-3/12 text-right">{t("financing.oursLive")}</div>
+                    <div className="w-3/12 text-right">{t("financing.target")}</div>
+                    <div className="w-1/12 text-right">{t("financing.status")}</div>
                   </div>
                   {benchmarks.map((b) => (
                     <div key={b.label} className="flex w-full items-center py-2.5 border-b border-zinc-900/50">
-                      <div className="w-5/12 text-zinc-300 text-[13px]">{b.label}</div>
+                      <div className="w-5/12 text-zinc-300 text-[13px]">{translateBenchmarkLabel(b.label, language)}</div>
                       <div className="w-3/12 text-right text-zinc-100 tabular-nums">{b.ours}</div>
                       <div className="w-3/12 text-right text-zinc-600 tabular-nums">{b.target}</div>
                       <div className={`w-1/12 text-right ${b.meetsTarget ? "text-emerald-400" : "text-amber-400"}`}>
@@ -1448,8 +1547,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   ))}
                 </div>
                 <p className="mt-4 text-[11px] leading-relaxed text-zinc-600 font-mono">
-                  N=3 design partners — proof of mechanism, not a statistical loss-rate. Target column reflects the
-                  Lendflow 2025 embedded-lending benchmark cited in the underwriting diligence memo.
+                  {t("financing.benchmarkFootnote")}
                 </p>
               </div>
             </div>
@@ -1459,30 +1557,27 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {currentTab === "History" && (
             <div className="max-w-[900px] px-8 py-12 md:py-20">
               <div className="flex items-center gap-4 mb-2">
-                <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] border-l border-zinc-800 pl-4">Decision Ledger</h2>
-                <span className="bg-zinc-900 text-emerald-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800">IMMUTABLE · APPEND-ONLY</span>
+                <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] border-l border-zinc-800 pl-4">{t("history.title")}</h2>
+                <span className="bg-zinc-900 text-emerald-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800">{t("history.immutable")}</span>
               </div>
               <p className="text-zinc-600 text-[11px] font-mono mb-10 pl-4 max-w-xl">
-                {authConfigured
-                  ? "Every real underwriting decision on your account is written once and never mutated — recorded to Postgres whenever your data changes and the decision genuinely moves."
-                  : "Every underwriting decision is written once and never mutated — the auditable record due diligence looks for, and the store of the decision traces that are the real, un-copyable moat."}
+                {authConfigured ? t("history.descAuth") : t("history.descDemo")}
               </p>
               {authConfigured && realLedgerEntries === null ? (
-                <p className="text-zinc-600 font-mono text-[12px] pl-4">Loading your decision history…</p>
+                <p className="text-zinc-600 font-mono text-[12px] pl-4">{t("history.loadingHistory")}</p>
               ) : authConfigured && ledger.length === 0 ? (
                 <p className="text-zinc-600 font-mono text-[12px] pl-4 max-w-md">
-                  No decisions recorded yet — connect a marketplace or upload data from Verilerim, and your first
-                  underwriting decision will appear here.
+                  {t("history.noDecisions")}
                 </p>
               ) : (
                 <>
                   <div className="text-sm font-mono w-full">
                     <div className="flex w-full border-b border-zinc-900 pb-3 mb-1 text-zinc-600 text-[10px] uppercase tracking-[0.1em]">
-                      <div className="w-1/12">Seq</div>
-                      <div className="w-3/12">Recorded at</div>
-                      <div className="w-3/12">Tenant</div>
-                      <div className="w-3/12 text-right">Limit</div>
-                      <div className="w-2/12 text-right">Take-rate</div>
+                      <div className="w-1/12">{t("history.seq")}</div>
+                      <div className="w-3/12">{t("history.recordedAt")}</div>
+                      <div className="w-3/12">{t("history.tenant")}</div>
+                      <div className="w-3/12 text-right">{t("financing.limit")}</div>
+                      <div className="w-2/12 text-right">{t("financing.takeRate")}</div>
                     </div>
                     {ledger.map((l) => (
                       <div key={l.seq} className="flex w-full items-center py-3 border-b border-zinc-900/50 hover:bg-zinc-900/30 transition-colors">
@@ -1495,10 +1590,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     ))}
                   </div>
                   <p className="mt-6 text-[11px] text-zinc-600 font-mono">
-                    {ledger.length} entries · model {ledger[0]?.modelVersion ?? "—"} ·{" "}
-                    {authConfigured
-                      ? "sink: Postgres (decision_ledger, RLS-scoped to your account, append-only)."
-                      : "sink: in-memory (seed-portfolio walkthrough — /demo only)."}
+                    {t("history.entriesFooter", { count: ledger.length, model: ledger[0]?.modelVersion ?? "—" })}{" "}
+                    {authConfigured ? t("history.sinkAuth") : t("history.sinkDemo")}
                   </p>
                 </>
               )}
@@ -1508,19 +1601,40 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {/* VIEW: SETTINGS */}
           {currentTab === "Settings" && (
             <div className="max-w-[900px] px-8 py-12 md:py-20">
-              <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-12 border-l border-zinc-800 pl-4">Organization Settings</h2>
+              <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-12 border-l border-zinc-800 pl-4">{t("settings.title")}</h2>
+
+              {/* Language — drives BOTH this UI's i18n language and the language
+                  the Copilot (Gemini) is instructed to answer in. Persisted to
+                  user_settings for real users; localStorage for demo. */}
+              <div className="border border-zinc-900 bg-zinc-950/50 p-6">
+                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">{t("settings.language")}</div>
+                <div className="inline-flex border border-zinc-800">
+                  {SUPPORTED_LANGUAGES.map((lang: SupportedLanguage) => (
+                    <button
+                      key={lang}
+                      type="button"
+                      onClick={() => setLanguage(lang)}
+                      className={`px-4 py-2 text-sm font-mono transition-colors ${
+                        language === lang ? "bg-zinc-100 text-zinc-900" : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      {lang === "en" ? t("settings.languageEnglish") : t("settings.languageTurkish")}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {/* Account — real identity from the Supabase session, not a placeholder. */}
-              <div className="border border-zinc-900 bg-zinc-950/50 p-6">
-                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">Account</div>
+              <div className="mt-8 border border-zinc-900 bg-zinc-950/50 p-6">
+                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">{t("settings.account")}</div>
                 {authConfigured ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
-                      <div className="text-zinc-600 text-[10px] uppercase tracking-wide font-mono mb-1.5">Email</div>
+                      <div className="text-zinc-600 text-[10px] uppercase tracking-wide font-mono mb-1.5">{t("settings.email")}</div>
                       <div className="text-zinc-200 text-sm font-mono tabular-nums truncate">{account?.email ?? "…"}</div>
                     </div>
                     <div>
-                      <div className="text-zinc-600 text-[10px] uppercase tracking-wide font-mono mb-1.5">Company / store</div>
+                      <div className="text-zinc-600 text-[10px] uppercase tracking-wide font-mono mb-1.5">{t("settings.companyStore")}</div>
                       <div className="text-zinc-200 text-sm font-mono truncate">
                         {account ? (account.company || "—") : "…"}
                       </div>
@@ -1528,44 +1642,44 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   </div>
                 ) : (
                   <p className="text-zinc-600 font-mono text-[12px]">
-                    Supabase not configured in this environment — account identity unavailable.
+                    {t("settings.notConfigured")}
                   </p>
                 )}
               </div>
 
               {/* Billing — Stripe subscription row from billing_subscriptions. */}
               <div className="mt-8 border border-zinc-900 bg-zinc-950/50 p-6">
-                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">Billing &amp; trial</div>
+                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">{t("settings.billingTrial")}</div>
                 {!authConfigured ? (
-                  <p className="text-zinc-600 font-mono text-[12px]">Sign in to view subscription status.</p>
+                  <p className="text-zinc-600 font-mono text-[12px]">{t("settings.signInToView")}</p>
                 ) : billingStatusError ? (
                   <p className="text-red-400 font-mono text-[12px]">{billingStatusError}</p>
                 ) : !billingStatus ? (
-                  <p className="text-zinc-600 font-mono text-[12px]">Loading…</p>
+                  <p className="text-zinc-600 font-mono text-[12px]">{t("common.loading")}</p>
                 ) : (
                   <div className="space-y-3 text-sm font-mono">
                     <div className="flex justify-between gap-4">
-                      <span className="text-zinc-600">Plan after trial</span>
+                      <span className="text-zinc-600">{t("settings.planAfterTrial")}</span>
                       <span className="text-zinc-200 tabular-nums">{billingStatus.plan.formattedAfterTrial}</span>
                     </div>
                     <div className="flex justify-between gap-4">
-                      <span className="text-zinc-600">Stripe</span>
+                      <span className="text-zinc-600">{t("settings.stripe")}</span>
                       <span className={billingStatus.stripeConfigured ? "text-emerald-400" : "text-amber-400"}>
-                        {billingStatus.stripeConfigured ? "Configured" : "Not configured (demo card on /connect)"}
+                        {billingStatus.stripeConfigured ? t("settings.stripeConfigured") : t("settings.stripeNotConfigured")}
                       </span>
                     </div>
                     <div className="flex justify-between gap-4">
-                      <span className="text-zinc-600">Subscription</span>
+                      <span className="text-zinc-600">{t("settings.subscription")}</span>
                       <span className="text-zinc-200 capitalize tabular-nums">
-                        {billingStatus.subscription?.status ?? "Not started"}
+                        {billingStatus.subscription?.status ?? t("settings.notStarted")}
                         {billingStatus.subscription?.isDemo && (
-                          <span className="text-amber-400/90 normal-case text-[11px] ml-1">(demo — no card)</span>
+                          <span className="text-amber-400/90 normal-case text-[11px] ml-1">{t("settings.demoNoCard")}</span>
                         )}
                       </span>
                     </div>
                     {billingStatus.subscription?.trialEnd && (
                       <div className="flex justify-between gap-4">
-                        <span className="text-zinc-600">Trial ends</span>
+                        <span className="text-zinc-600">{t("settings.trialEnds")}</span>
                         <span className="text-zinc-200 tabular-nums">
                           {billingStatus.subscription.trialEnd.slice(0, 10)}
                         </span>
@@ -1578,10 +1692,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               {/* Connected marketplaces — every link that actually exists (server-verified
                   live credentials + demo-only local links), each with a real Disconnect. */}
               <div className="mt-8 border border-zinc-900 bg-zinc-950/50 p-6">
-                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">Connected marketplaces</div>
+                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">{t("settings.connectedMarketplaces")}</div>
                 {displayedConnections.length === 0 ? (
                   <p className="text-zinc-600 font-mono text-[12px]">
-                    No marketplace connected yet — go to <span className="text-zinc-400">/connect</span> to link one.
+                    {t("settings.noMarketplaceConnected")}
                   </p>
                 ) : (
                   <ul className="divide-y divide-zinc-900">
@@ -1599,13 +1713,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                                   isLive ? "border-emerald-800/60 text-emerald-400/80" : "border-zinc-800 text-zinc-500"
                                 }`}
                               >
-                                {isLive ? "Live" : "Demo"}
+                                {isLive ? t("settings.live") : t("settings.demo")}
                               </span>
                             </div>
                             <div className="text-zinc-600 text-[11px] font-mono mt-0.5 tabular-nums">
                               {c.connectedAt
-                                ? `Connected ${new Date(c.connectedAt).toISOString().slice(0, 10)}`
-                                : "Credentials on file"}
+                                ? t("settings.connectedOn", { date: new Date(c.connectedAt).toISOString().slice(0, 10) })
+                                : t("settings.credentialsOnFile")}
                             </div>
                             {status && (
                               <div className={`text-[11px] font-mono mt-1 ${status.ok ? "text-emerald-400" : "text-red-400"}`}>
@@ -1618,7 +1732,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                             onClick={() => setDisconnectTarget(c.marketplaceId)}
                             className="shrink-0 inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-400 font-mono text-[12px] hover:border-red-400/40 hover:text-red-400 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
                           >
-                            Disconnect
+                            {t("settings.disconnect")}
                           </button>
                         </li>
                       );
@@ -1631,10 +1745,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   credentials already stored from connect (see lib/marketplace-resync.ts) */}
               {authConfigured && (
                 <div className="mt-10 border border-zinc-900 bg-zinc-950/50 p-6">
-                  <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">Refresh data</div>
+                  <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">{t("settings.refreshData")}</div>
                   {resyncableMarketplaces.length === 0 ? (
                     <p className="text-zinc-600 font-mono text-[12px]">
-                      No live marketplace integration connected yet — connect Trendyol, Hepsiburada, N11 or Shopify from /connect.
+                      {t("settings.noLiveIntegration")}
                     </p>
                   ) : (
                     <ul className="space-y-3">
@@ -1658,7 +1772,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                               disabled={busy}
                               className="shrink-0 inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-300 font-mono text-[12px] hover:bg-zinc-900 hover:text-zinc-100 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
                             >
-                              {busy ? "Refreshing…" : "Refresh"}
+                              {busy ? t("common.refreshing") : t("common.refresh")}
                             </button>
                           </li>
                         );
@@ -1666,23 +1780,23 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     </ul>
                   )}
                   <p className="mt-4 text-[11px] text-zinc-600 font-mono leading-relaxed">
-                    Pulls your latest real orders again using the same credentials from connect — never asks for your API key twice.
+                    {t("settings.refreshFootnote")}
                   </p>
                 </div>
               )}
 
               {/* Session */}
               <div className="mt-10 border border-zinc-900 bg-zinc-950/50 p-6">
-                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">Session</div>
+                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">{t("settings.session")}</div>
                 <div className="flex items-center justify-between gap-4">
                   <p className="text-zinc-500 font-mono text-[12px] leading-relaxed">
-                    End your session on this device. You&apos;ll need to sign in again to return.
+                    {t("settings.sessionCopy")}
                   </p>
                   <button
                     onClick={handleSignOut}
                     className="shrink-0 inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-300 font-mono text-[12px] hover:bg-zinc-900 hover:text-zinc-100 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
                   >
-                    Sign out
+                    {t("common.signOut")}
                   </button>
                 </div>
               </div>
@@ -1699,11 +1813,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="text-zinc-100 text-sm font-medium mb-1.5">
-                      Disconnect {getMarketplaceOption(disconnectTarget)?.label ?? disconnectTarget}
+                      {t("settings.disconnectTitle", { marketplace: getMarketplaceOption(disconnectTarget)?.label ?? disconnectTarget })}
                     </div>
                     <p className="text-zinc-500 text-[12px] font-mono leading-relaxed mb-6">
-                      This deletes the stored credential — you&apos;ll need to reconnect to sync again. You can also
-                      choose to delete the order data already pulled from this marketplace.
+                      {t("settings.disconnectCopy")}
                     </p>
                     <div className="flex flex-col gap-2">
                       <button
@@ -1712,7 +1825,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                         disabled={disconnectBusy}
                         className="inline-flex items-center justify-center h-10 px-4 border border-zinc-800 text-zinc-200 font-mono text-[12px] hover:bg-zinc-900 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
                       >
-                        {disconnectBusy ? "Working…" : "Disconnect only — keep my data"}
+                        {disconnectBusy ? t("common.working") : t("settings.disconnectOnly")}
                       </button>
                       <button
                         type="button"
@@ -1720,7 +1833,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                         disabled={disconnectBusy}
                         className="inline-flex items-center justify-center h-10 px-4 border border-red-900/60 text-red-400 font-mono text-[12px] hover:bg-red-950/30 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
                       >
-                        {disconnectBusy ? "Working…" : "Disconnect and delete this marketplace's data"}
+                        {disconnectBusy ? t("common.working") : t("settings.disconnectAndDelete")}
                       </button>
                       <button
                         type="button"
@@ -1728,7 +1841,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                         disabled={disconnectBusy}
                         className="inline-flex items-center justify-center h-9 px-4 text-zinc-500 font-mono text-[12px] hover:text-zinc-300 transition-colors disabled:opacity-50"
                       >
-                        Cancel
+                        {t("common.cancel")}
                       </button>
                     </div>
                   </div>
@@ -1741,13 +1854,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {currentTab === "Copilot" && (
             <div className="max-w-[900px] px-8 py-12 md:py-20">
               <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] border-l border-zinc-800 pl-4">Analyst Copilot</h2>
+                <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] border-l border-zinc-800 pl-4">{t("copilot.title")}</h2>
                 {!isAiConfigured() && (
                   <span
-                    title="ANTHROPIC_API_KEY is not set in this environment — every answer below is a deterministic, rule-based lookup against the same decision data, not a language model."
+                    title="No LLM API key is set in this environment — every answer below is a deterministic, rule-based lookup against the same decision data, not a language model."
                     className="bg-zinc-900 text-amber-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase"
                   >
-                    Rule-based (AI not configured)
+                    {t("copilot.ruleBasedNotConfigured")}
                   </span>
                 )}
               </div>
@@ -1756,23 +1869,23 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               </div>
 
               <div className="flex flex-wrap gap-2 mb-12">
-                {AI_PRESETS.map((p) => (
+                {AI_PRESET_KEYS.map((key) => (
                   <button
-                    key={p}
-                    onClick={() => askCopilot(p)}
+                    key={key}
+                    onClick={() => askCopilot(t(key))}
                     disabled={aiLoading}
                     className="text-xs font-mono px-3 py-1.5 border transition-colors border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 disabled:opacity-40"
                   >
-                    {p}
+                    {t(key)}
                   </button>
                 ))}
               </div>
 
               <div className="max-w-2xl">
                 <div className="flex flex-col gap-6 mb-8 max-h-[55vh] overflow-y-auto pr-1">
-                  {!copilotHistoryLoaded && <p className="text-zinc-600 text-sm">Loading conversation…</p>}
+                  {!copilotHistoryLoaded && <p className="text-zinc-600 text-sm">{t("copilot.loadingConversation")}</p>}
                   {copilotHistoryLoaded && copilotMessages.length === 0 && (
-                    <p className="text-zinc-600 text-sm">Pick a preset or ask your own question below.</p>
+                    <p className="text-zinc-600 text-sm">{t("copilot.pickPreset")}</p>
                   )}
                   {copilotMessages.map((m, i) => {
                     if (m.role === "system-note") {
@@ -1785,7 +1898,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     if (m.role === "user") {
                       return (
                         <div key={i} className="flex flex-col gap-1">
-                          <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-mono">Query · {view.label}</div>
+                          <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-mono">{t("copilot.query")} · {view.label}</div>
                           <div className="text-zinc-100 text-base tracking-tight font-medium">{m.content}</div>
                         </div>
                       );
@@ -1794,10 +1907,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     return (
                       <div key={i} className="flex flex-col gap-3">
                         <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-mono flex items-center gap-3">
-                          Analysis <span className="h-px bg-zinc-900 flex-1"></span>
+                          {t("copilot.analysis")} <span className="h-px bg-zinc-900 flex-1"></span>
                         </div>
                         <div className="text-zinc-400 text-sm leading-relaxed">
-                          {isPending && !m.content && <p className="text-zinc-500">Reading the decision data…</p>}
+                          {isPending && !m.content && <p className="text-zinc-500">{t("copilot.readingDecisionData")}</p>}
                           {m.content && (
                             <p className="whitespace-pre-line">
                               {m.content}
@@ -1806,17 +1919,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                           )}
                           {m.content && !isPending && (
                             <p className="text-[11px] text-zinc-600 font-mono flex items-center gap-2 flex-wrap mt-2">
-                              <span>Grounded in {view.label}&apos;s structured decision. No numbers invented.</span>
+                              <span>{t("copilot.groundedIn", { seller: view.label })}</span>
                               {(m.mode === "rule-based" || m.mode === "model-error") && (
                                 <span
-                                  title={
-                                    m.mode === "model-error"
-                                      ? "The LLM call failed for this answer (rate limit, quota, or network) — a deterministic rule-based lookup against the same decision data was used instead."
-                                      : "No LLM is configured — this is a deterministic rule-based lookup, not a language model response."
-                                  }
+                                  title={m.mode === "model-error" ? t("copilot.ruleBasedAiFailedTitle") : t("copilot.ruleBasedNoLlmTitle")}
                                   className="bg-zinc-900 text-amber-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase"
                                 >
-                                  {m.mode === "model-error" ? "Rule-based (AI call failed)" : "Rule-based response"}
+                                  {m.mode === "model-error" ? t("copilot.ruleBasedAiFailed") : t("copilot.ruleBasedResponse")}
                                 </span>
                               )}
                               {(m.mode === "model-claude" || m.mode === "model-gemini") && (
@@ -1842,7 +1951,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     onChange={(e) => setAiInput(e.target.value)}
                     disabled={aiLoading}
                     className="w-full bg-zinc-950 border border-zinc-800 text-zinc-100 text-[13px] font-sans px-4 py-3 focus:outline-none focus:border-zinc-600 placeholder-zinc-700 transition-colors disabled:opacity-50"
-                    placeholder="Query unit economics..."
+                    placeholder={t("copilot.placeholder")}
                   />
                   <button
                     type="submit"

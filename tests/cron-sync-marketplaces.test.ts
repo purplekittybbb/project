@@ -92,9 +92,12 @@ describe("GET /api/cron/sync-marketplaces", () => {
       { user_id: "user-2", marketplace: "hepsiburada" },
       { user_id: "user-3", marketplace: "n11" },
     ]);
-    mockResync.mockImplementation(async (_supabase, userId: string, marketplace: string) => ({
-      success: true, marketplace: marketplace as never, ordersFetched: 2, rowsSaved: 1, duplicatesSkipped: 1,
-    }));
+    mockResync.mockImplementation(async (...args: unknown[]) => {
+      const marketplace = args[2] as string;
+      return {
+        success: true, marketplace: marketplace as never, ordersFetched: 2, rowsSaved: 1, duplicatesSkipped: 1,
+      };
+    });
 
     const { GET } = await importRoute();
     const res = await GET(makeRequest("Bearer test-cron-secret"));

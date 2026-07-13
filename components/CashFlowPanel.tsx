@@ -1,14 +1,15 @@
 "use client";
 
 /**
- * Nakit Akışı — Cash-flow projection panel.
+ * Cash Flow — projection panel.
  *
- * Seed transaction verilerinden (saleDate + pazaryeri teslim/ödeme gecikme modeli)
- * tahmini hakediş takvimini üretir. Alınan, bekleyen ve yaklaşan ödemeleri
- * sade, tabular bir görünümde gösterir.
+ * Derives an estimated settlement calendar from seed transaction data
+ * (saleDate + marketplace delivery/payment delay model). Shows received,
+ * pending, and upcoming payments in a simple tabular view.
  */
 
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { getCashFlowProjection, type CashFlowEntry, type Channel } from "@/lib/engine";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -20,16 +21,22 @@ function money(v: number, currency: string) {
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
-const STATUS_CFG = {
-  received: { label: "Alındı",   cls: "text-emerald-400 border-emerald-900/50 bg-emerald-950/20" },
-  pending:  { label: "Bekliyor", cls: "text-zinc-400   border-zinc-700       bg-zinc-900/30"     },
-  overdue:  { label: "Yakın",    cls: "text-amber-400  border-amber-800/50   bg-amber-950/20"    },
+const STATUS_CLS = {
+  received: "text-emerald-400 border-emerald-900/50 bg-emerald-950/20",
+  pending: "text-zinc-400   border-zinc-700       bg-zinc-900/30",
+  overdue: "text-amber-400  border-amber-800/50   bg-amber-950/20",
 } as const;
 
 function StatusBadge({ status }: { status: CashFlowEntry["status"] }) {
-  const { label, cls } = STATUS_CFG[status];
+  const { t } = useTranslation();
+  const label =
+    status === "received"
+      ? t("cashFlow.statusReceived")
+      : status === "pending"
+        ? t("cashFlow.statusPending")
+        : t("cashFlow.statusOverdue");
   return (
-    <span className={`text-[9px] font-mono tracking-widest px-1.5 py-0.5 border ${cls}`}>
+    <span className={`text-[9px] font-mono tracking-widest px-1.5 py-0.5 border ${STATUS_CLS[status]}`}>
       {label}
     </span>
   );
@@ -43,30 +50,47 @@ interface SummaryProps {
 }
 
 function Summary({ entries, currency }: SummaryProps) {
-  const received  = entries.filter((e) => e.status === "received");
-  const pending   = entries.filter((e) => e.status !== "received");
-  const totalRec  = received.reduce((s, e) => s + (e.actualPayout ?? 0), 0);
+  const { t } = useTranslation();
+  const received = entries.filter((e) => e.status === "received");
+  const pending = entries.filter((e) => e.status !== "received");
+  const totalRec = received.reduce((s, e) => s + (e.actualPayout ?? 0), 0);
   const totalPend = pending.reduce((s, e) => s + e.expectedPayout, 0);
-  const totalGap  = received.reduce((s, e) => s + (e.gap ?? 0), 0);
-  const next      = pending.sort((a, b) => a.daysFromToday - b.daysFromToday)[0];
+  const totalGap = received.reduce((s, e) => s + (e.gap ?? 0), 0);
+  const next = pending.sort((a, b) => a.daysFromToday - b.daysFromToday)[0];
   // Same tenant → same value on every entry; no real settlement file means the
-  // "fark" figure is a representative model, not a verified reconciliation.
+  // gap figure is a representative model, not a verified reconciliation.
   const isReal = entries[0]?.isRealSettlementData ?? false;
+
+  const cards = [
+    {
+      label: isReal ? t("cashFlow.receivedTotal") : t("cashFlow.receivedTotalRepresentative"),
+      val: money(totalRec, currency),
+      sub: t("cashFlow.settlements", { count: received.length }),
+      dim: false,
+    },
+    {
+      label: t("cashFlow.expectedTotal"),
+      val: money(totalPend, currency),
+      sub: t("cashFlow.pending", { count: pending.length }),
+      dim: true,
+    },
+    {
+      label: isReal ? t("cashFlow.totalGap") : t("cashFlow.totalGapRepresentative"),
+      val: !isReal ? "—" : totalGap > 0 ? `−${money(totalGap, currency)}` : "—",
+      sub: !isReal ? t("cashFlow.noRealSettlementFile") : totalGap > 0 ? t("cashFlow.underpaid") : t("cashFlow.paidInFull"),
+      err: isReal && totalGap > 0,
+    },
+    {
+      label: t("cashFlow.nextPayment"),
+      val: next ? next.dateLabel : "—",
+      sub: next ? t("cashFlow.daysLater", { days: next.daysFromToday }) : t("cashFlow.allReceived"),
+      dim: !next,
+    },
+  ];
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-zinc-800 border border-zinc-800 mb-8">
-      {[
-        { label: isReal ? "Alınan Toplam" : "Alınan Toplam (Temsili)", val: money(totalRec, currency),  sub: `${received.length} hakediş`,       dim: false },
-        { label: "Beklenen Toplam", val: money(totalPend, currency),  sub: `${pending.length} bekleyen`,       dim: true  },
-        { label: isReal ? "Toplam Fark" : "Toplam Fark (Temsili)",
-                                    val: !isReal ? "—" : totalGap > 0 ? `−${money(totalGap, currency)}` : "—",
-                                    sub: !isReal ? "gerçek hakediş dosyası bağlı değil" : totalGap > 0 ? "eksik ödeme" : "tam ödendi",
-                                    err: isReal && totalGap > 0 },
-        { label: "Sonraki Ödeme",
-          val: next ? next.dateLabel : "—",
-          sub: next ? `${next.daysFromToday} gün sonra` : "tümü alındı",
-          dim: !next },
-      ].map(({ label, val, sub, dim, err }) => (
+      {cards.map(({ label, val, sub, dim, err }) => (
         <div key={label} className="bg-zinc-950 p-4 lg:p-5">
           <div className="text-zinc-600 text-[10px] uppercase tracking-[0.15em] font-sans mb-2">{label}</div>
           <div className={`font-mono tabular-nums text-lg font-semibold ${err ? "text-red-400" : dim ? "text-zinc-500" : "text-zinc-100"}`}>
@@ -82,6 +106,7 @@ function Summary({ entries, currency }: SummaryProps) {
 // ─── Table row ────────────────────────────────────────────────────────────────
 
 function Row({ e }: { e: CashFlowEntry }) {
+  const { t } = useTranslation();
   const hasGap = (e.gap ?? 0) > 0;
   const isReal = e.isRealSettlementData;
 
@@ -92,36 +117,36 @@ function Row({ e }: { e: CashFlowEntry }) {
         <div className="text-zinc-200 tabular-nums">{e.dateLabel}</div>
         <div className="text-zinc-700 text-[10px]">
           {e.status === "received"
-            ? `${Math.abs(e.daysFromToday)}g önce`
-            : `${e.daysFromToday}g sonra`}
+            ? t("cashFlow.daysAgo", { days: Math.abs(e.daysFromToday) })
+            : t("cashFlow.daysFromNow", { days: e.daysFromToday })}
         </div>
       </div>
 
       {/* Marketplace */}
       <div className="w-[110px] shrink-0 text-zinc-500 text-[11px] truncate">{e.marketplace}</div>
 
-      {/* Beklenen */}
+      {/* Expected */}
       <div className="flex-1 text-right">
         <div className="text-zinc-400 tabular-nums">{money(e.expectedPayout, e.currency)}</div>
-        <div className="text-zinc-700 text-[9px]">{e.transactionCount} işlem</div>
+        <div className="text-zinc-700 text-[9px]">{t("cashFlow.transactionCount", { count: e.transactionCount })}</div>
       </div>
 
-      {/* Gerçek / Temsili / Bekliyor */}
+      {/* Actual / Representative / Pending */}
       <div className="w-[110px] text-right shrink-0">
         {e.actualPayout !== null ? (
           <span
             className={`tabular-nums ${!isReal ? "text-zinc-400" : hasGap ? "text-red-400" : "text-emerald-400"}`}
-            title={isReal ? undefined : "Gerçek hakediş dosyası yok — beklenen tutarla aynı kabul edilmiştir."}
+            title={isReal ? undefined : t("cashFlow.noRealSettlementTitle") ?? undefined}
           >
             {money(e.actualPayout, e.currency)}
-            {!isReal && <sup className="text-zinc-600 text-[9px] ml-0.5">T</sup>}
+            {!isReal && <sup className="text-zinc-600 text-[9px] ml-0.5">R</sup>}
           </span>
         ) : (
           <span className="text-zinc-700">—</span>
         )}
       </div>
 
-      {/* Fark */}
+      {/* Gap */}
       <div className="w-[90px] text-right shrink-0">
         {!isReal ? (
           <span className="text-zinc-800">—</span>
@@ -153,6 +178,7 @@ interface Props {
 }
 
 export function CashFlowPanel({ tenantId, channel, currency }: Props) {
+  const { t } = useTranslation();
   const entries = useMemo(
     () => getCashFlowProjection(tenantId, channel),
     [tenantId, channel]
@@ -161,7 +187,7 @@ export function CashFlowPanel({ tenantId, channel, currency }: Props) {
   if (entries.length === 0) {
     return (
       <div className="text-zinc-700 font-mono text-sm py-20 text-center">
-        Bu kanal için işlem bulunamadı.
+        {t("cashFlow.noTransactions")}
       </div>
     );
   }
@@ -173,10 +199,10 @@ export function CashFlowPanel({ tenantId, channel, currency }: Props) {
       {/* Header */}
       <div>
         <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-1 border-l border-zinc-800 pl-4">
-          Nakit Akışı
+          {t("cashFlow.title")}
         </h2>
         <p className="text-zinc-700 text-[11px] font-mono pl-4 border-l border-transparent">
-          Satış tarihinden tahmini banka kredisine — pazaryeri teslim + ödeme döngüsü modeli.
+          {t("cashFlow.subtitle")}
         </p>
       </div>
 
@@ -187,12 +213,12 @@ export function CashFlowPanel({ tenantId, channel, currency }: Props) {
       <div className="border border-zinc-800">
         {/* Column headers */}
         <div className="flex items-center w-full px-4 py-2 border-b border-zinc-800 bg-zinc-900/40 font-sans text-[10px] text-zinc-600 uppercase tracking-[0.12em] gap-2">
-          <div className="w-[80px] shrink-0">Tarih</div>
-          <div className="w-[110px] shrink-0">Pazaryeri</div>
-          <div className="flex-1 text-right">Beklenen</div>
-          <div className="w-[110px] text-right shrink-0">{isReal ? "Gerçek" : "Temsili (T)"}</div>
-          <div className="w-[90px]  text-right shrink-0">Fark</div>
-          <div className="w-[70px]  text-right shrink-0">Durum</div>
+          <div className="w-[80px] shrink-0">{t("cashFlow.date")}</div>
+          <div className="w-[110px] shrink-0">{t("cashFlow.marketplace")}</div>
+          <div className="flex-1 text-right">{t("cashFlow.expected")}</div>
+          <div className="w-[110px] text-right shrink-0">{isReal ? t("cashFlow.actual") : t("cashFlow.representativeShort")}</div>
+          <div className="w-[90px]  text-right shrink-0">{t("cashFlow.gap")}</div>
+          <div className="w-[70px]  text-right shrink-0">{t("cashFlow.statusCol")}</div>
         </div>
 
         <div className="px-4 divide-y divide-transparent">
@@ -204,19 +230,11 @@ export function CashFlowPanel({ tenantId, channel, currency }: Props) {
 
       {/* Footnote */}
       <div className="border-t border-zinc-900 pt-4 font-mono text-[10px] text-zinc-700 space-y-1">
-        <div>
-          Gecikme modeli: Trendyol 17g · Amazon US 21g · Hepsiburada 15g (teslimat + ödeme döngüsü).
-        </div>
+        <div>{t("cashFlow.delayModel")}</div>
         {isReal ? (
-          <div>
-            Gerçek tutar, hakediş doğrulama fark oranı uygulanarak hesaplanmıştır.
-            Gerçek banka ekstresiyle karşılaştırınız.
-          </div>
+          <div>{t("cashFlow.realFootnote")}</div>
         ) : (
-          <div className="text-amber-500/80">
-            (T) Temsili: gerçek hakediş/ödeme dosyası henüz bağlı değil — &quot;Temsili&quot; sütunu beklenen
-            tutarla aynı kabul edilmiştir, doğrulanmış bir banka mutabakatı değildir.
-          </div>
+          <div className="text-amber-500/80">{t("cashFlow.representativeFootnote")}</div>
         )}
       </div>
     </div>

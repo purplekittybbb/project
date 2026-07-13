@@ -5,6 +5,10 @@
     {
       "path": "/api/cron/sync-marketplaces",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/compute-benchmarks",
+      "schedule": "30 2 * * *"
     }
   ]
 }

@@ -10,13 +10,14 @@ import {
 
 describe("connection store (Plaid/Rutter-style demo links)", () => {
   beforeEach(() => {
-    vi.stubGlobal("localStorage", {
-      store: {} as Record<string, string>,
-      getItem(k: string) { return this.store[k] ?? null; },
-      setItem(k: string, v: string) { this.store[k] = v; },
-      removeItem(k: string) { delete this.store[k]; },
-    });
-    vi.stubGlobal("window", { localStorage: localStorage as Storage });
+    const mockStore: Record<string, string> = {};
+    const mockLocalStorage = {
+      getItem(k: string) { return mockStore[k] ?? null; },
+      setItem(k: string, v: string) { mockStore[k] = v; },
+      removeItem(k: string) { delete mockStore[k]; },
+    } as Storage;
+    vi.stubGlobal("localStorage", mockLocalStorage);
+    vi.stubGlobal("window", { localStorage: mockLocalStorage });
   });
 
   it("adds a connection with demo token ref and read-only scopes", () => {

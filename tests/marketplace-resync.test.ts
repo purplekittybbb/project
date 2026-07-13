@@ -185,7 +185,7 @@ describe("resyncMarketplace — the read side of marketplace_credentials", () =>
     expect(headers.Authorization).toBe(`Basic ${Buffer.from("realKey:realSecret").toString("base64")}`);
 
     expect(getStore()).toHaveLength(1);
-    const payload = getLastInsertedPayload() as { sku: string; marketplace: string; user_id: string }[];
+    const payload = getLastInsertedPayload() as unknown as { sku: string; marketplace: string; user_id: string }[];
     expect(payload).toHaveLength(1);
     expect(payload[0]).toMatchObject({ sku: "SKU-A", marketplace: "trendyol", user_id: "user-1" });
   });

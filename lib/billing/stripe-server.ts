@@ -28,7 +28,7 @@ export function growthSubscriptionItem(): Stripe.SubscriptionCreateParams.Item {
       product_data: { name: "TrueMargin Growth" },
       unit_amount: stripeLaunchUnitAmount(),
       recurring: { interval: "month" },
-    },
+    } as any,
   };
 }
 
