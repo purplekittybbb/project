@@ -7,6 +7,10 @@ import { computeMetricsFromView, sizeBucketForUsd, toUsd } from "@/lib/benchmark
 import { mergeWithPublished } from "@/lib/benchmarks/aggregate";
 import { publishedBenchmarks } from "@/lib/benchmarks/published";
 import { rankMetric } from "@/lib/benchmarks/rank";
+import {
+  classifyBenchmarkTableError,
+  logBenchmarkFallback,
+} from "@/lib/benchmarks/fallback-log";
 import { ANY, METRIC_KEYS, type BenchmarkRow, type SizeBucket } from "@/lib/benchmarks/types";
 import type { UserRawRow } from "@/lib/adapters/csv";
 
@@ -143,35 +147,45 @@ export async function GET(req: Request) {
     dbRows = (benchData as DbBenchmarkRow[]).map(toBenchmarkRow);
   }
 
-  // Log fallback condition for observability
   if (benchError) {
-    console.warn("[benchmarks/segment] Benchmark table query failed, using published fallback:", {
+    logBenchmarkFallback({
+      reason: classifyBenchmarkTableError(benchError.message, benchError.code),
+      route: "benchmarks/segment",
       userId: userData.user.id,
       error: benchError.message,
+      errorCode: benchError.code,
+      segment: { marketplace, category: dominantCategory, sizeBucket },
+      fallback: "published",
     });
   } else if (dbRows.length === 0) {
-    console.warn("[benchmarks/segment] No pooled benchmarks found, using published fallback:", {
+    logBenchmarkFallback({
+      reason: "empty_table",
+      route: "benchmarks/segment",
       userId: userData.user.id,
       segment: { marketplace, category: dominantCategory, sizeBucket },
+      fallback: "published",
     });
   }
 
   const rowsForRank = mergeWithPublished(dbRows, publishedBenchmarks());
 
-  // Log distribution of published vs pooled in the response
-  const publishedCount = rowsForRank.filter((r) => r.source === "published").length;
-  if (publishedCount > 0) {
-    console.warn("[benchmarks/segment] Using published benchmarks for metrics:", {
-      userId: userData.user.id,
-      publishedCount,
-      totalCount: rowsForRank.length,
-      percentage: Math.round((publishedCount / rowsForRank.length) * 100),
-    });
-  }
-
   const metrics = METRIC_KEYS.map((metric) =>
     rankMetric(rowsForRank, marketplace, dominantCategory, sizeBucket, metric, yours[metric])
   ).filter((m): m is NonNullable<typeof m> => m !== null);
+
+  const publishedMetricCount = metrics.filter((m) => m.source === "published").length;
+  if (publishedMetricCount > 0) {
+    logBenchmarkFallback({
+      reason: "partial_published",
+      route: "benchmarks/segment",
+      userId: userData.user.id,
+      segment: { marketplace, category: dominantCategory, sizeBucket },
+      publishedMetricCount,
+      pooledMetricCount: metrics.length - publishedMetricCount,
+      totalMetrics: metrics.length,
+      fallback: "published",
+    });
+  }
 
   return NextResponse.json({
     hasData: true,

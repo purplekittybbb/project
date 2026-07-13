@@ -19,6 +19,9 @@
  * advertising cost of sale, fulfilment/shipping share, marketplace commission
  * bands, and gross-margin/COGS structure). Treated as a modeled prior, refined
  * by real cohort data as it accrues.
+ *
+ * Fallback usage is logged at call sites via lib/benchmarks/fallback-log.ts
+ * (`[benchmark-fallback]` prefix, structured JSON fields).
  */
 
 import { ANY, type BenchmarkRow, type MetricKey } from "./types";

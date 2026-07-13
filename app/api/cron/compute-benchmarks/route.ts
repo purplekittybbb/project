@@ -3,8 +3,9 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { buildUserSeller } from "@/lib/supabase/user-data";
 import { extractMetricSlices } from "@/lib/benchmarks/metrics";
 import { aggregatePooled, mergeWithPublished } from "@/lib/benchmarks/aggregate";
+import { logBenchmarkFallback } from "@/lib/benchmarks/fallback-log";
 import { publishedBenchmarks } from "@/lib/benchmarks/published";
-import type { SellerSlices } from "@/lib/benchmarks/types";
+import { K_ANON, type SellerSlices } from "@/lib/benchmarks/types";
 import type { UserRawRow } from "@/lib/adapters/csv";
 
 /**
@@ -168,11 +169,17 @@ export async function GET(req: Request) {
   }
 
   const pooledCount = merged.filter((r) => r.source === "pooled").length;
+  const publishedCount = merged.length - pooledCount;
   if (pooledCount === 0 && merged.length > 0) {
-    console.warn(
-      `[cron/compute-benchmarks] No segment crossed the k-anonymity floor (${sellers.length} seller(s) seen) — ` +
-        `all ${merged.length} row(s) fell back to published/representative data.`
-    );
+    logBenchmarkFallback({
+      reason: "k_anon_insufficient",
+      route: "cron/compute-benchmarks",
+      sellerCount: sellers.length,
+      kAnonThreshold: K_ANON,
+      publishedRowCount: publishedCount,
+      totalRowCount: merged.length,
+      fallback: "published",
+    });
   } else {
     console.log(
       `[cron/compute-benchmarks] ${sellers.length} seller(s) → ${pooledCount} pooled + ` +
