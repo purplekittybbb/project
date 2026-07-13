@@ -109,11 +109,25 @@ interface Props {
 export function PeerBenchmarkingSection({ view, channel, authConfigured }: Props) {
   const { t } = useTranslation();
 
+  // `view` is a brand-new object EVERY render of the parent dashboard (it's
+  // computed inline, not memoized — see app/dashboard/page.tsx) even when the
+  // seller's actual numbers haven't changed. Depending on `view` directly
+  // would re-fire the effects below on every unrelated parent re-render —
+  // confirmed live: during initial dashboard load (billing status, resync
+  // list, ledger, etc. each resolving in their own effect) this fired 8-11
+  // redundant /api/benchmarks/segment calls within ~6 seconds for one page
+  // load. Deriving a primitive string from just the fields that actually feed
+  // `computeMetricsFromView` stabilizes the dependency: React compares
+  // primitives by VALUE, so the effects only re-run when a real number moves.
+  const yours = computeMetricsFromView(view);
+  const viewSignature = JSON.stringify([
+    view.tenantId, view.channel, view.currency, view.monthlyRevenue, view.category, yours,
+  ]);
+
   // Local, published-based ranking — computed synchronously from the same
   // engine numbers the rest of the dashboard shows. Used as-is for the demo,
   // and as the instant first paint for real users before the API responds.
   const localRanked = useMemo<RankedMetric[]>(() => {
-    const yours = computeMetricsFromView(view);
     const marketplace = channel === "combined" ? ANY : channel;
     const category = view.category || ANY;
     const sizeBucket = sizeBucketForUsd(toUsd(view.monthlyRevenue, view.currency));
@@ -121,7 +135,8 @@ export function PeerBenchmarkingSection({ view, channel, authConfigured }: Props
     return METRIC_KEYS.map((metric) =>
       rankMetric(rows, marketplace, category, sizeBucket, metric, yours[metric])
     ).filter((m): m is RankedMetric => m !== null);
-  }, [view, channel]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewSignature, channel]);
 
   const [ranked, setRanked] = useState<RankedMetric[]>(localRanked);
   useEffect(() => setRanked(localRanked), [localRanked]);
@@ -149,7 +164,8 @@ export function PeerBenchmarkingSection({ view, channel, authConfigured }: Props
       }
     })();
     return () => { active = false; };
-  }, [authConfigured, channel, view]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authConfigured, channel, viewSignature]);
 
   const anyPooled = ranked.some((m) => m.source === "pooled");
 
