@@ -23,8 +23,15 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
+## Shopify Entegrasyonu — DURUM: KARIŞIK (bu deployment'ta LIVE, credential'sız deployment'larda DEMO)
+Bu ortamda (`.env.local`'da `SHOPIFY_CLIENT_ID`/`SHOPIFY_CLIENT_SECRET` tanımlı) `/connect` sayfasındaki
+"Connect Shopify" butonu artık **gerçek** Shopify Partner OAuth'una gidiyor (canlı doğrulandı — aşağıya bak).
+`SHOPIFY_CLIENT_ID` tanımlı OLMAYAN bir deployment'ta ise otomatik olarak demo moda düşer — ve o demo modu artık
+"Demo mode — no real {platform} account is contacted" şeklinde AÇIKÇA etiketleniyor (öncesinde sadece küçük,
+kolayca gözden kaçan bir "demo consent" rozeti vardı).
+
 ## Şu An Ne Çalışıyor
-- **Shopify connect akışı**: ✅ Çözüldü (hem Cursor hem Claude Code tarafında doğrulandı)
+- **Shopify gerçek OAuth kablolaması**: ✅ Tamamlandı, canlı doğrulandı, committed
 - **Sector Benchmark / pooled-cohort altyapısı**: ✅ Tamamlandı, sertleştirildi, committed
 - Aktif geliştirme yok — bir sonraki görev bekleniyor
 
@@ -47,6 +54,41 @@ Güncelleme kuralları:
 4. **Demo mode (/demo) Shopify-only tab**: Seed seller-b'de shopify verisi yok — tab "Shopify" seçiliyken combined fallback gösterir (crash yok, sadece UX karışıklığı)
 
 ## Son Yapılanlar
+- **2026-07-13**: Shopify "sahte bağlantı" sorunu teşhis edildi ve düzeltildi (Claude Code)
+  - **Teşhis (kullanıcının şüphesi doğru çıktı)**: `/connect`'te "Connect Shopify" butonu HİÇBİR ZAMAN gerçek
+    Shopify kimlik doğrulaması istemiyordu — `MarketplaceConnectStep.startConnect()` Shopify dahil TÜM oauth-tipi
+    pazaryerlerini kayıtsız şartsız demo consent modal'ına (`MarketplaceOAuthModal`) yönlendiriyordu. Bu modal
+    `completeDemoLink()` ile SADECE localStorage'a "bağlandı" yazıyor, `simulateInitialSync()` ile örnek/seed
+    satırları `user_transactions`'a yazıyordu — kullanıcının gerçek mağazasına HİÇ dokunulmuyordu. Bu davranış
+    `tests/shopify-live-enabled.test.ts`'te AÇIKÇA test edilip "doğru" kabul edilmişti (`pickShopifyConnectStepModal`
+    her zaman `"MarketplaceOAuthModal"` döndürüyordu, `liveEnabled` parametresi görmezden geliniyordu).
+  - **Önemli bulgu**: Gerçek Shopify Partner OAuth entegrasyonu (`ShopifyConnectModal.tsx` + `/api/shopify/oauth/
+    start` + `/api/shopify/oauth/callback` + `lib/shopify-api/client.ts` — gerçek HMAC doğrulama, gerçek GraphQL
+    Admin API, şifreli token saklama) TAM VE ÇALIŞIR DURUMDA kod olarak zaten yazılmıştı, ve bu deployment'ta
+    `SHOPIFY_CLIENT_ID`/`SHOPIFY_CLIENT_SECRET` bile `.env.local`'da TANIMLIYDI — ama UI hiçbir zaman bu kodu
+    çağırmıyordu. Yani senaryo ne saf "hiç kurulmadı" (2a) ne saf "hatalı çalışıyor" (2b) — backend hazır ve
+    kullanılabilirdi ama kasıtlı olarak devre dışı bırakılmıştı.
+  - **Fix 1 (gerçek bağlantıyı aç)**: `MarketplaceConnectStep.tsx`'te `isShopifyLiveEnabled()` true ise (yani
+    live credential varsa) "Connect Shopify" artık `ShopifyConnectModal`'ı açıyor — gerçek mağaza domaini sorup
+    gerçek `https://{shop}.myshopify.com/admin/oauth/authorize` adresine yönlendiriyor.
+  - **Fix 2 (şeffaflık — credential yoksa)**: `MarketplaceOAuthModal`'a göze çarpan amber bir uyarı bandı eklendi:
+    "Demo mode — no real {platform} account is contacted." + CSV/manuel girişe yönlendirme. "Connected ✓" ekranı
+    da artık "· demo — sample data" diyor. Bağlı listesindeki demo bağlantılar "· demo, sample data" etiketi taşıyor
+    (manuel/CSV girişleri hariç — onlar zaten gerçek kullanıcı verisi). Buton metni credential yoksa
+    "Connect Shopify (Demo)" oluyor.
+  - **CANLI KANIT (gerçek Shopify altyapısına ulaştığı ispatı)**: Var olmayan bir mağaza adıyla
+    ("truemargin-diagnostic-check-nonexistent") "Continue to Shopify" tıklandı → tarayıcı GERÇEKTEN
+    `https://truemargin-diagnostic-check-nonexistent.myshopify.com` adresine yönlendirildi → Shopify'ın KENDİ
+    gerçek "Store unavailable" hata sayfası döndü (yerel mock DEĞİL). Uygulamaya geri dönüldüğünde Shopify
+    "Connected" listesinde GÖRÜNMEDİ — başarısız/var olmayan mağaza denemesi asla sahte bir "bağlandı" durumu
+    yaratmadı.
+  - **Test güncellendi**: `tests/shopify-live-enabled.test.ts` artık `pickShopifyConnectStepModal(true)` için
+    `"ShopifyConnectModal"` bekliyor (eskiden yanlışlıkla `"MarketplaceOAuthModal"` bekliyordu — davranışı DEĞİL,
+    testin YANLIŞ varsayımını düzelttim).
+  - Doğrulama: `tsc --noEmit` temiz, 176/176 test geçti, canlı tarayıcı testi yukarıdaki gibi.
+  - **DÜZELTİLMEDİĞİ NOKTA**: `SHOPIFY_CLIENT_ID` tanımlı OLMAYAN bir deployment (örn. Vercel prod, eğer oraya
+    henüz eklenmediyse) hâlâ demo moda düşer — ama artık AÇIKÇA etiketlenmiş demo moda, sessiz sahte veriye değil.
+
 - **2026-07-13**: Benchmark panelindeki redundant fetch loop'u düzelttim (Claude Code)
   - Kök neden: `view` her render'da yeni referans; `useEffect([...,view])` her parent re-render'da tekrar ateşleniyordu
   - Canlı kanıt: dev log'da aynı `/api/benchmarks/segment` isteği 550-650ms aralıklarla 8-11 kez tekrarlanıyordu (tek sayfa yüklemesinde)
@@ -75,8 +117,10 @@ Güncelleme kuralları:
 
 ## Bekleyen Kararlar
 1. **Migration 0006 + 0010 apply timeline**: Supabase production/staging ortamına ne zaman uygulanacak?
-2. **Live Shopify OAuth**: `ShopifyConnectModal` + `/api/shopify/oauth/*` (gerçek Partner OAuth) hazır ama connect-step
-   varsayılanı hâlâ demo OAuth modal'ı — gerçek Shopify entegrasyonuna ne zaman geçilecek?
+2. **Vercel production'da `SHOPIFY_CLIENT_ID`/`SHOPIFY_CLIENT_SECRET` tanımlı mı?** — Bu sadece bu makinenin
+   `.env.local`'ında doğrulandı. Prod'da tanımlı DEĞİLSE, gerçek kullanıcılar hâlâ (artık açıkça etiketlenmiş) demo
+   moda düşecek. Tanımlıysa `/api/shopify/oauth/callback`'in redirect URI'si (`{origin}/api/shopify/oauth/callback`)
+   Shopify Partner App ayarlarında "Allowed redirection URL" olarak kayıtlı olmalı — kontrol edilmeli.
 3. **tests/e2e-evidence/** dizininde bazı eski/başarısız debug taramaları var (`99-error*.png`, `report.json` — port
    3001 bağlantı hatası içeriyor, muhtemelen yanlışlıkla farklı porta işaret etmiş). Temizlenmeli mi, yoksa referans
    için mi kalsın?
