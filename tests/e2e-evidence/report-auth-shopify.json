@@ -1,0 +1,14 @@
+{
+  "email": "shopify-e2e-1783956119661@example.com",
+  "steps": [
+    "2026-07-13T15:22:00.194Z AUTH1: Signup shopify-e2e-1783956119661@example.com",
+    "2026-07-13T15:22:05.381Z AUTH1-url: http://localhost:3000/connect",
+    "2026-07-13T15:22:05.544Z AUTH2-url: http://localhost:3000/connect",
+    "2026-07-13T15:22:05.544Z CONNECT1: Navigate /connect",
+    "2026-07-13T15:22:09.843Z CONNECT1-state: TrueMargin 1 CONNECT 2 TRIAL 3 PAYMENT Connect your marketplaces Link each sales channel with secure, read-only access — OAuth where a platform supports it, self-service API keys where it doesn't. Ne",
+    "2026-07-13T15:22:23.072Z AUTH5-url: http://localhost:3000/dashboard",
+    "2026-07-13T15:22:25.161Z AUTH6-result: crash=false noData=false shopify=true margin=false"
+  ],
+  "consoleErrors": [],
+  "networkFailures": []
+}

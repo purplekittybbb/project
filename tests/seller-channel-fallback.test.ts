@@ -26,6 +26,41 @@ describe("getSellerChannels — real channels regardless of client-only connecti
   });
 });
 
+describe("Shopify-only seller — dashboard view fallback never throws", () => {
+  beforeEach(() => clearRuntimeSellers());
+
+  function shopifyRow(orderId: string) {
+    return {
+      order_id: orderId, sku: "SHOPIFY-SKU-01", category: "Apparel", sale_date: "2026-06-01",
+      units: 10, gross_revenue: 10000, unit_cost: 4000, shipping: 200, return_rate: 0.05, ad_spend: 300,
+      marketplace: "shopify",
+    };
+  }
+
+  it("combined view resolves for a Shopify-only runtime seller even when channel=shopify", () => {
+    const seller = buildUserSeller([shopifyRow("1"), shopifyRow("2")], TENANT)!;
+    registerRuntimeSeller(seller, "Test seller");
+
+    expect(getSeller(TENANT, "shopify")).toBeDefined();
+    expect(getSeller(TENANT, "shopify")?.currency).toBe("USD");
+    expect(getSeller(TENANT, "combined")?.tenantId).toBe(TENANT);
+  });
+
+  it("seed seller-b combined fallback is defined when channel=shopify (no seed shopify rows)", () => {
+    // Mirrors app/dashboard/page.tsx render-safety chain for a signed-in user
+    // whose channel tab snapped to shopify before runtime data registered.
+    const channel = "shopify" as const;
+    const tenant = TENANT;
+    const view =
+      getSeller(tenant, channel) ??
+      getSeller(tenant, "combined") ??
+      getSeller("seller-b", channel) ??
+      getSeller("seller-b", "combined");
+    expect(view).toBeDefined();
+    expect(view!.currency).toBeTruthy();
+  });
+});
+
 describe("getSeller — a channel with zero data for this seller never silently returns a different seller", () => {
   beforeEach(() => clearRuntimeSellers());
 
@@ -33,11 +68,6 @@ describe("getSeller — a channel with zero data for this seller never silently 
     const seller = buildUserSeller([n11Row("1"), n11Row("2")], TENANT)!;
     registerRuntimeSeller(seller, "Test seller");
 
-    // This is exactly the case the dashboard must guard against: the initial
-    // `channel` state defaults to "trendyol" regardless of what the signed-in
-    // seller actually connected. getSeller must return undefined here (not a
-    // different seller's data) — the dashboard's own fallback picks a real
-    // channel or "combined" for THIS tenant instead of substituting seed data.
     expect(getSeller(TENANT, "trendyol")).toBeUndefined();
     expect(getSeller(TENANT, "n11")).toBeDefined();
     expect(getSeller(TENANT, "n11")?.tenantId).toBe(TENANT);

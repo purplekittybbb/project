@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-07-13T15:18:28.259Z",
+  "steps": [
+    "2026-07-13T15:18:20.006Z STEP1: Navigate /demo with shopify-only localStorage",
+    "2026-07-13T15:18:23.673Z STEP1-result: crashed=false hasRealMargin=false hasShopify=true",
+    "2026-07-13T15:18:23.673Z STEP2: Navigate /connect?preview=connect",
+    "2026-07-13T15:18:28.259Z STEP2-result: onLogin=true onConnect=false"
+  ],
+  "consoleErrors": [],
+  "networkFailures": [],
+  "allConsole": [
+    "[info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold",
+    "[log] [HMR] connected",
+    "[log] [Fast Refresh] rebuilding",
+    "[log] [Fast Refresh] done in 331ms",
+    "[log] [Fast Refresh] rebuilding",
+    "[log] [Fast Refresh] done in 168ms",
+    "[info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold",
+    "[log] [HMR] connected"
+  ]
+}

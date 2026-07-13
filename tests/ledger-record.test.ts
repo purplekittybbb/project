@@ -139,10 +139,13 @@ describe("POST /api/ledger/record", () => {
     expect(res.status).toBe(502);
   });
 
-  it("returns 502 (not a crash) when the RPC call fails", async () => {
-    mockRpc.mockResolvedValue({ data: null, error: new Error("boom") });
+  it("returns 200 with rpc_unavailable when the atomic RPC fails (migration not applied)", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: new Error("function record_decision_if_changed does not exist") });
     const { POST } = await importRoute();
     const res = await POST(makeRequest("Bearer token"));
-    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.recorded).toBe(false);
+    expect(json.reason).toBe("rpc_unavailable");
   });
 });

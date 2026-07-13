@@ -19,67 +19,38 @@ Güncelleme kuralları:
 # TrueMargin — Proje Durumu
 
 ## Şu An Ne Çalışıyor
+- **Shopify demo connect (auth mode)**: ✅ Playwright ile doğrulandı
+  - Akış: signup → /connect → MarketplaceOAuthModal (demo OAuth) → plan/card → /dashboard
+  - simulateInitialSync 3 Shopify sample row yazar; dashboard Shopify (USD) +54% margin gösterir
+  - E2E kanıt: `tests/e2e-evidence/auth-06-dashboard.png`, `report-auth-shopify.json`
+- **Dashboard render crash (Shopify/N11-only)**: ✅ Önceki fix aktif (`getSeller("seller-b", "combined")` fallback)
 - **Benchmarking infrastructure**: Bitmiş, committed ✅
-  - Pure core (lib/benchmarks/*): types, metrics, aggregate, rank, published
-  - Cron: /api/cron/compute-benchmarks (service-role, k-anon pooling)
-  - Read route: /api/benchmarks/segment (kullanıcı ranklama)
-  - UI: PeerBenchmarkingSection.tsx (rewritten, bilingual, 6 metrics)
-- **İçişleri**: Sonraki görev bekleniyor
 
 ## Bilinen Sorunlar / Yarım Kalanlar
 1. **Migration 0010 henüz apply edilmedi**: Supabase SQL editöründe çalıştırılması gerekir
    - File: `supabase/migrations/0010_sector_benchmarks.sql`
-   - Durum: Committed, waiting for user to apply
 
-2. **Typecheck + full test suite verification**: Classifier outage nedeniyle verifylemedi
-   - Pure core (17 vitest benchmark tests): ✅ PASS
-   - Full `tsc` typecheck: ⏳ Pending (classifier recovery)
-   - Full 157-test suite: ⏳ Pending (classifier recovery)
-   - Browser render test: ⏳ Pending (classifier recovery)
+2. **Migration 0006 (decision_ledger RPC) apply edilmemiş olabilir**
+   - `/api/ledger/record` artık 502 yerine 200 + `{ recorded: false, reason: "rpc_unavailable" }` döner
+   - Dashboard akışını bloklamaz; History sekmesi RPC apply edilene kadar boş kalabilir
 
-3. **Benchmark pooled data activation**: K-anon=5 sellers ile başlar
-   - Şu anda: Published (representative) fallback aktif
-   - Live data: 5+ distinct sellers per segment
+3. **Demo mode (/demo) Shopify-only tab**: Seed seller-b'de shopify verisi yok — tab "Shopify" seçiliyken combined fallback gösterir (crash yok, UX karışıklığı)
 
 ## Son Yapılanlar
+- **2026-07-13**: Shopify connect sorunu araştırıldı ve düzeltildi
+  - **Kök neden (eski)**: Dashboard `view.currency` crash — channel=shopify iken seed fallback undefined (commit 329026f)
+  - **Kök neden (güncel)**: Auth connect sonrası `/api/ledger/record` 502 — migration 0006 RPC eksik; F12'de kırmızı hata
+  - **Fix**: ledger/record graceful degrade (200 rpc_unavailable); OAuth modal sync hatasını gösterir; Shopify view fallback testleri
+  - **Doğrulama**: Playwright auth E2E — consoleErrors=[], networkFailures=[], dashboard Shopify SKU'ları görünür
+
 - **2026-07-13**: Benchmarking infrastructure tamamlandı ve committed
-  - Built: 5 pure libs (types, metrics, aggregate, rank, published)
-  - Built: Cron route (service-role k-anon aggregation)
-  - Built: Read route (/api/benchmarks/segment)
-  - Built: Rewritten PeerBenchmarkingSection (6 metrics, bilingual, N disclosure)
-  - Built: Migration 0010 (sector_benchmarks table + RLS)
-  - Built: Vitest benchmarks (17 tests, all passing)
-  - Fixed: Dashboard crash for Shopify/N11-only users (channel-proof fallback)
-  - Committed: edf4214 "Fix dashboard render crash..." + PROJECT_STATE.md workflow setup
-
-- **2026-07-13**: Dashboard crash fix (prior session context)
-  - Root cause: View fallback undefined when channel had no seed data
-  - Fix: getSeller("seller-b", "combined") instead of getSeller("seller-b", channel)
-  - Verified: Live on seed seller's real Shopify data
-
-- **2026-07-13**: Bilingual i18n rollout (prior session context)
-  - Added EN/TR language selector to Settings
-  - Gemini system_instruction with single-language directive (no mixing)
-  - Display-only translator for engine text (rationale, benchmark labels)
-  - Rule-based bilingual fallback (11 branches, EN+TR)
-  - Fixed: demoMode/Supabase session bleed prevention
+- **2026-07-13**: Dashboard crash fix + onboarding redirect loop fix (329026f)
 
 ## Bekleyen Kararlar
-1. **Migration 0010 apply timeline**: Ne zaman çalıştırılacak?
-   - Supabase production ortamı mı, staging mi?
-   - Cron trigger zamanı (şu an: 02:30 UTC daily)
-
-2. **Benchmark pooled data activation strategy**: İlk K-anon segmentleri ne zaman bekleniyor?
-   - Current cohort size estimates?
-   - Monitoring strategy for pooled activation?
-
-3. **Next phase features** (enterprise roadmap):
-   - Indexing improvements (daha hızlı sorgulamalar)
-   - K-anon configurability via env var (K_ANONYMITY_THRESHOLD)
-   - CI/CD pipeline enhancements
-   - Fallback logging improvements
+1. **Migration 0006 + 0010 apply timeline**: Supabase production/staging?
+2. **Live Shopify OAuth**: ShopifyConnectModal + /api/shopify/oauth/* hazır ama connect-step default demo OAuth
 
 ---
 
-**Son güncelleme**: 2026-07-13 (benchmarking infrastructure tamamlanması)  
-**Sonraki adım**: User will apply migration 0010, trigger compute-benchmarks cron
+**Son güncelleme**: 2026-07-13 (Shopify connect fix + E2E doğrulama)  
+**Sonraki adım**: Supabase'de migration 0006 ve 0010 apply

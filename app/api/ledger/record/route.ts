@@ -96,7 +96,11 @@ export async function POST(req: Request) {
     p_model_version: decision.modelVersion,
   });
   if (rpcError) {
-    return NextResponse.json({ error: "Karar kaydedilemedi." }, { status: 502 });
+    // Migration 0006 (record_decision_if_changed) may not be applied yet — this
+    // call is fire-and-forget from the dashboard and must never surface as a
+    // blocking 502 in the browser console after a successful Shopify connect.
+    console.warn("[ledger/record] rpc unavailable:", rpcError.message);
+    return NextResponse.json({ recorded: false, reason: "rpc_unavailable" });
   }
 
   return NextResponse.json({ recorded: !!inserted });

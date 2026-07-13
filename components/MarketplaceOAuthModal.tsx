@@ -34,6 +34,7 @@ interface Props {
 
 export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnected }: Props) {
   const [phase, setPhase] = useState<OAuthPhase>("redirecting");
+  const [syncError, setSyncError] = useState("");
   const opt = marketplaceId ? getMarketplaceOption(marketplaceId) : undefined;
   const platformName = opt?.label ?? "Marketplace";
 
@@ -42,17 +43,24 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
   useEffect(() => {
     if (!open || !marketplaceId) return;
     reset();
+    setSyncError("");
     const t = setTimeout(() => setPhase("consent"), 900);
     return () => clearTimeout(t);
   }, [open, marketplaceId, reset]);
 
   async function handleAuthorize() {
     if (!marketplaceId) return;
+    setSyncError("");
     setPhase("connecting");
     await new Promise((r) => setTimeout(r, 700));
     setPhase("fetching");
     const conn = await completeDemoLink(marketplaceId);
-    await simulateInitialSync(conn);
+    const sync = await simulateInitialSync(conn);
+    if (sync.error) {
+      setSyncError(sync.error);
+      setPhase("consent");
+      return;
+    }
     setPhase("connected");
     onConnected(conn);
     setTimeout(onClose, 1100);
@@ -110,6 +118,11 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
                 You sign in on {platformName}&apos;s site — we never ask for your password.
               </p>
             </div>
+            {syncError && (
+              <p className="mb-3 border border-[#c0392b]/40 bg-[#c0392b]/10 px-3 py-2 text-[11px] text-red-400 font-mono">
+                {syncError}
+              </p>
+            )}
             <div className="flex gap-2">
               <button
                 type="button"

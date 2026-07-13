@@ -63,18 +63,18 @@ function sampleRowsFor(marketplaceId: string): UserRawRow[] {
  */
 const LIVE_INTEGRATION_MARKETPLACES = new Set(["trendyol", "hepsiburada", "n11"]);
 
-export async function simulateInitialSync(conn: MarketplaceConnection): Promise<void> {
-  if (LIVE_INTEGRATION_MARKETPLACES.has(conn.marketplaceId)) return;
+export async function simulateInitialSync(conn: MarketplaceConnection): Promise<{ error: string | null }> {
+  if (LIVE_INTEGRATION_MARKETPLACES.has(conn.marketplaceId)) return { error: null };
 
   await delay(FETCH_LATENCY_MS);
 
   const opt = getMarketplaceOption(conn.marketplaceId);
-  if (!opt?.engineChannel || !isAuthConfigured()) return;
+  if (!opt?.engineChannel || !isAuthConfigured()) return { error: null };
 
   const existing = await loadUserRows();
-  if (existing.some((r) => r.marketplace === conn.marketplaceId)) return;
+  if (existing.some((r) => r.marketplace === conn.marketplaceId)) return { error: null };
 
-  await saveUserRows(sampleRowsFor(conn.marketplaceId));
+  return saveUserRows(sampleRowsFor(conn.marketplaceId));
 }
 
 export function disconnectDemo(connectionId: string): void {
