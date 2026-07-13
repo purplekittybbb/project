@@ -3,14 +3,20 @@
 /**
  * Connect step — Plaid/Rutter-style marketplace linking.
  *
- * - Per-marketplace "Connect" opens OAuth demo modal (no passwords)
+ * - Shopify is the only `connectionMethod: "oauth"` entry in MARKETPLACE_OPTIONS
+ *   (lib/marketplaces.ts) — every other oauth-shaped platform (eBay/Walmart/Etsy)
+ *   is still `coming_soon` (no button at all, never a fake flow). For Shopify:
+ *   uses the REAL Partner-app OAuth redirect (ShopifyConnectModal →
+ *   /api/shopify/oauth/*) whenever this deployment has SHOPIFY_CLIENT_ID/
+ *   SHOPIFY_CLIENT_SECRET configured (isShopifyLiveEnabled()); without those
+ *   credentials, falls back to the demo consent modal (MarketplaceOAuthModal),
+ *   which now explicitly discloses it's sample data so it's never mistaken for
+ *   a real connection.
  * - Connected list shows token-like refs + Disconnect
  * - Disconnecting a "live" connection (Trendyol/Hepsiburada/N11/live Shopify)
  *   calls /api/marketplace/disconnect to actually delete the encrypted
  *   marketplace_credentials row server-side, with a choice to also delete the
  *   order data already pulled — demo connections disconnect locally only.
- * - Shopify Connect uses MarketplaceOAuthModal (demo) by default; live Partner
- *   OAuth routes + ShopifyConnectModal remain available outside this default.
  * - CSV path for manual_csv (real parse + save)
  * - Read-only trust copy throughout
  */
@@ -22,8 +28,10 @@ import { getConnections, isMarketplaceConnected, removeConnection, addConnection
 import type { MarketplaceConnection } from "@/lib/connect/types";
 import { READ_ONLY_COPY, MarketplaceOAuthModal } from "@/components/MarketplaceOAuthModal";
 import { MarketplaceApiKeyModal } from "@/components/MarketplaceApiKeyModal";
+import { ShopifyConnectModal } from "@/components/ShopifyConnectModal";
 import { saveUserRows } from "@/lib/supabase/user-data";
 import { isAuthConfigured, getSupabaseClient } from "@/lib/supabase/client";
+import { isShopifyLiveEnabled } from "@/lib/shopify-api/live";
 import {
   MARKETPLACE_OPTIONS, REGION_ORDER, REGION_LABELS, getMarketplaceOption,
   type MarketplaceOption,
@@ -34,6 +42,12 @@ function connectLabel(m: MarketplaceOption): string {
     case "csv": return "Upload CSV";
     case "manual": return "Add manually";
     case "api_key": return "Add API key";
+    case "oauth":
+      // Shopify is currently the only connectionMethod:"oauth" entry (see
+      // lib/marketplaces.ts) — label reflects whether THIS deployment has
+      // live Shopify Partner-app credentials configured (see startConnect).
+      if (m.id === "shopify" && isShopifyLiveEnabled()) return `Connect ${m.label.split(" ")[0]}`;
+      return `Connect ${m.label.split(" ")[0]} (Demo)`;
     default: return `Connect ${m.label.split(" ")[0]}`;
   }
 }
@@ -60,6 +74,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
   const [connections, setConnections] = useState<MarketplaceConnection[]>(() => getConnections());
   const [oauthTarget, setOauthTarget] = useState<string | null>(null);
   const [oauthOpen, setOauthOpen] = useState(false);
+  const [shopifyLiveOpen, setShopifyLiveOpen] = useState(false);
   const [apiKeyTarget, setApiKeyTarget] = useState<string | null>(null);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
   const [connectError, setConnectError] = useState("");
@@ -117,9 +132,17 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
       setApiKeyOpen(true);
       return;
     }
-    // oauth demo consent modal (Shopify included — same as eBay/Walmart/Etsy).
-    // Live Partner OAuth stays available via /api/shopify/oauth/* + ShopifyConnectModal,
-    // but is not the connect-step default (avoids requiring session + SHOPIFY_CLIENT_ID).
+    // Shopify has a real Partner-app OAuth integration built (/api/shopify/
+    // oauth/* + ShopifyConnectModal): when this deployment has SHOPIFY_
+    // CLIENT_ID/SECRET configured, send the user through the REAL OAuth
+    // redirect to Shopify's own site — never a fabricated "connected" state.
+    // Without live credentials, falls back to the demo consent modal below,
+    // which now explicitly discloses it's sample data (see
+    // MarketplaceOAuthModal's demo banner) — never silently passed off as real.
+    if (marketplaceId === "shopify" && isShopifyLiveEnabled()) {
+      setShopifyLiveOpen(true);
+      return;
+    }
     setOauthTarget(marketplaceId);
     setOauthOpen(true);
   }
@@ -231,6 +254,9 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                     <div className="text-sm text-zinc-200 truncate">{opt?.label ?? c.marketplaceId}</div>
                     <div className="text-zinc-600 font-mono text-[10px] tabular-nums truncate mt-0.5">
                       {c.accessTokenRef} · read-only
+                      {c.provider === "demo" && c.method !== "manual" && c.method !== "csv" && (
+                        <span className="text-amber-500/80"> · demo, sample data</span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -349,6 +375,10 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
         open={oauthOpen}
         onClose={() => { setOauthOpen(false); setOauthTarget(null); }}
         onConnected={handleConnected}
+      />
+      <ShopifyConnectModal
+        open={shopifyLiveOpen}
+        onClose={() => setShopifyLiveOpen(false)}
       />
       <MarketplaceApiKeyModal
         marketplaceId={apiKeyTarget}

@@ -38,20 +38,25 @@ describe("isShopifyLiveEnabled", () => {
 });
 
 /**
- * Connect-step policy: Shopify always uses the demo MarketplaceOAuthModal,
- * matching eBay/Walmart/Etsy. Live OAuth (ShopifyConnectModal + /api/shopify/oauth/*)
- * stays available but is not the /connect default — even when live credentials exist.
+ * Connect-step policy: Shopify uses the REAL Partner-app OAuth flow
+ * (ShopifyConnectModal -> /api/shopify/oauth/*) whenever this deployment has
+ * live credentials (SHOPIFY_CLIENT_ID/SECRET) configured — a user must never
+ * be told "Connected" without a real Shopify redirect happening. Only when no
+ * live credentials exist does it fall back to the demo consent modal
+ * (MarketplaceOAuthModal) — and that modal now explicitly discloses it's
+ * sample data, so a demo connection can never be mistaken for a real one.
+ * See components/MarketplaceConnectStep.tsx's startConnect().
  */
-function pickShopifyConnectStepModal(_liveEnabled: boolean): "MarketplaceOAuthModal" {
-  return "MarketplaceOAuthModal";
+function pickShopifyConnectStepModal(liveEnabled: boolean): "ShopifyConnectModal" | "MarketplaceOAuthModal" {
+  return liveEnabled ? "ShopifyConnectModal" : "MarketplaceOAuthModal";
 }
 
 describe("Shopify connect modal selection (/connect)", () => {
-  it("uses MarketplaceOAuthModal even when live OAuth is enabled", () => {
-    expect(pickShopifyConnectStepModal(true)).toBe("MarketplaceOAuthModal");
+  it("uses the REAL ShopifyConnectModal (Partner OAuth) when live credentials are configured", () => {
+    expect(pickShopifyConnectStepModal(true)).toBe("ShopifyConnectModal");
   });
 
-  it("uses MarketplaceOAuthModal when live OAuth is disabled", () => {
+  it("falls back to the demo MarketplaceOAuthModal when no live credentials exist", () => {
     expect(pickShopifyConnectStepModal(false)).toBe("MarketplaceOAuthModal");
   });
 });

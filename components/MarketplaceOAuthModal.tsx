@@ -96,6 +96,20 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
         {/* Consent — Plaid-style permission screen (demo, not real platform) */}
         {phase === "consent" && (
           <div className="p-6">
+            {/* Unmissable disclosure: this does NOT reach the real platform. No
+                integration exists yet for {platformName} here — clicking
+                Authorize creates a LOCAL, sample-data connection only, never a
+                real one silently passed off as genuine. */}
+            <div className="mb-4 border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
+              <p className="text-amber-300 text-[12px] font-semibold leading-snug">
+                Demo mode — no real {platformName} account is contacted.
+              </p>
+              <p className="text-amber-200/80 text-[11px] leading-relaxed mt-1">
+                This creates a local, sample-data connection so you can preview the product. No password,
+                order, or settlement data is read from {platformName}. For your own real numbers, use
+                &quot;Upload CSV&quot; or &quot;Enter manually&quot; instead.
+              </p>
+            </div>
             <div className="border border-zinc-800 bg-zinc-900/40 p-4 mb-4">
               <div className="flex items-center gap-2 mb-3 pb-3 border-b border-zinc-800">
                 <span className="text-zinc-100 font-mono text-sm font-medium">{platformName}</span>
@@ -164,7 +178,7 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
             {phase === "connected" && (
               <>
                 <p className="text-emerald-400 text-sm font-medium mb-1">Connected ✓</p>
-                <p className="text-zinc-500 text-[11px] font-mono">{platformName}</p>
+                <p className="text-zinc-500 text-[11px] font-mono">{platformName} · demo — sample data</p>
               </>
             )}
             {phase !== "connected" && (
