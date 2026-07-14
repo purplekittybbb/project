@@ -23,28 +23,21 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
-## ⚠️ ACİL: Vercel production ESKİ KODU serviyor (2026-07-14)
-`matsorular.vercel.app`, `git push` edilmiş en son commit'leri (Shopify OAuth wiring fix dahil) YANSITMIYOR —
-canlıda test edilince "Connect Shopify" hâlâ ESKİ demo davranışını gösterdi (buton "(Demo)" etiketi olmadan
-"Connect Shopify" yazıyordu ama tıklayınca gerçek `ShopifyConnectModal` değil, eski demo consent modalı açıldı;
-"demo, sample data" etiketim de görünmüyordu). Git tarafı temiz — `a19cade`/`d75d533` `origin/master`'da mevcut,
-`.vercel/project.json` proje "matsorular"a bağlı — ama Vercel deploy'u tetiklememiş/başarısız olmuş görünüyor.
-**Kullanıcının Vercel Dashboard → matsorular → Deployments'ı kontrol edip son deployment durumunu
-(Ready/Failed/eksik) doğrulaması ve gerekirse manuel "Redeploy" yapması gerekiyor.**
+## ✅ Shopify Entegrasyonu — DURUM: TAM CANLI, UÇTAN UCA DOĞRULANDI (2026-07-14)
+Gerçek bir Shopify test mağazasıyla (`true-life-2mb7xbhj.myshopify.com`) production'da (`matsorular.vercel.app`)
+tam akış canlı test edildi ve BAŞARILI: Connect Shopify → gerçek `myshopify.com/admin/oauth/authorize`
+yönlendirmesi → doğru izin ekranı ("Orders" dahil) → Install → gerçek callback → `tm_key_shopify_oauth` (live)
+bağlantı kuruldu → dashboard'da eski demo verisi YOK, dürüst "No data yet" (test mağazasında gerçekten sipariş
+yok, hiç sahte veri uydurulmadı). Konsol hatası yok. Bu, tüm oturumun nihai kanıtıdır.
 
-## Shopify Entegrasyonu — DURUM: KOD TAM HAZIR, PRODUCTION DEPLOY BEKLİYOR
-`shopify.app.toml` artık repoda (commit `a19cade`), doğru app'e bağlı (`client_id` `.env.local`'daki
-`SHOPIFY_CLIENT_ID` ile TAM eşleşiyor — "Sol menüde Dev dashboard" app'i), ve `shopify app deploy` ile
-Shopify'a gönderildi: `application_url = https://matsorular.vercel.app`, `redirect_urls = [
-https://matsorular.vercel.app/api/shopify/oauth/callback ]` artık Shopify sunucusunda kayıtlı
-(versiyon: `sol-menude-dev-dashboard-2`). Yani `/connect`'teki gerçek OAuth akışı artık uçtan uca çalışır durumda —
-hem kod (önceki oturumda wire edildi) hem Shopify config (bu oturumda deploy edildi) hazır.
-
-Bu ortamda (`.env.local`'da `SHOPIFY_CLIENT_ID`/`SHOPIFY_CLIENT_SECRET` tanımlı) `/connect` sayfasındaki
-"Connect Shopify" butonu artık **gerçek** Shopify Partner OAuth'una gidiyor (canlı doğrulandı — aşağıya bak).
-`SHOPIFY_CLIENT_ID` tanımlı OLMAYAN bir deployment'ta ise otomatik olarak demo moda düşer — ve o demo modu artık
-"Demo mode — no real {platform} account is contacted" şeklinde AÇIKÇA etiketleniyor (öncesinde sadece küçük,
-kolayca gözden kaçan bir "demo consent" rozeti vardı).
+Bu noktaya gelmeden önce 3 ayrı, birbirinden bağımsız sorun bulunup çözüldü (hepsi commit edildi):
+1. Kod tarafı Shopify OAuth hiç wire edilmemişti → wire edildi (`210d2ad`/`a19cade`)
+2. `shopify.app.toml` hiç yoktu, redirect URL Shopify'da kayıtlı değildi → oluşturuldu, doğru app'e bağlandı, deploy edildi
+3. Vercel projesi HİÇ GitHub'a bağlı değildi (bu yüzden hiçbir push deploy tetiklemiyordu) → Settings→Git'ten
+   `purplekittybbb/project`e bağlandı; repo private olduğu için ilk deploy "Blocked" oldu → repo public yapıldı → düzeldi
+4. Demo bağlantısından kalan sahte örnek veriler gerçek veriyle karışıyordu → callback'e temizleme eklendi (`d75d533`)
+5. `shopify.app.toml`'da `access_scopes.scopes` boştu, gerçek onay ekranı "Orders" izni istemiyordu → `read_orders`
+   eklendi, tekrar deploy edildi (`8e208c6`, versiyon `sol-menude-dev-dashboard-3`)
 
 ## Şu An Ne Çalışıyor
 - **Shopify gerçek OAuth kablolaması**: ✅ Tamamlandı, canlı doğrulandı, committed
@@ -70,6 +63,30 @@ kolayca gözden kaçan bir "demo consent" rozeti vardı).
 4. **Demo mode (/demo) Shopify-only tab**: Seed seller-b'de shopify verisi yok — tab "Shopify" seçiliyken combined fallback gösterir (crash yok, sadece UX karışıklığı)
 
 ## Son Yapılanlar
+- **2026-07-14**: Shopify OAuth UÇTAN UCA CANLI DOĞRULANDI — tam başarı (Claude Code + kullanıcı)
+  - **Vercel'in stale-deploy kökeni bulundu**: Deployments listesinde en son deployment "1 gün önce" idi — bugün
+    atılan hiçbir commit deploy tetiklememişti. Settings→Git'e bakılınca **Vercel projesinin GitHub'a HİÇ
+    bağlı olmadığı** görüldü (GitHub/GitLab/Bitbucket "bağlan" butonları duruyordu, bağlı repo adı yoktu).
+    `purplekittybbb/project`e bağlandı — ilk deploy denemesi "Blocked: commit author did not have contributing
+    access ... Hobby Plan does not support collaboration for private repositories" hatasıyla durdu (repo private
+    olduğu, Vercel hesabıyla GitHub hesabı farklı göründüğü için). Repo `.env.local`'ın hiç commit edilmediği
+    doğrulanıp (secret sızıntı riski yok) GitHub'da public'e çevrildi — sonraki deploy başarıyla tamamlandı.
+  - **İkinci blocker — eksik OAuth scope**: Deploy düzelince gerçek test mağazasıyla (`true-life-2mb7xbhj`,
+    kullanıcının Partner Dashboard'da oluşturduğu development store) ilk deneme onay ekranında sadece "View
+    staff and contributor data" gösterdi — "Orders" izni hiç yoktu. Kök neden: `shopify.app.toml`'da
+    `access_scopes.scopes = ""` — `embedded = true` olduğu için Shopify'ın gerçek install ekranı OAuth URL'deki
+    dinamik `scope=read_orders` parametresini değil, toml'daki statik (boş) scope'u kullanıyordu. `scopes =
+    "read_orders"` eklenip tekrar `shopify app deploy` edildi (versiyon `sol-menude-dev-dashboard-3`).
+  - **CANLI UÇTAN UCA KANIT**: Test mağazasıyla tekrar denendi → onay ekranında artık "Orders" listeleniyordu →
+    "Install" tıklandı → tarayıcı otomatik `matsorular.vercel.app`'a döndü → Connect listesinde `tm_key_shopify_
+    oauth` (canlı/"live" provider, demo etiketi YOK) göründü → Dashboard'a gidildi → eski demo verisi ($51,300
+    vb.) YOKTU, bunun yerine dürüst "No data yet" (test mağazasında gerçekten sipariş yok, hiçbir sayı
+    uydurulmadı). Konsol hatası sıfır.
+  - Bu, kullanıcının en baştaki şüphesinden ("Shopify hesabımı bağlamak gerçek veri istemiyor, sahte veriyle
+    açılıyor") başlayıp beş ayrı kök nedenin (UI'da hiç wire edilmemiş kod, eksik shopify.app.toml, yanlış app'e
+    bağlanma, Vercel'in GitHub'a hiç bağlı olmaması, eksik OAuth scope) tek tek bulunup düzeltildiği bütün bir
+    oturumun sonucu.
+
 - **2026-07-14**: Test mağazasıyla canlı OAuth denemesi → 2 gerçek bulgu (Claude Code, commit `d75d533`)
   - **Bulgu 1 (production stale deploy)**: Kullanıcı gerçek bir Shopify test mağazası (`true-life-2mb7xbhj`)
     oluşturup `localhost:3000` üzerinden bağlanmayı denedi → Shopify "redirect_uri is not whitelisted" hatası
@@ -174,19 +191,19 @@ kolayca gözden kaçan bir "demo consent" rozeti vardı).
 
 ## Bekleyen Kararlar
 1. **Migration 0006 + 0010 apply timeline**: Supabase production/staging ortamına ne zaman uygulanacak?
-2. **[EN ACİL] Vercel deploy'u neden güncel değil?** — Yukarıdaki "⚠️ ACİL" bölümüne bakın. Kullanıcının
-   Vercel Dashboard'da Deployments sekmesini kontrol edip son deployment durumunu görmesi gerekiyor.
-3. **[ÇÖZÜLDÜ 2026-07-14, deploy bekliyor] Shopify Partner App redirect URL kaydı**: `shopify.app.toml`
-   deploy edildi, `redirect_urls` Shopify'da kayıtlı. Ama gerçek uçtan uca test (test mağazası
-   `true-life-2mb7xbhj` ile) production'ın eski kodu servis etmesi yüzünden TAMAMLANAMADI — madde 2 çözülünce
-   tekrar denenmeli.
-4. **[ÇÖZÜLDÜ 2026-07-14] Demo/gerçek veri karışması**: `/api/shopify/oauth/callback` artık gerçek bağlantıda
-   eski demo örnek satırlarını temizliyor (commit `d75d533`). Ama bu fix de production'da henüz aktif değil
-   (madde 2'ye bağlı).
+2. **Vercel projesinin GitHub bağlantısı artık kalıcı mı?** — `purplekittybbb/project`e bağlandı (Settings→Git),
+   repo public yapıldı. Gelecekte her `git push`'un otomatik deploy tetiklediği birkaç commit sonra teyit edilmeli
+   (şu ana kadar 2 kez elle boş commit ile tetiklendi, organik bir push ile otomatik tetiklenişi henüz görülmedi).
+3. **Repo'nun public kalması kabul edilebilir mi?** — Kullanıcının bilinçli tercihiydi (Vercel Pro'ya
+   yükselmemek için). İçinde secret yok (`.env.local` hiç commit edilmemiş, doğrulandı), ama uzun vadede
+   private + Vercel Pro'ya geçiş düşünülebilir.
 4. **`C:\Users\masla\shopify.app.toml`** (yanlış konumda, ana kullanıcı dizininde) hâlâ duruyor — artık gereksiz
    bir kalıntı (proje dosyası doğru içerikle güncellendi). Temizlenmesi istenirse silinebilir; git'e hiç dahil
    değil, zararsız.
-5. **tests/e2e-evidence/** dizininde bazı eski/başarısız debug taramaları var (`99-error*.png`, `report.json` — port
+5. **Gerçek sipariş verisiyle tam test**: Test mağazasına (`true-life-2mb7xbhj`) birkaç örnek ürün/sipariş
+   eklenip "Refresh" ile gerçek sipariş verisinin dashboard'a doğru yansıdığı görülebilir — şu ana kadar sadece
+   BAĞLANTI kısmı (sıfır siparişle) doğrulandı, gerçek sipariş → dashboard sayıları eşlemesi henüz canlı görülmedi.
+6. **tests/e2e-evidence/** dizininde bazı eski/başarısız debug taramaları var (`99-error*.png`, `report.json` — port
    3001 bağlantı hatası içeriyor, muhtemelen yanlışlıkla farklı porta işaret etmiş). Temizlenmeli mi, yoksa referans
    için mi kalsın?
 
@@ -197,6 +214,6 @@ yapmadan önce `git log` ve ilgili dosyaları oku.
 
 ---
 
-**Son güncelleme**: 2026-07-14 (demo-veri temizleme fix + Vercel'in eski kod servis ettiği tespit edildi)
-**Sonraki adım**: ⚠️ Vercel Dashboard'da Deployments kontrol edilmeli/redeploy edilmeli (EN ÖNCELİKLİ) →
-sonra test mağazası `true-life-2mb7xbhj` ile production'da uçtan uca OAuth tekrar denenmeli
+**Son güncelleme**: 2026-07-14 (Shopify OAuth uçtan uca gerçek test mağazasıyla doğrulandı — tam başarı)
+**Sonraki adım**: İstenirse gerçek sipariş verisiyle (test mağazaya ürün/sipariş ekleyip) dashboard sayılarının
+doğru yansıdığı da doğrulanabilir; aksi halde Shopify entegrasyonu tamamlanmış kabul edilebilir
