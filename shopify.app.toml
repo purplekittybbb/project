@@ -1,0 +1,18 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "6a58ca16a8a1e054e9a857b01480638d"
+name = 'Sol menüde **"Dev dashboard"**'
+application_url = "https://matsorular.vercel.app"
+embedded = true
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = ""
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [ "https://matsorular.vercel.app/api/shopify/oauth/callback" ]
+
+[webhooks]
+api_version = "2026-07"
