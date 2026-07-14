@@ -7,7 +7,15 @@ embedded = true
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = ""
+# Must match the `scope` this app actually requests in its OAuth authorize
+# URL (see buildAuthorizeUrl's default in lib/shopify-api/client.ts) — with
+# embedded = true, Shopify's install consent screen is driven by THIS field,
+# not the dynamic `scope=` query param the OAuth code sends. Left empty
+# before, the real install screen showed only the Shopify-default "View
+# staff and contributor data" permission — never read_orders — so a
+# completed install would have granted a token unable to read any order
+# data, confirmed live against a real test store before this fix.
+scopes = "read_orders"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 
