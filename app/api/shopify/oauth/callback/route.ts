@@ -143,7 +143,35 @@ export async function GET(req: NextRequest) {
     return redirectWithResult(req, "error", "Kimlik bilgileri kaydedilemedi.");
   }
 
-  // 5) Persist the real rows through the same table every other connector uses.
+  // 5) Clean up any leftover DEMO sample rows for this marketplace before
+  //    writing real data. The demo connect path (components/MarketplaceOAuthModal
+  //    -> lib/connect/demo-provider.ts's simulateInitialSync) seeds 3 fixed
+  //    sample rows with deterministic order_ids ("shopify-init-1/2/3") the
+  //    first time a user demo-connects Shopify — and since resyncMarketplace's
+  //    de-dupe is keyed on order_id, those fake IDs never collide with real
+  //    Shopify order IDs (which look like "#1001" or a GraphQL gid) and would
+  //    otherwise sit there FOREVER, permanently blending fake numbers into
+  //    this user's real totals every time they viewed their dashboard —
+  //    confirmed live: a real user's Gross Rev kept showing the demo's fixed
+  //    $51,300 no matter how many times they reconnected. Only ever deletes
+  //    rows matching the exact demo sentinel pattern for THIS marketplace —
+  //    a real historical order can never match "shopify-init-N", so this can
+  //    never delete genuine data (unlike a blanket delete-then-replace, which
+  //    resyncMarketplace's own doc comment explains is unsafe here because a
+  //    vendor's orders API only returns a recent window).
+  const { error: demoCleanupError } = await supabase
+    .from("user_transactions")
+    .delete()
+    .eq("user_id", userId)
+    .eq("marketplace", "shopify")
+    .like("order_id", "shopify-init-%");
+  if (demoCleanupError) {
+    console.warn(`[shopify/oauth/callback] failed to clear demo sample rows for ${userId}:`, demoCleanupError.message);
+    // Non-fatal — real rows below still get saved; demo rows just linger
+    // until the next successful callback run retries this cleanup.
+  }
+
+  // 6) Persist the real rows through the same table every other connector uses.
   if (rows.length > 0) {
     const payload = rows.map((r) => ({
       user_id: userId,
