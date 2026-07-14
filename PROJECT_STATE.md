@@ -32,15 +32,29 @@ sorunlar için satır satır denetlendi:
   `api.n11.com`) bağlanıyor, yanlış kimlik bilgisinde platformun kendi 401'ini döndürüyor, asla sahte
   "Connected ✓" göstermiyor. Demo veri kirlenmesi de yapısal olarak imkansız — `lib/connect/demo-provider.ts`'te
   bu üç pazaryeri `LIVE_INTEGRATION_MARKETPLACES`'te, demo akışı onlara hiç dokunmuyor.
-- **YENİ BULUNAN GERÇEK BUG (düzeltildi, commit `d0e1112`)**: 4 gerçek bağlantı route'unun (Trendyol/
-  Hepsiburada/N11/Shopify) HİÇBİRİ mevcut verilerle **de-dupe (tekrar önleme)** kontrolü yapmıyordu — sadece
-  "Refresh" butonunun kullandığı `resyncMarketplace` bunu yapıyordu. Somut senaryo: kullanıcı gerçek bir
-  pazaryerine bağlanır → "Disconnect only — keep my data" seçip bağlantıyı keser (varsayılan/ilk seçenek, veri
-  silinmez) → tekrar bağlanır → aynı son 90 günün siparişleri **tekrar** eklenir, aynı order_id'lerle →
-  dashboard'daki TÜM gelir/marj rakamları sessizce **iki katına çıkar** (hata yok, crash yok, sadece yanlış
-  sayı). **Fix**: `resyncMarketplace`'in kanıtlanmış de-dupe mantığı `lib/save-user-transactions.ts`'e
-  çıkarıldı, tüm 4 connect route'u + resyncMarketplace bu tek paylaşılan fonksiyonu kullanıyor artık (5 farklı
-  yerde kod tekrarı yerine tek doğruluk kaynağı).
+- **BULUNAN BUG #1 (düzeltildi, commit `d0e1112`)**: 4 gerçek bağlantı route'unun (Trendyol/Hepsiburada/N11/
+  Shopify) HİÇBİRİ mevcut verilerle **de-dupe (tekrar önleme)** kontrolü yapmıyordu — sadece "Refresh"
+  butonunun kullandığı `resyncMarketplace` bunu yapıyordu. Somut senaryo: kullanıcı gerçek bir pazaryerine
+  bağlanır → "Disconnect only — keep my data" seçip bağlantıyı keser (varsayılan/ilk seçenek, veri silinmez) →
+  tekrar bağlanır → aynı son 90 günün siparişleri **tekrar** eklenir, aynı order_id'lerle → dashboard'daki TÜM
+  gelir/marj rakamları sessizce **iki katına çıkar** (hata yok, crash yok, sadece yanlış sayı). **Fix**:
+  `resyncMarketplace`'in kanıtlanmış de-dupe mantığı `lib/save-user-transactions.ts`'e çıkarıldı, tüm 4 connect
+  route'u + resyncMarketplace bu tek paylaşılan fonksiyonu kullanıyor artık.
+- **BULUNAN BUG #2 (düzeltildi, commit `bd050d5`)**: Kullanıcı "emin misin, Shopify'da da öyle demiştin"
+  diye haklı olarak sorgulayınca ikinci bir tur yapıldı — `encryptSecret()` (`CREDENTIALS_ENCRYPTION_KEY` env
+  değişkeni olmadan exception fırlatan fonksiyon), tüm 4 route'ta try/catch OLMADAN çağrılıyordu. Bu env
+  değişkeni eksikse, kullanıcı düzgün Türkçe hata yerine ayırt edilemeyen ham 500 görür. Fix: 4 route'ta da
+  try/catch eklenip ayrı, loglanabilir bir hata mesajı ("Kimlik bilgileri şifrelenemedi — sunucu
+  yapılandırması eksik.") döndürülüyor artık.
+- **DÜRÜST GÜVEN DEĞERLENDİRMESİ**: Şu ana kadarki denetim SADECE kod okuma + statik analiz. Shopify
+  sürecinde asıl kritik hataların (Vercel'in GitHub'a hiç bağlı olmaması, eksik OAuth scope) HİÇBİRİ kod
+  okuyarak bulunamamıştı — sadece gerçek, canlı bir bağlantı denemesiyle ortaya çıktılar. Trendyol/Hepsiburada/
+  N11 için henüz böyle bir canlı deneme YAPILMADI (gerçek satıcı hesabı yok). Doğrulanamayan somut riskler:
+  (1) `CREDENTIALS_ENCRYPTION_KEY`'in Vercel production'da tanımlı olup olmadığı, (2) Trendyol/Hepsiburada API
+  alan adı varsayımlarının GERÇEK canlı yanıtla eşleşip eşleşmediği (N11 için client.ts'in kendisi bunu "LOW
+  confidence, best-effort guess chain, doğrulanamadı" diye açıkça itiraf ediyor), (3) platform tarafında IP
+  allowlist/CORS gibi sadece canlı denemede görülebilecek bir kısıtlama olup olmadığı. Bu üçü kod okuyarak
+  asla göremeyeceğim şeyler — Shopify'da olduğu gibi ancak gerçek bir bağlantı denemesi kesin cevap verir.
 - Doğrulama: `tsc --noEmit` temiz, 176/176 test geçti (marketplace-resync.test.ts'in read-fail vs insert-fail
   hata mesajı ayrımını doğrulayan 2 testi dahil), `/demo` regresyon yok.
 - **Canlı gerçek kimlik bilgisiyle test YAPILAMADI** — kullanıcının gerçek Trendyol satıcı hesabı yok/henüz
