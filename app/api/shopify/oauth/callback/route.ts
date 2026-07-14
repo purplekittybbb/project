@@ -6,6 +6,7 @@ import {
 } from "@/lib/shopify-api/client";
 import { validateUserRawRows } from "@/lib/domain/schemas";
 import { encryptSecret } from "@/lib/security/crypto";
+import { saveDedupedTransactions } from "@/lib/save-user-transactions";
 
 /**
  * GET /api/shopify/oauth/callback
@@ -171,29 +172,18 @@ export async function GET(req: NextRequest) {
     // until the next successful callback run retries this cleanup.
   }
 
-  // 6) Persist the real rows through the same table every other connector uses.
-  if (rows.length > 0) {
-    const payload = rows.map((r) => ({
-      user_id: userId,
-      order_id: r.order_id,
-      sku: r.sku,
-      category: r.category,
-      sale_date: r.sale_date,
-      units: r.units,
-      gross_revenue: r.gross_revenue,
-      unit_cost: r.unit_cost,
-      shipping: r.shipping,
-      return_rate: r.return_rate,
-      ad_spend: r.ad_spend,
-      marketplace: r.marketplace,
-    }));
-    const { error: insertError } = await supabase.from("user_transactions").insert(payload);
-    if (insertError) {
-      console.error("[shopify/oauth/callback] failed to save rows:", insertError.message);
-      return redirectWithResult(req, "error", "Veriler kaydedilemedi.");
-    }
+  // 6) Persist the real rows through the same table every other connector uses
+  //    — de-duplicated by order_id so reconnecting (e.g. after "Disconnect
+  //    only — keep my data") can never double-count an order already stored.
+  const saveResult = await saveDedupedTransactions(supabase, userId, "shopify", rows);
+  if (saveResult.error) {
+    console.error("[shopify/oauth/callback] failed to save rows:", saveResult.rawError ?? saveResult.error);
+    return redirectWithResult(req, "error", saveResult.error);
   }
 
-  console.log(`[shopify/oauth/callback] connected ${shopParam}: ${orders.length} orders fetched, ${rows.length} rows saved`);
+  console.log(
+    `[shopify/oauth/callback] connected ${shopParam}: ${orders.length} orders fetched, ` +
+      `${saveResult.rowsSaved} row(s) saved, ${saveResult.duplicatesSkipped} duplicate(s) skipped`
+  );
   return redirectWithResult(req, "connected");
 }

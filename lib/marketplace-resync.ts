@@ -19,6 +19,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { decryptSecret } from "./security/crypto";
 import { validateUserRawRows } from "./domain/schemas";
+import { saveDedupedTransactions } from "./save-user-transactions";
 import type { UserRawRow } from "./adapters/csv";
 import {
   fetchTrendyolOrders, mapOrdersToUserRawRows,
@@ -170,41 +171,20 @@ export async function resyncMarketplace(
   // cron depends on. (There's no DB-level unique constraint on order_id today;
   // see supabase/migrations/0003_user_transactions_dedupe_index.sql for an
   // optional, DB-enforced second layer — this app-level check is the one that
-  // always works, with or without that migration applied.)
-  const { data: existingRows, error: existingError } = await supabase
-    .from("user_transactions")
-    .select("order_id")
-    .eq("user_id", userId)
-    .eq("marketplace", marketplace);
-  if (existingError) {
-    console.error(`[resyncMarketplace] failed to read existing ${marketplace} rows for de-dupe:`, existingError.message);
-    return { success: false, marketplace, authError: false, error: "Mevcut veriler okunamadı." };
-  }
-  const existingOrderIds = new Set((existingRows ?? []).map((r) => (r as { order_id: string }).order_id));
-  const newRows = rows.filter((r) => !existingOrderIds.has(r.order_id));
-  const duplicatesSkipped = rows.length - newRows.length;
-
-  if (newRows.length > 0) {
-    const payload = newRows.map((r) => ({
-      user_id: userId,
-      order_id: r.order_id,
-      sku: r.sku,
-      category: r.category,
-      sale_date: r.sale_date,
-      units: r.units,
-      gross_revenue: r.gross_revenue,
-      unit_cost: r.unit_cost,
-      shipping: r.shipping,
-      return_rate: r.return_rate,
-      ad_spend: r.ad_spend,
-      marketplace: r.marketplace,
-    }));
-    const { error: insertError } = await supabase.from("user_transactions").insert(payload);
-    if (insertError) {
-      console.error(`[resyncMarketplace] failed to save ${marketplace} rows:`, insertError.message);
-      return { success: false, marketplace, authError: false, error: "Veriler kaydedilemedi." };
-    }
+  // always works, with or without that migration applied.) Shared with every
+  // FIRST-connect route too — see lib/save-user-transactions.ts's doc comment
+  // for why that mattered (reconnecting used to silently duplicate orders).
+  const saveResult = await saveDedupedTransactions(supabase, userId, marketplace, rows);
+  if (saveResult.error) {
+    console.error(`[resyncMarketplace] failed to save ${marketplace} rows:`, saveResult.rawError ?? saveResult.error);
+    return { success: false, marketplace, authError: false, error: saveResult.error };
   }
 
-  return { success: true, marketplace, ordersFetched, rowsSaved: newRows.length, duplicatesSkipped };
+  return {
+    success: true,
+    marketplace,
+    ordersFetched,
+    rowsSaved: saveResult.rowsSaved,
+    duplicatesSkipped: saveResult.duplicatesSkipped,
+  };
 }
