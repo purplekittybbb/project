@@ -100,13 +100,25 @@ export async function POST(req: Request) {
 
   // 3) Persist encrypted credentials — reuses the same marketplace_credentials
   //    table Trendyol uses (upsert keyed on user_id + marketplace).
+  //    encryptSecret throws if CREDENTIALS_ENCRYPTION_KEY isn't configured on
+  //    this deployment — caught explicitly (see trendyol/connect for why).
+  let apiKeyEncrypted: string;
+  let apiSecretEncrypted: string;
+  try {
+    apiKeyEncrypted = encryptSecret(apiKey);
+    apiSecretEncrypted = encryptSecret(apiSecret);
+  } catch (err) {
+    console.error("[hepsiburada/connect] failed to encrypt credentials (CREDENTIALS_ENCRYPTION_KEY missing?):", err);
+    return NextResponse.json({ error: "Kimlik bilgileri şifrelenemedi — sunucu yapılandırması eksik." }, { status: 500 });
+  }
+
   const { error: credError } = await supabase.from("marketplace_credentials").upsert(
     {
       user_id: userId,
       marketplace: "hepsiburada",
       seller_id: merchantId,
-      api_key_encrypted: encryptSecret(apiKey),
-      api_secret_encrypted: encryptSecret(apiSecret),
+      api_key_encrypted: apiKeyEncrypted,
+      api_secret_encrypted: apiSecretEncrypted,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id,marketplace" }

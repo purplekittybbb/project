@@ -101,13 +101,28 @@ export async function POST(req: Request) {
   const { valid: rows, warnings } = validateUserRawRows(rawRows);
 
   // 3) Persist encrypted credentials (upsert — reconnecting just refreshes them).
+  //    encryptSecret throws if CREDENTIALS_ENCRYPTION_KEY isn't configured on
+  //    this deployment — caught explicitly so that misconfiguration produces
+  //    a clear, logged, attributable failure instead of an unhandled
+  //    exception surfacing as an opaque 500 indistinguishable from any other
+  //    server error.
+  let apiKeyEncrypted: string;
+  let apiSecretEncrypted: string;
+  try {
+    apiKeyEncrypted = encryptSecret(apiKey);
+    apiSecretEncrypted = encryptSecret(apiSecret);
+  } catch (err) {
+    console.error("[trendyol/connect] failed to encrypt credentials (CREDENTIALS_ENCRYPTION_KEY missing?):", err);
+    return NextResponse.json({ error: "Kimlik bilgileri şifrelenemedi — sunucu yapılandırması eksik." }, { status: 500 });
+  }
+
   const { error: credError } = await supabase.from("marketplace_credentials").upsert(
     {
       user_id: userId,
       marketplace: "trendyol",
       seller_id: sellerId,
-      api_key_encrypted: encryptSecret(apiKey),
-      api_secret_encrypted: encryptSecret(apiSecret),
+      api_key_encrypted: apiKeyEncrypted,
+      api_secret_encrypted: apiSecretEncrypted,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id,marketplace" }

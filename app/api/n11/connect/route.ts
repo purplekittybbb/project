@@ -98,13 +98,25 @@ export async function POST(req: Request) {
   // 3) Persist encrypted credentials — reuses the same marketplace_credentials
   //    table Trendyol/Hepsiburada use. N11 has no separate seller/merchant id
   //    from the client, so seller_id stores the app key's own identity ref.
+  //    encryptSecret throws if CREDENTIALS_ENCRYPTION_KEY isn't configured on
+  //    this deployment — caught explicitly (see trendyol/connect for why).
+  let apiKeyEncrypted: string;
+  let apiSecretEncrypted: string;
+  try {
+    apiKeyEncrypted = encryptSecret(appKey);
+    apiSecretEncrypted = encryptSecret(appSecret);
+  } catch (err) {
+    console.error("[n11/connect] failed to encrypt credentials (CREDENTIALS_ENCRYPTION_KEY missing?):", err);
+    return NextResponse.json({ error: "Kimlik bilgileri şifrelenemedi — sunucu yapılandırması eksik." }, { status: 500 });
+  }
+
   const { error: credError } = await supabase.from("marketplace_credentials").upsert(
     {
       user_id: userId,
       marketplace: "n11",
       seller_id: appKey,
-      api_key_encrypted: encryptSecret(appKey),
-      api_secret_encrypted: encryptSecret(appSecret),
+      api_key_encrypted: apiKeyEncrypted,
+      api_secret_encrypted: apiSecretEncrypted,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id,marketplace" }

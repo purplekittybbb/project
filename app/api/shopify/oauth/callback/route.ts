@@ -128,13 +128,25 @@ export async function GET(req: NextRequest) {
   //    access token) — api_secret_encrypted has no second secret to hold, so
   //    it stores an encrypted empty placeholder to satisfy the NOT NULL
   //    constraint without pretending there's a real second credential.
+  //    encryptSecret throws if CREDENTIALS_ENCRYPTION_KEY isn't configured on
+  //    this deployment — caught explicitly (see /api/trendyol/connect for why).
+  let apiKeyEncrypted: string;
+  let apiSecretEncrypted: string;
+  try {
+    apiKeyEncrypted = encryptSecret(accessToken);
+    apiSecretEncrypted = encryptSecret("");
+  } catch (err) {
+    console.error("[shopify/oauth/callback] failed to encrypt credentials (CREDENTIALS_ENCRYPTION_KEY missing?):", err);
+    return redirectWithResult(req, "error", "Kimlik bilgileri şifrelenemedi — sunucu yapılandırması eksik.");
+  }
+
   const { error: credError } = await supabase.from("marketplace_credentials").upsert(
     {
       user_id: userId,
       marketplace: "shopify",
       seller_id: shopParam,
-      api_key_encrypted: encryptSecret(accessToken),
-      api_secret_encrypted: encryptSecret(""),
+      api_key_encrypted: apiKeyEncrypted,
+      api_secret_encrypted: apiSecretEncrypted,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id,marketplace" }
