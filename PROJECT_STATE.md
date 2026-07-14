@@ -23,7 +23,16 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
-## Shopify Entegrasyonu — DURUM: TAM CANLI (kod + Shopify tarafı config artık ikisi de doğru)
+## ⚠️ ACİL: Vercel production ESKİ KODU serviyor (2026-07-14)
+`matsorular.vercel.app`, `git push` edilmiş en son commit'leri (Shopify OAuth wiring fix dahil) YANSITMIYOR —
+canlıda test edilince "Connect Shopify" hâlâ ESKİ demo davranışını gösterdi (buton "(Demo)" etiketi olmadan
+"Connect Shopify" yazıyordu ama tıklayınca gerçek `ShopifyConnectModal` değil, eski demo consent modalı açıldı;
+"demo, sample data" etiketim de görünmüyordu). Git tarafı temiz — `a19cade`/`d75d533` `origin/master`'da mevcut,
+`.vercel/project.json` proje "matsorular"a bağlı — ama Vercel deploy'u tetiklememiş/başarısız olmuş görünüyor.
+**Kullanıcının Vercel Dashboard → matsorular → Deployments'ı kontrol edip son deployment durumunu
+(Ready/Failed/eksik) doğrulaması ve gerekirse manuel "Redeploy" yapması gerekiyor.**
+
+## Shopify Entegrasyonu — DURUM: KOD TAM HAZIR, PRODUCTION DEPLOY BEKLİYOR
 `shopify.app.toml` artık repoda (commit `a19cade`), doğru app'e bağlı (`client_id` `.env.local`'daki
 `SHOPIFY_CLIENT_ID` ile TAM eşleşiyor — "Sol menüde Dev dashboard" app'i), ve `shopify app deploy` ile
 Shopify'a gönderildi: `application_url = https://matsorular.vercel.app`, `redirect_urls = [
@@ -61,6 +70,25 @@ kolayca gözden kaçan bir "demo consent" rozeti vardı).
 4. **Demo mode (/demo) Shopify-only tab**: Seed seller-b'de shopify verisi yok — tab "Shopify" seçiliyken combined fallback gösterir (crash yok, sadece UX karışıklığı)
 
 ## Son Yapılanlar
+- **2026-07-14**: Test mağazasıyla canlı OAuth denemesi → 2 gerçek bulgu (Claude Code, commit `d75d533`)
+  - **Bulgu 1 (production stale deploy)**: Kullanıcı gerçek bir Shopify test mağazası (`true-life-2mb7xbhj`)
+    oluşturup `localhost:3000` üzerinden bağlanmayı denedi → Shopify "redirect_uri is not whitelisted" hatası
+    verdi (beklenen — localhost hiç whitelist edilmedi, sadece production URL edildi). Production'da
+    (`matsorular.vercel.app`) tekrar denenince BU SEFER doğru redirect_uri sorunu yoktu ama "Connect Shopify"
+    hâlâ ESKİ demo modalını açtı — yukarıdaki "⚠️ ACİL" notuna bakın, production deploy edilmemiş.
+  - **Bulgu 2 (gerçek bug, düzeltildi)**: Dashboard'da ısrarla aynı donmuş sayılar görülüyordu (`Gross Rev
+    $51,300`, SKU'lar `SHOPIFY-SKU-01/02`) — bunlar `lib/connect/demo-provider.ts`'teki SABİT demo örnek
+    verisiyle birebir eşleşiyordu (18000+13500+19800=51300, kanıtlandı). Kök neden: demo bağlantısı bir kez
+    yapılınca `shopify-init-1/2/3` ID'li 3 satır `user_transactions`'a yazılıyor; `resyncMarketplace`'in
+    de-dupe'u `order_id` bazlı olduğu için bu sahte ID'ler gerçek Shopify sipariş ID'leriyle asla çakışmıyor —
+    yani gerçek OAuth ile bağlanılsa bile gerçek veri bu eski sahte satırların YANINA ekleniyor, hiç
+    temizlenmiyordu. **Fix**: `/api/shopify/oauth/callback` artık gerçek veriyi yazmadan önce
+    `order_id LIKE 'shopify-init-%'` desenine uyan satırları siliyor — sadece kesin demo verisini hedefliyor,
+    gerçek geçmiş veriye asla dokunmuyor (blanket delete-then-replace YAPILMADI, çünkü `resyncMarketplace`'in
+    kendi yorumu bunun neden güvensiz olduğunu açıklıyor — vendor API'leri sadece son X günü döndürür).
+  - Doğrulama: `tsc --noEmit` temiz, 176/176 test geçti, `/demo` regresyon yok. Gerçek OAuth callback'in
+    çalıştığı uçtan uca CANLI doğrulama, production deploy düzelmeden yapılamadı.
+
 - **2026-07-14**: `shopify.app.toml` oluşturuldu, doğru app'e bağlandı, deploy edildi (Claude Code + kullanıcı, commit `a19cade`)
   - **Kontekst**: Önceki oturumda Shopify OAuth kodu wire edilmişti ama Partner Dashboard'da redirect URL hiç
     kayıtlı değildi — Settings'te düzenleme UI'ı yoktu, Versions salt-okunurdu. Teşhis: bu app "config-as-code"
@@ -146,13 +174,15 @@ kolayca gözden kaçan bir "demo consent" rozeti vardı).
 
 ## Bekleyen Kararlar
 1. **Migration 0006 + 0010 apply timeline**: Supabase production/staging ortamına ne zaman uygulanacak?
-2. **[ÇÖZÜLDÜ 2026-07-14] Shopify Partner App redirect URL kaydı**: `shopify.app.toml` deploy edildi,
-   `redirect_urls` artık Shopify'da kayıtlı. Kalan tek doğrulama: gerçek bir Shopify mağazasıyla uçtan uca
-   OAuth login tamamlanıp `/api/shopify/oauth/callback`'in gerçek sipariş verisi çekip `user_transactions`'a
-   yazdığı canlı test edilmeli (bu ben — Claude Code — yapamam, gerçek bir Shopify mağaza hesabı gerektiriyor).
-3. **Vercel production'da `SHOPIFY_CLIENT_ID`/`SHOPIFY_CLIENT_SECRET` tanımlı mı?** — Bu sadece bu makinenin
-   `.env.local`'ında doğrulandı. Prod'da tanımlı DEĞİLSE, gerçek kullanıcılar hâlâ (artık açıkça etiketlenmiş) demo
-   moda düşecek.
+2. **[EN ACİL] Vercel deploy'u neden güncel değil?** — Yukarıdaki "⚠️ ACİL" bölümüne bakın. Kullanıcının
+   Vercel Dashboard'da Deployments sekmesini kontrol edip son deployment durumunu görmesi gerekiyor.
+3. **[ÇÖZÜLDÜ 2026-07-14, deploy bekliyor] Shopify Partner App redirect URL kaydı**: `shopify.app.toml`
+   deploy edildi, `redirect_urls` Shopify'da kayıtlı. Ama gerçek uçtan uca test (test mağazası
+   `true-life-2mb7xbhj` ile) production'ın eski kodu servis etmesi yüzünden TAMAMLANAMADI — madde 2 çözülünce
+   tekrar denenmeli.
+4. **[ÇÖZÜLDÜ 2026-07-14] Demo/gerçek veri karışması**: `/api/shopify/oauth/callback` artık gerçek bağlantıda
+   eski demo örnek satırlarını temizliyor (commit `d75d533`). Ama bu fix de production'da henüz aktif değil
+   (madde 2'ye bağlı).
 4. **`C:\Users\masla\shopify.app.toml`** (yanlış konumda, ana kullanıcı dizininde) hâlâ duruyor — artık gereksiz
    bir kalıntı (proje dosyası doğru içerikle güncellendi). Temizlenmesi istenirse silinebilir; git'e hiç dahil
    değil, zararsız.
@@ -167,5 +197,6 @@ yapmadan önce `git log` ve ilgili dosyaları oku.
 
 ---
 
-**Son güncelleme**: 2026-07-14 (shopify.app.toml deploy edildi — Shopify Partner App config artık canlı)
-**Sonraki adım**: Supabase'de migration 0006 ve 0010 apply edilmeli; gerçek bir Shopify mağazasıyla uçtan uca OAuth testi yapılmalı
+**Son güncelleme**: 2026-07-14 (demo-veri temizleme fix + Vercel'in eski kod servis ettiği tespit edildi)
+**Sonraki adım**: ⚠️ Vercel Dashboard'da Deployments kontrol edilmeli/redeploy edilmeli (EN ÖNCELİKLİ) →
+sonra test mağazası `true-life-2mb7xbhj` ile production'da uçtan uca OAuth tekrar denenmeli
