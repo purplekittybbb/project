@@ -23,6 +23,30 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
+## ✅ Trendyol/Hepsiburada/N11 — Shopify'daki gibi sorunlar denetlendi (2026-07-14)
+Kullanıcı isteği üzerine Trendyol (ve aynı pattern'i paylaşan Hepsiburada/N11) Shopify'da bulunanlara benzer
+sorunlar için satır satır denetlendi:
+- **Wiring/demo-fallback sorunu**: YOK. `MarketplaceApiKeyModal.tsx`'in `connectTrendyol/Hepsiburada/N11`
+  fonksiyonları şartsız gerçek `/api/{marketplace}/connect`'i çağırıyor; o route'lar gerçekten platformların
+  canlı API'lerine (Trendyol: `apigw.trendyol.com`, Hepsiburada: `oms-external.hepsiburada.com`, N11:
+  `api.n11.com`) bağlanıyor, yanlış kimlik bilgisinde platformun kendi 401'ini döndürüyor, asla sahte
+  "Connected ✓" göstermiyor. Demo veri kirlenmesi de yapısal olarak imkansız — `lib/connect/demo-provider.ts`'te
+  bu üç pazaryeri `LIVE_INTEGRATION_MARKETPLACES`'te, demo akışı onlara hiç dokunmuyor.
+- **YENİ BULUNAN GERÇEK BUG (düzeltildi, commit `d0e1112`)**: 4 gerçek bağlantı route'unun (Trendyol/
+  Hepsiburada/N11/Shopify) HİÇBİRİ mevcut verilerle **de-dupe (tekrar önleme)** kontrolü yapmıyordu — sadece
+  "Refresh" butonunun kullandığı `resyncMarketplace` bunu yapıyordu. Somut senaryo: kullanıcı gerçek bir
+  pazaryerine bağlanır → "Disconnect only — keep my data" seçip bağlantıyı keser (varsayılan/ilk seçenek, veri
+  silinmez) → tekrar bağlanır → aynı son 90 günün siparişleri **tekrar** eklenir, aynı order_id'lerle →
+  dashboard'daki TÜM gelir/marj rakamları sessizce **iki katına çıkar** (hata yok, crash yok, sadece yanlış
+  sayı). **Fix**: `resyncMarketplace`'in kanıtlanmış de-dupe mantığı `lib/save-user-transactions.ts`'e
+  çıkarıldı, tüm 4 connect route'u + resyncMarketplace bu tek paylaşılan fonksiyonu kullanıyor artık (5 farklı
+  yerde kod tekrarı yerine tek doğruluk kaynağı).
+- Doğrulama: `tsc --noEmit` temiz, 176/176 test geçti (marketplace-resync.test.ts'in read-fail vs insert-fail
+  hata mesajı ayrımını doğrulayan 2 testi dahil), `/demo` regresyon yok.
+- **Canlı gerçek kimlik bilgisiyle test YAPILAMADI** — kullanıcının gerçek Trendyol satıcı hesabı yok/henüz
+  paylaşmadı. API key girme adımı benim asla yapamayacağım bir şey (kimlik bilgisi girme yasağı) — kullanıcı
+  kendisi girip sonucu paylaşırsa canlı doğrulama tamamlanabilir.
+
 ## ✅ Shopify Entegrasyonu — DURUM: TAM CANLI, UÇTAN UCA DOĞRULANDI (2026-07-14)
 Gerçek bir Shopify test mağazasıyla (`true-life-2mb7xbhj.myshopify.com`) production'da (`matsorular.vercel.app`)
 tam akış canlı test edildi ve BAŞARILI: Connect Shopify → gerçek `myshopify.com/admin/oauth/authorize`
@@ -203,7 +227,11 @@ Bu noktaya gelmeden önce 3 ayrı, birbirinden bağımsız sorun bulunup çözü
 5. **Gerçek sipariş verisiyle tam test**: Test mağazasına (`true-life-2mb7xbhj`) birkaç örnek ürün/sipariş
    eklenip "Refresh" ile gerçek sipariş verisinin dashboard'a doğru yansıdığı görülebilir — şu ana kadar sadece
    BAĞLANTI kısmı (sıfır siparişle) doğrulandı, gerçek sipariş → dashboard sayıları eşlemesi henüz canlı görülmedi.
-6. **tests/e2e-evidence/** dizininde bazı eski/başarısız debug taramaları var (`99-error*.png`, `report.json` — port
+6. **Trendyol/Hepsiburada/N11 canlı testi**: Kod denetlendi ve bir bug (duplicate-order) bulunup düzeltildi,
+   ama gerçek bir satıcı hesabıyla uçtan uca CANLI test edilmedi — kullanıcının gerçek API key/secret'ı yok ya
+   da henüz paylaşmadı. Kullanıcı `/connect`'te "Add API key" ile kendi bilgilerini girerse (bu adımı ben
+   yapamam), sonucu doğrulayabilirim.
+7. **tests/e2e-evidence/** dizininde bazı eski/başarısız debug taramaları var (`99-error*.png`, `report.json` — port
    3001 bağlantı hatası içeriyor, muhtemelen yanlışlıkla farklı porta işaret etmiş). Temizlenmeli mi, yoksa referans
    için mi kalsın?
 
@@ -214,6 +242,6 @@ yapmadan önce `git log` ve ilgili dosyaları oku.
 
 ---
 
-**Son güncelleme**: 2026-07-14 (Shopify OAuth uçtan uca gerçek test mağazasıyla doğrulandı — tam başarı)
-**Sonraki adım**: İstenirse gerçek sipariş verisiyle (test mağazaya ürün/sipariş ekleyip) dashboard sayılarının
-doğru yansıdığı da doğrulanabilir; aksi halde Shopify entegrasyonu tamamlanmış kabul edilebilir
+**Son güncelleme**: 2026-07-14 (Trendyol/Hepsiburada/N11 denetlendi, duplicate-order bug bulunup düzeltildi — commit `d0e1112`)
+**Sonraki adım**: Kullanıcı gerçek bir Trendyol/Hepsiburada/N11 satıcı hesabı ile `/connect`'ten bağlanırsa
+sonucu canlı doğrulayabilirim; aksi halde şu ana kadarki kod denetimi + testler yeterli kabul edilebilir
