@@ -23,6 +23,29 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
+## ✅ Kapsamlı sistem denetimi — "milyar dolarlık kalite" (2026-07-16, Opus 4.8)
+Kullanıcı isteği: "bütün problemleri detaylı kontrol et ve çöz, kusursuz milyar dolarlık bir şirketin çalışma
+sistemi gibi." 7 alanda sistematik, kanıta dayalı denetim yapıldı:
+- **Baseline kapıları**: Production build (`next build`) bu oturumda İLK KEZ çalıştırıldı → exit 0, temiz. tsc
+  exit 0, 176/176 test. (Bu proje sadece tsc+test'e güveniyordu; asıl deploy kapısı olan build hiç
+  doğrulanmamıştı — artık doğrulandı.)
+- **BULUNAN DEFECT #1 (düzeltildi, commit `88f2e6b`)**: `/api/billing/setup-intent` ve `/api/billing/start-trial`
+  Stripe SDK çağrılarını (customers/setupIntents/subscriptions) try/catch OLMADAN yapıyordu. Stripe hatası
+  (outage, rate limit, kart reddi) → kullanıcı kartını girer girmez anlamsız 500, loglanmamış. Fix: try/catch +
+  temiz 502 + Türkçe mesaj. (Chat/explain/marketplace route'ları zaten bu standarttaydı — sadece billing eksikti.)
+- **İYİLEŞTİRME (commit `a13dd95`)**: `/api/health` gerçek bir readiness kontrolüne dönüştürüldü + yeni
+  `lib/config-status.ts`. Her env-bağımlı alt sistemin (Supabase, service-role, CREDENTIALS_ENCRYPTION_KEY,
+  cron, Stripe, Shopify, AI) VARLIĞINI (değerini DEĞİL, sadece boolean) raporluyor. Bu oturumun en çok tekrar
+  eden acısı ("prod doğru yapılandırıldı mı?") artık tek endpoint'ten cevaplanıyor. Canlı doğrulandı — secret
+  sızmıyor, 503/200 doğru dönüyor.
+- **HİJYEN (commit `8b92a44`)**: `tsconfig.tsbuildinfo` (makine-özel build cache) git'ten çıkarıldı + .gitignore'a
+  `*.tsbuildinfo`/`*.log` eklendi. Her `git status`'ta "modified" görünmesinin sebebi buydu.
+- **Güvenlik denetimi — TEMİZ**: Service-role client SADECE 2 CRON_SECRET-korumalı cron route'unda oluşturuluyor.
+  Hiçbir route istemciden gelen user_id'ye güvenmiyor (14 route doğrulanmış oturumdan türetiyor). Hiçbir secret
+  DEĞERİ loglanmıyor (sadece env değişkeni ADI). RLS her yerde.
+- **Error-handling denetimi — geri kalan 20 route sağlam**: chat (çift LLM fallback + görünür mode header),
+  explain, ledger/record (RPC graceful degrade), disconnect, resync — hepsi dış çağrıları düzgün yakalıyor.
+
 ## ✅ Trendyol/Hepsiburada/N11 — Shopify'daki gibi sorunlar denetlendi (2026-07-14)
 Kullanıcı isteği üzerine Trendyol (ve aynı pattern'i paylaşan Hepsiburada/N11) Shopify'da bulunanlara benzer
 sorunlar için satır satır denetlendi:
@@ -228,6 +251,12 @@ Bu noktaya gelmeden önce 3 ayrı, birbirinden bağımsız sorun bulunup çözü
 - **2026-07-13**: Dashboard crash fix + onboarding redirect loop fix (`edf4214`, `329026f`)
 
 ## Bekleyen Kararlar
+0. **[YENİ 2026-07-16] `truemargin-core/` ölü alt-proje silinmeli mi?** — Repoda kendi `app/`, `lib/`,
+   `node_modules`, `package.json`'ı olan tam bir ESKİ kopya duruyor (29 dosya git'e kaydedilmiş). Ana uygulama
+   onu import ETMİYOR (`lib/engine.ts`'te sadece "moved verbatim from truemargin-core" yorumu var). Runtime riski
+   yok ama: repo artık PUBLIC olduğu için bu ölü kopya da herkese açık, ve içinde `.next-dev.log` gibi tracked
+   log'lar var. Bütün bir alt-projeyi silmek geri-alması-zor bir aksiyon olduğu için BEN silmedim — kullanıcının
+   kararı. Silinsin mi (git rm -r truemargin-core), yoksa referans için mi kalsın?
 1. **Migration 0006 + 0010 apply timeline**: Supabase production/staging ortamına ne zaman uygulanacak?
 2. **Vercel projesinin GitHub bağlantısı artık kalıcı mı?** — `purplekittybbb/project`e bağlandı (Settings→Git),
    repo public yapıldı. Gelecekte her `git push`'un otomatik deploy tetiklediği birkaç commit sonra teyit edilmeli
