@@ -57,80 +57,91 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Oturum geçersiz." }, { status: 401 });
   }
 
-  const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
-  if (setupIntent.status !== "succeeded") {
-    return NextResponse.json({ error: "Kart doğrulanmadı — lütfen tekrar deneyin." }, { status: 400 });
-  }
-  if (setupIntent.metadata?.supabase_user_id !== user.id) {
-    return NextResponse.json({ error: "Yetkisiz SetupIntent." }, { status: 403 });
-  }
+  // Every Stripe SDK call below THROWS on failure (network error, Stripe
+  // outage, rate limit, a declined/expired card on subscription creation).
+  // Wrapped so such a failure becomes a clean 502 with a logged, attributable
+  // detail — never an unhandled exception surfacing as an opaque generic 500
+  // right as the user finishes entering their card. The early returns inside
+  // are validation short-circuits, not error paths, and return normally.
+  try {
+    const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
+    if (setupIntent.status !== "succeeded") {
+      return NextResponse.json({ error: "Kart doğrulanmadı — lütfen tekrar deneyin." }, { status: 400 });
+    }
+    if (setupIntent.metadata?.supabase_user_id !== user.id) {
+      return NextResponse.json({ error: "Yetkisiz SetupIntent." }, { status: 403 });
+    }
 
-  const paymentMethodId =
-    typeof setupIntent.payment_method === "string"
-      ? setupIntent.payment_method
-      : setupIntent.payment_method?.id;
-  if (!paymentMethodId) {
-    return NextResponse.json({ error: "Ödeme yöntemi bulunamadı." }, { status: 400 });
-  }
+    const paymentMethodId =
+      typeof setupIntent.payment_method === "string"
+        ? setupIntent.payment_method
+        : setupIntent.payment_method?.id;
+    if (!paymentMethodId) {
+      return NextResponse.json({ error: "Ödeme yöntemi bulunamadı." }, { status: 400 });
+    }
 
-  const customerId =
-    typeof setupIntent.customer === "string" ? setupIntent.customer : setupIntent.customer?.id;
-  if (!customerId) {
-    return NextResponse.json({ error: "Stripe müşteri kaydı bulunamadı." }, { status: 400 });
-  }
+    const customerId =
+      typeof setupIntent.customer === "string" ? setupIntent.customer : setupIntent.customer?.id;
+    if (!customerId) {
+      return NextResponse.json({ error: "Stripe müşteri kaydı bulunamadı." }, { status: 400 });
+    }
 
-  await stripe.customers.update(customerId, {
-    invoice_settings: { default_payment_method: paymentMethodId },
-  });
+    await stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
 
-  const { data: billingRow } = await supabase
-    .from("billing_subscriptions")
-    .select("stripe_subscription_id, status")
-    .eq("user_id", user.id)
-    .maybeSingle();
+    const { data: billingRow } = await supabase
+      .from("billing_subscriptions")
+      .select("stripe_subscription_id, status")
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-  if (billingRow?.stripe_subscription_id && billingRow.status === "trialing") {
+    if (billingRow?.stripe_subscription_id && billingRow.status === "trialing") {
+      return NextResponse.json({
+        success: true,
+        status: "trialing",
+        subscriptionId: billingRow.stripe_subscription_id,
+        alreadyActive: true,
+      });
+    }
+
+    const subscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [growthSubscriptionItem()],
+      trial_period_days: trialPeriodDays(),
+      default_payment_method: paymentMethodId,
+      metadata: { supabase_user_id: user.id },
+    });
+
+    const trialEnd = subscription.trial_end
+      ? new Date(subscription.trial_end * 1000).toISOString()
+      : null;
+
+    const { error: upsertError } = await supabase.from("billing_subscriptions").upsert(
+      {
+        user_id: user.id,
+        stripe_customer_id: customerId,
+        stripe_subscription_id: subscription.id,
+        status: subscription.status,
+        trial_end: trialEnd,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" }
+    );
+
+    if (upsertError) {
+      console.error("[billing/start-trial] billing_subscriptions upsert failed:", upsertError.message);
+      return NextResponse.json({ error: "Abonelik kaydı güncellenemedi." }, { status: 502 });
+    }
+
     return NextResponse.json({
       success: true,
-      status: "trialing",
-      subscriptionId: billingRow.stripe_subscription_id,
-      alreadyActive: true,
-    });
-  }
-
-  const subscription = await stripe.subscriptions.create({
-    customer: customerId,
-    items: [growthSubscriptionItem()],
-    trial_period_days: trialPeriodDays(),
-    default_payment_method: paymentMethodId,
-    metadata: { supabase_user_id: user.id },
-  });
-
-  const trialEnd = subscription.trial_end
-    ? new Date(subscription.trial_end * 1000).toISOString()
-    : null;
-
-  const { error: upsertError } = await supabase.from("billing_subscriptions").upsert(
-    {
-      user_id: user.id,
-      stripe_customer_id: customerId,
-      stripe_subscription_id: subscription.id,
       status: subscription.status,
-      trial_end: trialEnd,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" }
-  );
-
-  if (upsertError) {
-    console.error("[billing/start-trial] billing_subscriptions upsert failed:", upsertError.message);
-    return NextResponse.json({ error: "Abonelik kaydı güncellenemedi." }, { status: 502 });
+      subscriptionId: subscription.id,
+      trialEnd,
+    });
+  } catch (err) {
+    console.error("[billing/start-trial] Stripe call failed:", err);
+    return NextResponse.json({ error: "Abonelik oluşturulamadı — ödeme sağlayıcısına bağlanılamadı." }, { status: 502 });
   }
-
-  return NextResponse.json({
-    success: true,
-    status: subscription.status,
-    subscriptionId: subscription.id,
-    trialEnd,
-  });
 }

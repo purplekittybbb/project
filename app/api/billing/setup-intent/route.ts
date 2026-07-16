@@ -45,34 +45,43 @@ export async function POST(req: Request) {
 
   let customerId = existing?.stripe_customer_id as string | undefined;
 
-  if (!customerId) {
-    const customer = await stripe.customers.create({
-      email: user.email ?? undefined,
+  // Every Stripe SDK call below THROWS on failure (network error, Stripe
+  // outage, rate limit, malformed key). Wrapped so such a failure becomes a
+  // clean 502 with a logged, attributable detail — never an unhandled
+  // exception surfacing as an opaque generic 500 the client can't act on.
+  try {
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user.email ?? undefined,
+        metadata: { supabase_user_id: user.id },
+      });
+      customerId = customer.id;
+
+      const { error: insertError } = await supabase.from("billing_subscriptions").insert({
+        user_id: user.id,
+        stripe_customer_id: customerId,
+        status: "pending",
+      });
+      if (insertError) {
+        console.error("[billing/setup-intent] billing_subscriptions insert failed:", insertError.message);
+        return NextResponse.json({ error: "Abonelik kaydı oluşturulamadı." }, { status: 502 });
+      }
+    }
+
+    const setupIntent = await stripe.setupIntents.create({
+      customer: customerId,
+      payment_method_types: ["card"],
+      usage: "off_session",
       metadata: { supabase_user_id: user.id },
     });
-    customerId = customer.id;
 
-    const { error: insertError } = await supabase.from("billing_subscriptions").insert({
-      user_id: user.id,
-      stripe_customer_id: customerId,
-      status: "pending",
-    });
-    if (insertError) {
-      console.error("[billing/setup-intent] billing_subscriptions insert failed:", insertError.message);
-      return NextResponse.json({ error: "Abonelik kaydı oluşturulamadı." }, { status: 502 });
+    if (!setupIntent.client_secret) {
+      return NextResponse.json({ error: "SetupIntent oluşturulamadı." }, { status: 502 });
     }
+
+    return NextResponse.json({ clientSecret: setupIntent.client_secret });
+  } catch (err) {
+    console.error("[billing/setup-intent] Stripe call failed:", err);
+    return NextResponse.json({ error: "Ödeme sağlayıcısına bağlanılamadı — lütfen tekrar deneyin." }, { status: 502 });
   }
-
-  const setupIntent = await stripe.setupIntents.create({
-    customer: customerId,
-    payment_method_types: ["card"],
-    usage: "off_session",
-    metadata: { supabase_user_id: user.id },
-  });
-
-  if (!setupIntent.client_secret) {
-    return NextResponse.json({ error: "SetupIntent oluşturulamadı." }, { status: 502 });
-  }
-
-  return NextResponse.json({ clientSecret: setupIntent.client_secret });
 }
