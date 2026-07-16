@@ -1,28 +1,32 @@
 import { NextResponse } from "next/server";
-import { getSellers, getBacktest } from "@/lib/engine";
+import { getConfigStatus } from "@/lib/config-status";
 
 /**
- * Proof endpoint: the moved engine is imported and executed inside the Next app.
- * Returns live figures computed by /lib (not hard-coded). Safe to remove once the
- * landing is wired to the engine through real pages.
+ * GET /api/health — readiness + configuration check.
+ *
+ * The single, safe answer to "did this deployment get configured correctly?".
+ * Returns a boolean per subsystem (never a secret VALUE) so it can be read by
+ * anyone — a monitor, a deploy script, or a human debugging why a real
+ * marketplace connect fails — without leaking anything sensitive.
+ *
+ * HTTP status: 200 when the app's critical subsystem (Supabase) is present,
+ * 503 when it isn't (so an uptime monitor / load balancer can gate on it).
+ * Optional subsystems being absent (Stripe, Shopify, AI, cron) never make the
+ * app "unhealthy" — each has a documented, honest fallback — but they're all
+ * reported explicitly so a missing one is never a silent surprise in prod.
  */
-export function GET() {
-  const sellers = getSellers().map((s) => ({
-    tenantId: s.tenantId,
-    perceivedMarginPct: Number(s.perceivedMarginPct.toFixed(1)),
-    trueMarginPct: Number(s.trueMarginPct.toFixed(1)),
-  }));
-  const { report, ledgerSize } = getBacktest();
+export const runtime = "nodejs";
 
-  return NextResponse.json({
-    ok: true,
-    engine: "imported from /lib",
-    sellers,
-    backtest: {
-      lossReductionPct: Number((report.lossReductionPct * 100).toFixed(0)),
-      trueMarginLoss: report.trueMargin.totalLoss,
-      incumbentLoss: report.incumbent.totalLoss,
+export function GET() {
+  const status = getConfigStatus();
+  return NextResponse.json(
+    {
+      ok: status.ready,
+      ready: status.ready,
+      subsystems: status.subsystems,
+      missingCritical: status.missingCritical,
+      timestamp: new Date().toISOString(),
     },
-    ledgerSize,
-  });
+    { status: status.ready ? 200 : 503 }
+  );
 }
