@@ -40,3 +40,22 @@ export function isAuthConfigured(): boolean {
     process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   );
 }
+
+/**
+ * The CURRENT access token, fetched fresh at call time — never cache this in
+ * component state and reuse it minutes later. supabase-js auto-refreshes the
+ * underlying session (autoRefreshToken: true above), rotating the access
+ * token string periodically; a token captured once (e.g. on page mount) and
+ * held in React state stops tracking that rotation, so a slow flow — collecting
+ * a Trendyol/Hepsiburada API key from the seller's own panel, then filling out
+ * a card form, confirming with Stripe, possibly a 3-D Secure redirect — can
+ * easily outlive it. The user then hits a confusing "Oturum geçersiz" AFTER
+ * Stripe already confirmed their card, even though they never actually signed
+ * out. Call this immediately before every authenticated fetch instead.
+ */
+export async function getFreshAccessToken(): Promise<string | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}

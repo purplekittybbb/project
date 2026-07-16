@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import { getFreshAccessToken } from "@/lib/supabase/client";
 
 const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
 
@@ -21,11 +22,9 @@ function LockIcon({ size = 12 }: { size?: number }) {
 }
 
 function PaymentForm({
-  accessToken,
   onSuccess,
   onError,
 }: {
-  accessToken: string;
   onSuccess: () => void;
   onError: (message: string) => void;
 }) {
@@ -53,6 +52,20 @@ function PaymentForm({
 
     if (!setupIntent?.id) {
       onError("SetupIntent oluşturulamadı.");
+      setBusy(false);
+      return;
+    }
+
+    // Fetched fresh, right here — NOT the token the page had when this step
+    // first mounted. Everything before this line (collecting marketplace API
+    // keys, filling out the card form, Stripe's own confirmation round trip)
+    // can take long enough for the session's access token to have rotated —
+    // see getFreshAccessToken's doc comment. Using a stale one here would
+    // reject a card Stripe just finished confirming, with a confusing
+    // "session invalid" error despite the user never having signed out.
+    const accessToken = await getFreshAccessToken();
+    if (!accessToken) {
+      onError("Oturum bulunamadı — lütfen tekrar giriş yapıp tekrar deneyin.");
       setBusy(false);
       return;
     }
@@ -102,10 +115,8 @@ function PaymentForm({
 }
 
 export function StripePaymentForm({
-  accessToken,
   onSuccess,
 }: {
-  accessToken: string;
   onSuccess: () => void;
 }) {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -121,6 +132,14 @@ export function StripePaymentForm({
     let active = true;
     (async () => {
       try {
+        // Fetched fresh here too (see PaymentForm.handleSubmit's comment) —
+        // this component no longer trusts a token the parent captured at
+        // page-mount time and threaded down as a prop.
+        const accessToken = await getFreshAccessToken();
+        if (!accessToken) {
+          if (active) setLoadError("Oturum bulunamadı — lütfen tekrar giriş yapın.");
+          return;
+        }
         const res = await fetch("/api/billing/setup-intent", {
           method: "POST",
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -137,7 +156,7 @@ export function StripePaymentForm({
       }
     })();
     return () => { active = false; };
-  }, [accessToken]);
+  }, []);
 
   if (!stripePromise) {
     return <p className="text-sm text-red-400">Stripe publishable key yapılandırılmamış.</p>;
@@ -181,7 +200,7 @@ export function StripePaymentForm({
           },
         }}
       >
-        <PaymentForm accessToken={accessToken} onSuccess={onSuccess} onError={setFormError} />
+        <PaymentForm onSuccess={onSuccess} onError={setFormError} />
       </Elements>
     </>
   );

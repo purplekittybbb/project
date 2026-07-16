@@ -20,7 +20,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
 import { MarketplaceConnectStep } from "@/components/MarketplaceConnectStep";
 import { addConnection, getConnections } from "@/lib/connect/store";
-import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
+import { getSupabaseClient, getFreshAccessToken, isAuthConfigured } from "@/lib/supabase/client";
 import { loadUserRows } from "@/lib/supabase/user-data";
 import {
   completeOnboarding, isOnboardingDone, setConnectedMarketplaces,
@@ -111,19 +111,9 @@ function ConnectFlow() {
   const [cardNo, setCardNo] = useState("");
   const [exp, setExp] = useState("");
   const [cvc, setCvc] = useState("");
-  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [cardBusy, setCardBusy] = useState(false);
   const [cardError, setCardError] = useState("");
   const stripeLive = isStripeLiveEnabled();
-
-  useEffect(() => {
-    if (!isAuthConfigured()) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
-      setAccessToken(data.session?.access_token ?? null);
-    });
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -188,9 +178,20 @@ function ConnectFlow() {
     const ids = getConnections().map((c) => c.marketplaceId);
     setConnectedMarketplaces(ids);
 
-    if (isAuthConfigured() && accessToken && !stripeLive) {
+    if (isAuthConfigured() && !stripeLive) {
       setCardBusy(true);
       setCardError("");
+      // Fetched fresh, right before use — not a token captured back when this
+      // page first mounted. A user can spend real time on step 1 gathering a
+      // Trendyol/Hepsiburada/N11 API key from their own seller panel before
+      // ever reaching this step; see getFreshAccessToken's doc comment for
+      // why holding a token in state across that gap is the wrong pattern.
+      const accessToken = await getFreshAccessToken();
+      if (!accessToken) {
+        setCardError("Oturum bulunamadı — lütfen tekrar giriş yapıp tekrar deneyin.");
+        setCardBusy(false);
+        return;
+      }
       try {
         const res = await fetch("/api/billing/start-demo-trial", {
           method: "POST",
@@ -297,8 +298,8 @@ function ConnectFlow() {
               <div className="flex items-center gap-1.5 text-zinc-500 text-[11px] mb-4 pb-3 border-b border-zinc-800">
                 <LockIcon /><span>No charge today. First month free.</span>
               </div>
-              {isAuthConfigured() && stripeLive && accessToken ? (
-                <StripePaymentForm accessToken={accessToken} onSuccess={finish} />
+              {isAuthConfigured() && stripeLive ? (
+                <StripePaymentForm onSuccess={finish} />
               ) : (
                 <form onSubmit={(e) => { e.preventDefault(); void finish(); }} className="space-y-4">
                   <div>
