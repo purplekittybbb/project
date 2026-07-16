@@ -15,3 +15,8 @@ node_modules
 .DS_Store
 .vercel
 .env*
+
+# Build artifacts (machine-specific, must never be committed)
+*.tsbuildinfo
+*.log
+.next-dev.log
