@@ -23,6 +23,21 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
+## ✅ Giriş-sonrası bağlanma sorunları denetimi — bayat token bug'ı bulunup düzeltildi (2026-07-16, Sonnet 5)
+Kullanıcı isteği: "giriş yapıldığında olan bağlanma sorunlarını çok detaylı incele, hesap bağlama kısmı olunca
+trendyol vs vs." Uygulamadaki TÜM `getSession()`/accessToken çağrı noktaları (14 tane) tek tek denetlendi.
+**13'ü zaten doğru** — istekten hemen önce taze token alıyor. **1 tanesi YANLIŞTI**: `app/connect/page.tsx`'in
+`ConnectFlow`'u, sayfa mount olduğunda `accessToken`'ı BİR KEZ alıp React state'inde saklıyor, dakikalar sonra
+(kullanıcı Trendyol/Hepsiburada/N11 panelinden API key toplarken, sonra kart bilgilerini girip Stripe'ı
+onaylarken) aynı bayat string'i tekrar kullanıyordu. Supabase oturum token'ı periyodik olarak
+yenilendiği/döndürüldüğü için (varsayılan ~1 saat), yeterince zaman geçerse ESKİ token backend'imizce
+reddediliyor — Stripe kart doğrulamasını ZATEN tamamlamış bir kullanıcı, tam da bu son adımda "oturum geçersiz"
+gibi anlamsız/rastgele görünen bir hatayla karşılaşıyordu, hiç çıkış yapmamış olmasına rağmen. **Fix**:
+`lib/supabase/client.ts`'e `getFreshAccessToken()` eklendi (her çağrıda GÜNCEL token'ı alır); `ConnectFlow`'daki
+bayat state tamamen kaldırıldı, `finish()` ve `StripePaymentForm`/`PaymentForm` artık her istekten hemen önce
+taze token alıyor. Doğrulama: `tsc` temiz, 176/176 test, build exit 0, canlı route-guard smoke testi. Commit
+`f1b6994`.
+
 ## ✅ Kapsamlı sistem denetimi — "milyar dolarlık kalite" (2026-07-16, Opus 4.8)
 Kullanıcı isteği: "bütün problemleri detaylı kontrol et ve çöz, kusursuz milyar dolarlık bir şirketin çalışma
 sistemi gibi." 7 alanda sistematik, kanıta dayalı denetim yapıldı:
