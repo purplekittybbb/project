@@ -38,12 +38,15 @@ kendi tenant'ını gösteriyor (seed A/B/C değil).
   (canlı)" diyordu. AYNI sekmenin üst yarısında kullanıcının gerçek "your own data" backtest'i olduğu için,
   "Ours (live)" satıcının kendi canlı rakamı gibi okunuyordu (bir satıcı "%0 charge-off" görüp kendisininki
   sanabilirdi). Footnote N=3'ü açıklıyordu ama label yine de platform pilot verisini kullanıcının canlı verisiyle
-  karıştırıyordu. **Fix (sadece label, iki dil)**: "Ours (live)" → "Pilot (N=3)", section başlığı → "Platform
-  proof points · seed-stage pilot (not your account)". Veri meşru (3 seed satıcının gerçek backtest'i), kalıyor;
-  sadece artık kuşkuya yer bırakmadan platform-seviyesi, satıcının kendisi değil. Canlı doğrulandı.
-- **NOT (kullanıcı kararı)**: Bu "Platform proof points" bölümü aslında yatırımcı/diligence içeriği — bireysel
-  bir satıcının Financing sekmesinde durması ürün açısından tartışılır. Artık dürüstçe etiketli, ama istenirse
-  gerçek satıcılardan tamamen gizlenebilir (silme = ürün sahibinin kararı, ben tek taraflı yapmadım).
+  karıştırıyordu.
+  - **Adım 1 (commit `540a995`)**: Önce label düzeltildi ("Ours (live)" → "Pilot (N=3)", başlık → "Platform
+    proof points · seed-stage pilot (not your account)").
+  - **Adım 2 — NİHAİ (commit `4755078`)**: Kullanıcı "milyar dolarlık şirket gibi yap" deyince bölüm tamamen
+    `{!authConfigured && (...)}` ile sarıldı → gerçek giriş yapmış satıcının Financing sekmesinden KALDIRILDI,
+    sadece `/demo` ve anahtarsız-klon fallback'inde (ikisi de zaten seed veri) görünüyor. Gerçek fintech'ler
+    pitch/diligence kanıtını pazarlama/demo yüzeyinde tutar, authenticated ürün içinde değil. Artık gerçek satıcı
+    Financing'de SADECE kendi canlı kredi limitini + decision trace + self-backtest'ini görüyor. Doğrulama: tsc
+    exit 0, production build exit 0, 176/176 test, /demo hâlâ gösteriyor, taze-tab konsolu temiz.
 
 ## ✅ Giriş-sonrası bağlanma sorunları denetimi — bayat token bug'ı bulunup düzeltildi (2026-07-16, Sonnet 5)
 Kullanıcı isteği: "giriş yapıldığında olan bağlanma sorunlarını çok detaylı incele, hesap bağlama kısmı olunca
