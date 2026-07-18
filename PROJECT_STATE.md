@@ -23,6 +23,28 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
+## ✅ Giriş yapmış panel — "gerçek mi ezbere mi" derin denetimi (2026-07-16, Sonnet 5)
+Kullanıcı isteği: "bu panelde DEMO DEĞİL panelin bütün özelliklerini incele, mantıklı ve bağlı çalışıyor mu
+yoksa hep ezbere görüntüler mi veriyor." 10 sekmenin HEPSİ tek tek, veri kaynağına kadar izlendi. **Sonuç:
+panelin ~%95'i gerçekten kullanıcının kendi verisine bağlı** — hero marj + canlı fee-waterfall reklam slider'ı
+(recomputeMargin), break-even, SKU ekonomisi, silent-loser insight, underwriting kararı + self-backtest (N=1,
+"your own data"), Campaign simülatörü (recomputeMarginWithDiscount canlı), Cash Flow, Products heatmap, Sector
+Benchmark (gerçek + açıkça etiketli published fallback), append-only decision ledger, My Data. Settlement gerçek
+kullanıcıda dürüstçe "Temsili" etiketli. Boş/loading state'leri dürüst. Sellers sekmesi gerçek kullanıcıda sadece
+kendi tenant'ını gösteriyor (seed A/B/C değil).
+- **TEK "ezbere" bulgusu (düzeltildi, commit `540a995`)**: Financing sekmesinin ALT bölümü ("proof points" +
+  benchmark tablosu) her giriş yapmış kullanıcıya STATİK seed-portföy metriklerini (3 design partner, %100 GMV
+  coverage, 3-seed-satıcı charge-off/delinquency) gösteriyordu, ve benchmark kolonu "Ours (live)"/"Bizimki
+  (canlı)" diyordu. AYNI sekmenin üst yarısında kullanıcının gerçek "your own data" backtest'i olduğu için,
+  "Ours (live)" satıcının kendi canlı rakamı gibi okunuyordu (bir satıcı "%0 charge-off" görüp kendisininki
+  sanabilirdi). Footnote N=3'ü açıklıyordu ama label yine de platform pilot verisini kullanıcının canlı verisiyle
+  karıştırıyordu. **Fix (sadece label, iki dil)**: "Ours (live)" → "Pilot (N=3)", section başlığı → "Platform
+  proof points · seed-stage pilot (not your account)". Veri meşru (3 seed satıcının gerçek backtest'i), kalıyor;
+  sadece artık kuşkuya yer bırakmadan platform-seviyesi, satıcının kendisi değil. Canlı doğrulandı.
+- **NOT (kullanıcı kararı)**: Bu "Platform proof points" bölümü aslında yatırımcı/diligence içeriği — bireysel
+  bir satıcının Financing sekmesinde durması ürün açısından tartışılır. Artık dürüstçe etiketli, ama istenirse
+  gerçek satıcılardan tamamen gizlenebilir (silme = ürün sahibinin kararı, ben tek taraflı yapmadım).
+
 ## ✅ Giriş-sonrası bağlanma sorunları denetimi — bayat token bug'ı bulunup düzeltildi (2026-07-16, Sonnet 5)
 Kullanıcı isteği: "giriş yapıldığında olan bağlanma sorunlarını çok detaylı incele, hesap bağlama kısmı olunca
 trendyol vs vs." Uygulamadaki TÜM `getSession()`/accessToken çağrı noktaları (14 tane) tek tek denetlendi.
