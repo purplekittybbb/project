@@ -62,7 +62,11 @@ import {
   supportedChannels, getMarketplaceOption,
   type MarketplaceOption,
 } from "@/lib/marketplaces";
-import { getConnections, removeConnectionByMarketplace, clearAllConnections } from "@/lib/connect/store";
+import {
+  getConnections, removeConnectionByMarketplace, clearAllConnections,
+  hydrateConnectionsFromServer, touchConnectionSynced, markConnectionNeedsReauth,
+  type ServerCredentialConnection,
+} from "@/lib/connect/store";
 import type { MarketplaceConnection } from "@/lib/connect/types";
 import { DEFAULT_CHANNEL, DEFAULT_DASHBOARD_CHANNELS } from "@/lib/product-market";
 import { isAiConfigured } from "@/lib/copilot/ai-configured";
@@ -285,6 +289,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // "Refresh" button; CSV/manual/demo connections have nothing to resync.
   // See lib/marketplace-resync.ts — the read side of marketplace_credentials.
   const [resyncableMarketplaces, setResyncableMarketplaces] = useState<string[]>([]);
+  const [credentialMeta, setCredentialMeta] = useState<Record<string, ServerCredentialConnection>>({});
   const [resyncBusy, setResyncBusy] = useState<string | null>(null);
   const [resyncStatus, setResyncStatus] = useState<Record<string, { ok: boolean; message: string }>>({});
 
@@ -301,6 +306,36 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       });
       const result = await res.json().catch(() => ({}));
       if (Array.isArray(result.marketplaces)) setResyncableMarketplaces(result.marketplaces);
+      if (Array.isArray(result.connections)) {
+        const connections = result.connections as ServerCredentialConnection[];
+        const meta: Record<string, ServerCredentialConnection> = {};
+        for (const c of connections) meta[c.marketplace] = c;
+        setCredentialMeta(meta);
+        hydrateConnectionsFromServer(connections);
+        setConnections(getConnections());
+        setConnectedIds(getConnectedMarketplaces());
+
+        // Surface persisted sync failures (cron / webhook) without waiting for a click.
+        const fromServer: Record<string, { ok: boolean; message: string }> = {};
+        for (const c of connections) {
+          if (c.needsReauth) {
+            fromServer[c.marketplace] = {
+              ok: false,
+              message: c.lastSyncError ?? "Yeniden bağlanmanız gerekiyor — kimlik bilgisi reddedildi.",
+            };
+          } else if (c.lastSyncError) {
+            fromServer[c.marketplace] = { ok: false, message: c.lastSyncError };
+          } else if (c.lastSyncedAt) {
+            fromServer[c.marketplace] = {
+              ok: true,
+              message: `Son senkron: ${new Date(c.lastSyncedAt).toLocaleString()}`,
+            };
+          }
+        }
+        if (Object.keys(fromServer).length > 0) {
+          setResyncStatus((prev) => ({ ...prev, ...fromServer }));
+        }
+      }
     } catch {
       // Non-critical — the Refresh section just stays empty.
     }
@@ -326,16 +361,22 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       });
       const result = await res.json().catch(() => ({}));
       if (res.ok && result.success) {
+        touchConnectionSynced(marketplaceId);
         setResyncStatus((prev) => ({
           ...prev,
           [marketplaceId]: { ok: true, message: `Senkronize edildi · ${result.rowsSaved} satır` },
         }));
         await refreshUserData();
+        await loadResyncableMarketplaces();
       } else {
+        if (res.status === 401 || result.authError) {
+          markConnectionNeedsReauth(marketplaceId);
+        }
         setResyncStatus((prev) => ({
           ...prev,
           [marketplaceId]: { ok: false, message: result.error ?? "Senkronizasyon başarısız." },
         }));
+        await loadResyncableMarketplaces();
       }
     } catch {
       setResyncStatus((prev) => ({ ...prev, [marketplaceId]: { ok: false, message: "Bağlantı kurulamadı." } }));
@@ -1764,25 +1805,49 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       {resyncableMarketplaces.map((mp) => {
                         const opt = getMarketplaceOption(mp);
                         const status = resyncStatus[mp];
+                        const meta = credentialMeta[mp];
                         const busy = resyncBusy === mp;
+                        const needsReauth = !!meta?.needsReauth;
                         return (
                           <li key={mp} className="flex items-center justify-between gap-4">
                             <div className="min-w-0">
-                              <div className="text-zinc-300 text-sm">{opt?.label ?? mp}</div>
+                              <div className="text-zinc-300 text-sm flex items-center gap-2">
+                                <span>{opt?.label ?? mp}</span>
+                                {needsReauth && (
+                                  <span className="text-amber-400 text-[10px] font-mono uppercase tracking-wider">
+                                    Reconnect
+                                  </span>
+                                )}
+                              </div>
                               {status && (
                                 <div className={`text-[11px] font-mono mt-0.5 ${status.ok ? "text-emerald-400" : "text-red-400"}`}>
                                   {status.message}
                                 </div>
                               )}
+                              {!status && meta?.lastSyncedAt && (
+                                <div className="text-[11px] font-mono mt-0.5 text-zinc-600">
+                                  Son senkron: {new Date(meta.lastSyncedAt).toLocaleString()}
+                                </div>
+                              )}
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => handleResync(mp)}
-                              disabled={busy}
-                              className="shrink-0 inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-300 font-mono text-[12px] hover:bg-zinc-900 hover:text-zinc-100 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
-                            >
-                              {busy ? t("common.refreshing") : t("common.refresh")}
-                            </button>
+                            <div className="shrink-0 flex items-center gap-2">
+                              {needsReauth && (
+                                <a
+                                  href="/connect?preview=connect"
+                                  className="inline-flex items-center h-9 px-3 border border-amber-500/40 text-amber-300 font-mono text-[12px] hover:bg-amber-500/10 transition-colors"
+                                >
+                                  Yeniden bağlan
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleResync(mp)}
+                                disabled={busy}
+                                className="inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-300 font-mono text-[12px] hover:bg-zinc-900 hover:text-zinc-100 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
+                              >
+                                {busy ? t("common.refreshing") : t("common.refresh")}
+                              </button>
+                            </div>
                           </li>
                         );
                       })}

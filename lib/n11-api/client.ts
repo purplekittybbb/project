@@ -1,7 +1,7 @@
 /**
  * Real N11 REST API client.
  *
- * Endpoint and auth CONFIRMED from indexed N11 documentation:
+ * Endpoint and auth CONFIRMED from N11 Mağaza Destek / integrator docs:
  *   GET https://api.n11.com/rest/delivery/v1/shipmentPackages
  *   Headers: appkey, appsecret (N11-specific header names, not Basic Auth)
  *   Query: startDate/endDate (epoch ms), status, page, size, orderByField,
@@ -9,21 +9,12 @@
  *   Rate limit: 1000 requests/minute
  *   Data availability: orders before November 2024 are not returned
  *
- * ⚠️ FIELD-NAME CONFIDENCE — LOW, stated plainly: N11's official reference
- * page (magazadestek.n11.com) returned 403 to every automated fetch attempt
- * during research, so the exact JSON field names for THIS specific REST
- * endpoint could not be confirmed. The only concrete field names found
- * (productSellerCode, price, quantity, dueAmount, productName) come from
- * N11's OLDER SOAP OrderService (a different, XML-based API) and may or may
- * not carry over to this REST endpoint. This client tries the Trendyol-style
- * REST field names first (stockCode/lineGrossAmount — N11 reuses the same
- * "shipmentPackages" naming convention Trendyol does, suggesting similar
- * platform tooling), then falls back to the known SOAP-era names, then to
- * generic sku/amount fallbacks. This is a best-effort guess chain, not a
- * verified mapping — mapHepsiburadaOrdersToUserRawRows and
- * mapOrdersToUserRawRows had real published examples to verify against;
- * this one does not. The silent-zero-row protection (N11MappingError) is the
- * safety net if every guess in the chain is wrong for a real account.
+ * Field mapping CONFIDENCE — HIGH for the documented REST GetShipmentPackages
+ * response (orderNumber, id, lastModifiedDate, lines[].stockCode / quantity /
+ * price / dueAmount / sellerInvoiceAmount). Verified against published sample
+ * responses (magazadestek.n11.com RestAPI Sipariş Listeleme + Codeilla N11
+ * REST doc mirror). Legacy SOAP-era / Trendyol-style aliases remain as
+ * fallbacks only.
  *
  * Honest scope limitation: same as Trendyol/Hepsiburada — no marketplace API
  * can know a seller's own COGS, returns, or ad spend. Those fields come back
@@ -64,13 +55,12 @@ export class N11ApiError extends Error {
 
 /**
  * Thrown when N11 returned real order lines but NONE of them could be
- * mapped — see TrendyolMappingError for the full rationale. Given the low
- * field-name confidence documented above, this is the primary guardrail
- * protecting against a wrong-guess schema silently importing 0 rows.
+ * mapped — see TrendyolMappingError for the full rationale. Primary
+ * guardrail against a wrong-schema silently importing 0 rows.
  */
 export class N11MappingError extends Error {
   constructor(
-    message = "N11'den sipariş satırları geldi ama hiçbiri işlenemedi — API alan adları tahmin edilenden farklı (bu entegrasyonun alan adları N11'in resmi örneğiyle doğrulanamadı, bkz. client.ts yorumları)."
+    message = "N11'den sipariş satırları geldi ama hiçbiri işlenemedi — API alan adları beklenenden farklı."
   ) {
     super(message);
     this.name = "N11MappingError";
@@ -78,23 +68,29 @@ export class N11MappingError extends Error {
 }
 
 const N11LineItemSchema = z.object({
-  // Best-guess REST names (Trendyol-style, unconfirmed for N11).
+  // Documented REST GetShipmentPackages line fields (HIGH confidence).
   stockCode: z.string().optional(),
-  lineGrossAmount: z.number().finite().optional(),
-  // Known SOAP-era names (confirmed to exist on N11, but for a different API).
-  productSellerCode: z.string().optional(),
+  quantity: z.number().finite().optional(),
   price: z.number().finite().optional(),
   dueAmount: z.number().finite().optional(),
-  // Generic fallbacks.
+  sellerInvoiceAmount: z.number().finite().optional(),
+  totalSellerDiscountPrice: z.number().finite().optional(),
+  productName: z.string().optional(),
+  // Legacy / alternate aliases kept as soft fallbacks.
+  productSellerCode: z.string().optional(),
+  lineGrossAmount: z.number().finite().optional(),
   sku: z.string().optional(),
   amount: z.number().finite().optional(),
-  quantity: z.number().finite().optional(),
 });
 
 const N11OrderSchema = z.object({
   orderNumber: z.string().optional(),
   id: z.union([z.string(), z.number()]).optional(),
+  // Documented package timestamp (epoch ms).
+  lastModifiedDate: z.union([z.number(), z.string()]).optional(),
+  // Soft aliases if a future response uses a different name.
   orderDate: z.union([z.number(), z.string()]).optional(),
+  createdDate: z.union([z.number(), z.string()]).optional(),
   lines: z.array(N11LineItemSchema).optional(),
   orderItemList: z.array(N11LineItemSchema).optional(),
   lineItems: z.array(N11LineItemSchema).optional(),
@@ -202,22 +198,46 @@ export async function fetchN11Orders(creds: N11Credentials, days = 90): Promise<
   return orders;
 }
 
+function resolveSaleDate(order: N11Order): string {
+  const raw = order.lastModifiedDate ?? order.orderDate ?? order.createdDate;
+  if (raw == null) return new Date().toISOString().slice(0, 10);
+  return new Date(typeof raw === "number" ? raw : raw).toISOString().slice(0, 10);
+}
+
 /**
- * Map real N11 order lines into the app's raw-row shape. See the module doc
- * comment for the field-name confidence caveat and the guess-chain this
- * function tries. Throws N11MappingError if lines existed but every guess
- * failed to produce a valid row (see that class's doc comment).
+ * Line revenue per N11 RestAPI Sipariş Listeleme guidance:
+ * prefer sellerInvoiceAmount; else dueAmount; else (price * quantity) − discounts.
+ */
+function resolveLineGrossRevenue(line: N11LineItem, quantity: number): number {
+  if (line.sellerInvoiceAmount != null && Number.isFinite(line.sellerInvoiceAmount) && line.sellerInvoiceAmount > 0) {
+    return line.sellerInvoiceAmount;
+  }
+  if (line.dueAmount != null && Number.isFinite(line.dueAmount) && line.dueAmount > 0) {
+    return line.dueAmount;
+  }
+  if (line.lineGrossAmount != null && Number.isFinite(line.lineGrossAmount) && line.lineGrossAmount > 0) {
+    return line.lineGrossAmount;
+  }
+  if (line.amount != null && Number.isFinite(line.amount) && line.amount > 0) {
+    return line.amount;
+  }
+  if (line.price != null && Number.isFinite(line.price) && line.price > 0) {
+    const discount = line.totalSellerDiscountPrice ?? 0;
+    return Math.max(0, line.price * quantity - discount);
+  }
+  return 0;
+}
+
+/**
+ * Map real N11 order lines into the app's raw-row shape. Throws
+ * N11MappingError if lines existed but every one failed to produce a valid row.
  */
 export function mapN11OrdersToUserRawRows(orders: N11Order[]): UserRawRow[] {
   const rows: UserRawRow[] = [];
   let totalLinesSeen = 0;
 
   for (const order of orders) {
-    const rawDate = order.orderDate;
-    const saleDate =
-      rawDate != null
-        ? new Date(typeof rawDate === "number" ? rawDate : rawDate).toISOString().slice(0, 10)
-        : new Date().toISOString().slice(0, 10);
+    const saleDate = resolveSaleDate(order);
     const orderId = order.orderNumber ?? String(order.id ?? `n11-${rows.length}`);
     const lines = order.lines ?? order.orderItemList ?? order.lineItems ?? [];
 
@@ -228,9 +248,7 @@ export function mapN11OrdersToUserRawRows(orders: N11Order[]): UserRawRow[] {
 
       const quantity = line.quantity ?? 1;
       const units = Math.max(1, Math.round(quantity));
-
-      const grossRevenue =
-        Number(line.lineGrossAmount ?? line.dueAmount ?? line.amount ?? line.price ?? 0) || 0;
+      const grossRevenue = resolveLineGrossRevenue(line, units);
       if (grossRevenue <= 0) continue;
 
       rows.push({

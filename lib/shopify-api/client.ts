@@ -91,6 +91,20 @@ export function verifyCallbackHmac(params: URLSearchParams, clientSecret: string
   return timingSafeEqual(a, b);
 }
 
+/**
+ * Verify a Shopify webhook HMAC (X-Shopify-Hmac-Sha256 header).
+ * Shopify signs the raw request body with the app client secret and base64-
+ * encodes the digest — different algorithm than the OAuth callback HMAC.
+ */
+export function verifyWebhookHmac(rawBody: string, hmacHeader: string | null, clientSecret: string): boolean {
+  if (!hmacHeader) return false;
+  const computed = createHmac("sha256", clientSecret).update(rawBody, "utf8").digest("base64");
+  const a = Buffer.from(computed, "utf8");
+  const b = Buffer.from(hmacHeader, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 /** Thrown when Shopify itself rejects an access token (401). */
 export class ShopifyAuthError extends Error {
   constructor(message = "Shopify erişim reddedildi — token geçersiz veya süresi dolmuş.") {
@@ -345,5 +359,65 @@ export function mapShopifyOrdersToUserRawRows(orders: ShopifyOrderNode[]): UserR
     throw new ShopifyMappingError();
   }
 
+  return rows;
+}
+
+/**
+ * REST Admin API order shape delivered by orders/create and orders/updated
+ * webhooks (not GraphQL). Mapped into the same UserRawRow shape GraphQL uses.
+ */
+const ShopifyWebhookLineSchema = z.object({
+  sku: z.string().nullable().optional(),
+  title: z.string().optional(),
+  quantity: z.number().finite().optional(),
+  price: z.union([z.string(), z.number()]).optional(),
+});
+
+const ShopifyWebhookOrderSchema = z.object({
+  id: z.union([z.string(), z.number()]).optional(),
+  name: z.string().optional(),
+  created_at: z.string().optional(),
+  line_items: z.array(ShopifyWebhookLineSchema).optional(),
+});
+
+export type ShopifyWebhookOrder = z.infer<typeof ShopifyWebhookOrderSchema>;
+
+export function mapShopifyWebhookOrderToUserRawRows(payload: unknown): UserRawRow[] {
+  const parsed = ShopifyWebhookOrderSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new ShopifyMappingError("Shopify webhook sipariş gövdesi beklenen biçimde değil.");
+  }
+  const order = parsed.data;
+  const saleDate = order.created_at ? order.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const orderId = order.name ?? (order.id != null ? String(order.id) : `shopify-wh-${Date.now()}`);
+  const rows: UserRawRow[] = [];
+  let totalLinesSeen = 0;
+
+  for (const line of order.line_items ?? []) {
+    totalLinesSeen++;
+    const sku = (line.sku ?? "").trim();
+    if (!sku) continue;
+    const units = Math.max(1, Math.round(line.quantity ?? 1));
+    const unitPrice = line.price != null ? Number(line.price) : NaN;
+    const grossRevenue = Number.isFinite(unitPrice) ? unitPrice * units : 0;
+    if (grossRevenue <= 0) continue;
+    rows.push({
+      order_id: orderId,
+      sku,
+      category: "Diğer",
+      sale_date: saleDate,
+      units,
+      gross_revenue: grossRevenue,
+      unit_cost: 0,
+      shipping: 0,
+      return_rate: 0,
+      ad_spend: 0,
+      marketplace: "shopify",
+    });
+  }
+
+  if (totalLinesSeen > 0 && rows.length === 0) {
+    throw new ShopifyMappingError();
+  }
   return rows;
 }

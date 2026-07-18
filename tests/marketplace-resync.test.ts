@@ -76,6 +76,18 @@ function makeSupabaseMock(opts: {
               },
             };
           },
+          update(_payload: Record<string, unknown>) {
+            void _payload;
+            return {
+              eq() {
+                return {
+                  eq() {
+                    return Promise.resolve({ error: null });
+                  },
+                };
+              },
+            };
+          },
         };
       }
       if (table === "user_transactions") {

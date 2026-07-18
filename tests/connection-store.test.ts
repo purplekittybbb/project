@@ -6,6 +6,9 @@ import {
   removeConnection,
   removeConnectionByMarketplace,
   generateDemoTokenRef,
+  hydrateConnectionsFromServer,
+  markConnectionNeedsReauth,
+  touchConnectionSynced,
 } from "../lib/connect/store";
 
 describe("connection store (Plaid/Rutter-style demo links)", () => {
@@ -58,5 +61,39 @@ describe("connection store (Plaid/Rutter-style demo links)", () => {
 
   it("generateDemoTokenRef is stable format", () => {
     expect(generateDemoTokenRef("amazon_us")).toMatch(/^tm_demo_amazon_/);
+  });
+
+  it("hydrateConnectionsFromServer adds missing live links from another device", () => {
+    addConnection("manual_csv", "demo", { method: "csv" });
+    const merged = hydrateConnectionsFromServer([
+      {
+        marketplace: "trendyol",
+        sellerId: "123",
+        connectedAt: "2026-01-01T00:00:00.000Z",
+        lastSyncedAt: "2026-07-18T12:00:00.000Z",
+        needsReauth: false,
+      },
+    ]);
+    expect(merged.map((c) => c.marketplaceId).sort()).toEqual(["manual_csv", "trendyol"]);
+    const ty = merged.find((c) => c.marketplaceId === "trendyol")!;
+    expect(ty.provider).toBe("live");
+    expect(ty.lastSyncedAt).toBe("2026-07-18T12:00:00.000Z");
+  });
+
+  it("hydrate + markConnectionNeedsReauth keeps the link visible with error status", () => {
+    hydrateConnectionsFromServer([{ marketplace: "shopify", needsReauth: true, lastSyncError: "token revoked" }]);
+    const cons = getConnections();
+    expect(cons).toHaveLength(1);
+    expect(cons[0].status).toBe("error");
+    expect(isMarketplaceConnected("shopify")).toBe(true);
+
+    markConnectionNeedsReauth("shopify");
+    expect(getConnections()[0].status).toBe("error");
+
+    touchConnectionSynced("shopify", "2026-07-18T15:00:00.000Z");
+    expect(getConnections()[0]).toMatchObject({
+      status: "connected",
+      lastSyncedAt: "2026-07-18T15:00:00.000Z",
+    });
   });
 });

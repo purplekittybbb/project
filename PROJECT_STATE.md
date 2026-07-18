@@ -23,6 +23,34 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
+## ✅ Hesap bağlama / senkron eksikleri tek tek kapatıldı (2026-07-18, Cursor)
+Kullanıcı isteği: "eksikleri tek tek çöz" (önceki oturumda listelenen connection/sync boşlukları).
+
+**Kodda kapatılanlar:**
+1. **Sunucu-doğruluğu bağlantı listesi** — `/api/marketplace/credentials-status` artık `connections[]`
+   (sellerId, lastSyncedAt, lastSyncError, needsReauth) döndürüyor; `/connect` + dashboard mount'ta
+   `hydrateConnectionsFromServer()` localStorage'ı sunucuyla birleştiriyor (başka cihazdan bağlanan
+   pazaryeri artık görünür).
+2. **lastSyncedAt + sync hata yüzeyi** — migration `0011_marketplace_credentials_sync_status.sql`
+   (`last_synced_at`, `last_sync_error`, `needs_reauth`); `resyncMarketplace` / webhook başarı-hata
+   yazıyor; Settings → Refresh her pazaryeri için son senkron / hata / "Yeniden bağlan" gösteriyor.
+3. **Shopify re-auth algılama** — 401/403 → `needs_reauth=true` + UI "Reconnect required";
+   `app/uninstalled` webhook credential satırını siliyor (Shopify offline token'ları refresh etmez —
+   revoke/uninstall tespiti doğru model).
+4. **Shopify webhooks** — `POST /api/shopify/webhooks` (HMAC doğrulama, service-role);
+   topics: `orders/create`, `orders/updated`, `app/uninstalled`; `shopify.app.toml` subscriptions eklendi.
+5. **Cron saatlik** — `vercel.json` `0 * * * *` (yorumlarla uyumlu; Shopify webhook + saatlik backstop).
+6. **N11 alan eşlemesi** — resmi GetShipmentPackages örneklerine göre HIGH confidence:
+   `sellerInvoiceAmount` / `dueAmount` / `price×quantity`, tarih `lastModifiedDate`; unit-price'ı
+   satır toplamı sanma bug'ı düzeltildi.
+
+**Doğrulama:** `tsc --noEmit` temiz, **186/186** test (önceki 176 + hydrate/webhook/N11 sample testleri).
+
+**Hâlâ kullanıcı/ops tarafında (kodla kapanmaz):**
+- Migration **0011** (ve önceki 0010/0006) Supabase'e apply edilmeli
+- `shopify app deploy` — yeni webhook subscriptions Shopify'a basılmalı
+- Trendyol/Hepsiburada/N11 **gerçek satıcı hesabıyla** canlı uçtan uca test (kimlik bilgisi AI giremez)
+
 ## ✅ Giriş yapmış panel — "gerçek mi ezbere mi" derin denetimi (2026-07-16, Sonnet 5)
 Kullanıcı isteği: "bu panelde DEMO DEĞİL panelin bütün özelliklerini incele, mantıklı ve bağlı çalışıyor mu
 yoksa hep ezbere görüntüler mi veriyor." 10 sekmenin HEPSİ tek tek, veri kaynağına kadar izlendi. **Sonuç:
@@ -141,29 +169,34 @@ Bu noktaya gelmeden önce 3 ayrı, birbirinden bağımsız sorun bulunup çözü
    eklendi, tekrar deploy edildi (`8e208c6`, versiyon `sol-menude-dev-dashboard-3`)
 
 ## Şu An Ne Çalışıyor
-- **Shopify gerçek OAuth kablolaması**: ✅ Tamamlandı, canlı doğrulandı, committed
-- **Sector Benchmark / pooled-cohort altyapısı**: ✅ Tamamlandı, sertleştirildi, committed
-- Aktif geliştirme yok — bir sonraki görev bekleniyor
+- **Shopify gerçek OAuth + webhooks kablolaması**: ✅ Kod tamam; OAuth canlı doğrulandı; webhook deploy bekliyor (`shopify app deploy`)
+- **Pazaryeri senkron**: connect + Refresh + saatlik cron + Shopify push; sync status DB'de
+- **Sector Benchmark / pooled-cohort altyapısı**: ✅ Kod tamam; migration 0010 apply bekliyor
+- Aktif geliştirme yok — ops apply + canlı TR pazaryeri testi bekleniyor
 
 ## Bilinen Sorunlar / Yarım Kalanlar
-1. **Migration 0010 (sector_benchmarks) henüz Supabase'e apply edilmedi**
+1. **Migration 0011 (sync status columns) Supabase'e apply edilmeli**
+   - File: `supabase/migrations/0011_marketplace_credentials_sync_status.sql`
+   - Apply edilmeden sync hâlâ çalışır; lastSyncedAt/needsReauth yazımı soft-fail (log + devam)
+
+2. **Migration 0010 (sector_benchmarks) henüz Supabase'e apply edilmedi**
    - File: `supabase/migrations/0010_sector_benchmarks.sql`
-   - Etkisi: `/api/benchmarks/segment` şu an her zaman "published" (representative) veri döner;
-     kod tarafı hazır, migration apply edilip cron bir kez tetiklenince "pooled" (canlı) veri devreye girer
-   - Log kanıtı: `[benchmark-fallback] reason:"unmigrated" ... PGRST205` (tekrarlı ama zararsız — artık redundant değil, bkz. madde 3)
+   - Etkisi: `/api/benchmarks/segment` şu an her zaman "published" (representative) veri döner
 
-2. **Migration 0006 (decision_ledger RPC — record_decision_if_changed) apply edilmemiş olabilir**
-   - `/api/ledger/record` artık migration eksikken 502 DEĞİL, 200 + `{recorded:false, reason:"rpc_unavailable"}` döner (commit 4af7308)
-   - Dashboard/Shopify connect akışını bloklamaz; History sekmesi migration apply edilene kadar boş kalabilir
+3. **Migration 0006 (decision_ledger RPC) apply edilmemiş olabilir**
+   - `/api/ledger/record` migration eksikken 200 + `{recorded:false, reason:"rpc_unavailable"}`
 
-3. **[ÇÖZÜLDÜ 2026-07-13] Benchmark panel gereksiz tekrar network çağrısı**
-   - `PeerBenchmarkingSection`'daki fetch effect'i, memoize edilmemiş `view` objesine bağımlıydı
-   - Etkisi: dashboard ilk yüklenirken ~6 saniyede 8-11 kez aynı `/api/benchmarks/segment` çağrısı (hata değil, gereksiz trafik)
-   - Fix: `viewSignature` (primitive string) türetilip effect bağımlılığı ona çevrildi — commit 4f1be0a
+4. **Shopify webhook subscriptions deploy**
+   - `shopify.app.toml` güncellendi; production'a `shopify app deploy` ile basılmalı
 
-4. **Demo mode (/demo) Shopify-only tab**: Seed seller-b'de shopify verisi yok — tab "Shopify" seçiliyken combined fallback gösterir (crash yok, sadece UX karışıklığı)
+5. **Trendyol/Hepsiburada/N11 canlı satıcı testi yok** — kod + unit test var; gerçek hesapla uçtan uca yok
+
+6. **Demo mode (/demo) Shopify-only tab**: Seed seller-b'de shopify verisi yok — tab "Shopify" seçiliyken combined fallback
 
 ## Son Yapılanlar
+- **2026-07-18**: Hesap bağlama/senkron eksikleri kapatıldı (Cursor) — sunucu hydrate, sync status
+  migration+UI, Shopify webhooks, saatlik cron, N11 documented field mapping; 186/186 test
+
 - **2026-07-14**: Shopify OAuth UÇTAN UCA CANLI DOĞRULANDI — tam başarı (Claude Code + kullanıcı)
   - **Vercel'in stale-deploy kökeni bulundu**: Deployments listesinde en son deployment "1 gün önce" idi — bugün
     atılan hiçbir commit deploy tetiklememişti. Settings→Git'e bakılınca **Vercel projesinin GitHub'a HİÇ

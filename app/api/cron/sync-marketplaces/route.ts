@@ -5,12 +5,14 @@ import { isResyncableMarketplace, resyncMarketplace } from "@/lib/marketplace-re
 /**
  * GET /api/cron/sync-marketplaces
  *
- * Vercel Cron entry point — see vercel.json ("0 * * * *", hourly). This is
- * the automatic background sync: a user who connected Trendyol/Hepsiburada/
- * N11/Shopify once never has to click anything for new orders to show up —
- * this route re-syncs EVERY stored connection on a schedule, using
- * resyncMarketplace() (lib/marketplace-resync.ts), the same idempotent,
- * de-duplicated function the dashboard's manual "Refresh" button uses.
+ * Vercel Cron entry point — see vercel.json ("0 * * * *", every hour UTC).
+ * This is the automatic background sync: a user who connected Trendyol/
+ * Hepsiburada/N11/Shopify once never has to click anything for new orders
+ * to show up — this route re-syncs EVERY stored connection on a schedule,
+ * using resyncMarketplace() (lib/marketplace-resync.ts), the same
+ * idempotent, de-duplicated function the dashboard's manual "Refresh"
+ * button uses. Shopify also pushes near-real-time updates via
+ * /api/shopify/webhooks; this cron remains the backstop for all platforms.
  *
  * ── Security ─────────────────────────────────────────────────────────────
  * Locked behind CRON_SECRET (Vercel's documented cron-auth pattern: Vercel

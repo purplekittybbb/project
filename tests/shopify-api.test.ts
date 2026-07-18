@@ -2,7 +2,8 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { createHmac } from "crypto";
 import {
   isValidShopDomain, normalizeShopDomain, buildAuthorizeUrl, verifyCallbackHmac,
-  exchangeCodeForToken, fetchShopifyOrders, mapShopifyOrdersToUserRawRows,
+  verifyWebhookHmac, exchangeCodeForToken, fetchShopifyOrders,
+  mapShopifyOrdersToUserRawRows, mapShopifyWebhookOrderToUserRawRows,
   ShopifyAuthError, ShopifyApiError, ShopifyMappingError,
 } from "../lib/shopify-api/client";
 
@@ -207,5 +208,54 @@ describe("mapShopifyOrdersToUserRawRows — real order data mapping", () => {
   it("does NOT throw for a genuinely empty result (no orders — legitimate, not a bug)", () => {
     expect(mapShopifyOrdersToUserRawRows([])).toEqual([]);
     expect(mapShopifyOrdersToUserRawRows([{ name: "#EMPTY", lineItems: { edges: [] } }])).toEqual([]);
+  });
+});
+
+describe("verifyWebhookHmac — Shopify webhook body signature", () => {
+  it("accepts a correctly signed raw body (base64 HMAC-SHA256)", () => {
+    const secret = "shpss_test_secret";
+    const body = JSON.stringify({ id: 1, name: "#1001" });
+    const hmac = createHmac("sha256", secret).update(body, "utf8").digest("base64");
+    expect(verifyWebhookHmac(body, hmac, secret)).toBe(true);
+  });
+
+  it("rejects a tampered body or wrong secret", () => {
+    const secret = "shpss_test_secret";
+    const body = JSON.stringify({ id: 1 });
+    const hmac = createHmac("sha256", secret).update(body, "utf8").digest("base64");
+    expect(verifyWebhookHmac(body + "x", hmac, secret)).toBe(false);
+    expect(verifyWebhookHmac(body, hmac, "wrong")).toBe(false);
+    expect(verifyWebhookHmac(body, null, secret)).toBe(false);
+  });
+});
+
+describe("mapShopifyWebhookOrderToUserRawRows — REST webhook payload", () => {
+  it("maps orders/create REST line_items into UserRawRow", () => {
+    const rows = mapShopifyWebhookOrderToUserRawRows({
+      id: 820982911946154508,
+      name: "#1001",
+      created_at: "2026-07-18T10:00:00Z",
+      line_items: [
+        { sku: "WH-SKU-1", quantity: 2, price: "49.50", title: "Widget" },
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      order_id: "#1001",
+      sku: "WH-SKU-1",
+      units: 2,
+      gross_revenue: 99,
+      sale_date: "2026-07-18",
+      marketplace: "shopify",
+    });
+  });
+
+  it("throws ShopifyMappingError when lines exist but none have a usable SKU/price", () => {
+    expect(() =>
+      mapShopifyWebhookOrderToUserRawRows({
+        name: "#1002",
+        line_items: [{ sku: "", quantity: 1, price: "10.00" }],
+      })
+    ).toThrow(ShopifyMappingError);
   });
 });

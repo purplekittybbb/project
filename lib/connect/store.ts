@@ -1,14 +1,26 @@
 /**
- * Client-side connection store (localStorage).
+ * Client-side connection store (localStorage) + server hydrate.
  *
- * SSR-safe. In production, swap this sink for Supabase/API while keeping the
- * same MarketplaceConnection shape and read-only scope contract.
+ * Live marketplace credentials live in Supabase (`marketplace_credentials`).
+ * localStorage mirrors that for instant UI + demo/CSV/manual links that have
+ * no server row. Always call `hydrateConnectionsFromServer` on /connect and
+ * dashboard mount so a sign-in on another device still shows real links.
  */
 
 import type { ConnectionMethod, MarketplaceConnection } from "./types";
 import { READ_ONLY_SCOPES } from "./types";
 
 const STORAGE_KEY = "tm_marketplace_connections";
+
+/** Subset of /api/marketplace/credentials-status `connections` used to hydrate. */
+export interface ServerCredentialConnection {
+  marketplace: string;
+  sellerId?: string;
+  connectedAt?: string | null;
+  lastSyncedAt?: string | null;
+  lastSyncError?: string | null;
+  needsReauth?: boolean;
+}
 
 function hasWindow(): boolean {
   return typeof window !== "undefined";
@@ -30,9 +42,9 @@ function writeAll(connections: MarketplaceConnection[]): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(connections));
 }
 
-/** All active (connected) marketplace links. */
+/** All active marketplace links (connected + error/needs-reauth — still linked). */
 export function getConnections(): MarketplaceConnection[] {
-  return readAll().filter((c) => c.status === "connected");
+  return readAll().filter((c) => c.status === "connected" || c.status === "error");
 }
 
 export function getConnectionByMarketplace(marketplaceId: string): MarketplaceConnection | undefined {
@@ -103,4 +115,66 @@ function syncConnectedMarketplaceIds(): void {
   if (!hasWindow()) return;
   const ids = getConnections().map((c) => c.marketplaceId);
   window.localStorage.setItem("tm_connected_marketplaces", JSON.stringify(ids));
+}
+
+/**
+ * Merge server-verified live credentials into localStorage.
+ *
+ * - Adds missing live connections (other device / cleared localStorage).
+ * - Upgrades demo → live if the server has a real credential row.
+ * - Refreshes lastSyncedAt / status (error when needsReauth).
+ * - Never removes demo/csv/manual local-only links that have no server row.
+ */
+export function hydrateConnectionsFromServer(
+  serverConnections: ServerCredentialConnection[]
+): MarketplaceConnection[] {
+  if (!hasWindow()) return [];
+  const existing = readAll();
+  const byMarketplace = new Map(existing.map((c) => [c.marketplaceId, c]));
+
+  for (const sc of serverConnections) {
+    const prev = byMarketplace.get(sc.marketplace);
+    const status: MarketplaceConnection["status"] = sc.needsReauth ? "error" : "connected";
+    const next: MarketplaceConnection = {
+      id: prev?.id ?? `conn_server_${sc.marketplace}`,
+      marketplaceId: sc.marketplace,
+      provider: "live",
+      status,
+      connectedAt: sc.connectedAt ?? prev?.connectedAt ?? new Date().toISOString(),
+      accessTokenRef: prev?.accessTokenRef ?? `tm_key_${sc.marketplace}_live`,
+      scopes: [...READ_ONLY_SCOPES],
+      lastSyncedAt: sc.lastSyncedAt ?? prev?.lastSyncedAt,
+      method: prev?.method ?? (sc.marketplace === "shopify" ? "oauth" : "api_key"),
+    };
+    byMarketplace.set(sc.marketplace, next);
+  }
+
+  const merged = Array.from(byMarketplace.values()).filter(
+    (c) => c.status === "connected" || c.status === "error"
+  );
+  writeAll(merged);
+  syncConnectedMarketplaceIds();
+  return getConnections();
+}
+
+/** Update lastSyncedAt for one marketplace after a successful client-side resync. */
+export function touchConnectionSynced(marketplaceId: string, at = new Date().toISOString()): void {
+  if (!hasWindow()) return;
+  const next = readAll().map((c) =>
+    c.marketplaceId === marketplaceId
+      ? { ...c, lastSyncedAt: at, status: "connected" as const }
+      : c
+  );
+  writeAll(next);
+  syncConnectedMarketplaceIds();
+}
+
+/** Mark a connection as needing re-auth after a 401 from the vendor. */
+export function markConnectionNeedsReauth(marketplaceId: string): void {
+  if (!hasWindow()) return;
+  const next = readAll().map((c) =>
+    c.marketplaceId === marketplaceId ? { ...c, status: "error" as const } : c
+  );
+  writeAll(next);
+  syncConnectedMarketplaceIds();
 }

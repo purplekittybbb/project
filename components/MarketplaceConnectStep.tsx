@@ -24,13 +24,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { parseCsv, SAMPLE_CSV, type UserRawRow } from "@/lib/adapters/csv";
-import { getConnections, isMarketplaceConnected, removeConnection, addConnection } from "@/lib/connect/store";
+import {
+  getConnections, isMarketplaceConnected, removeConnection, addConnection,
+  hydrateConnectionsFromServer,
+} from "@/lib/connect/store";
 import type { MarketplaceConnection } from "@/lib/connect/types";
 import { READ_ONLY_COPY, MarketplaceOAuthModal } from "@/components/MarketplaceOAuthModal";
 import { MarketplaceApiKeyModal } from "@/components/MarketplaceApiKeyModal";
 import { ShopifyConnectModal } from "@/components/ShopifyConnectModal";
 import { saveUserRows } from "@/lib/supabase/user-data";
-import { isAuthConfigured, getSupabaseClient } from "@/lib/supabase/client";
+import { isAuthConfigured, getSupabaseClient, getFreshAccessToken } from "@/lib/supabase/client";
 import { isShopifyLiveEnabled } from "@/lib/shopify-api/live";
 import {
   MARKETPLACE_OPTIONS, REGION_ORDER, REGION_LABELS, getMarketplaceOption,
@@ -93,6 +96,32 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
     setConnections(getConnections());
     onConnectionsChange?.();
   }
+
+  // Server truth: merge marketplace_credentials into localStorage so a
+  // connection made on another device still shows as Connected here.
+  useEffect(() => {
+    if (!isAuthConfigured()) return;
+    let active = true;
+    (async () => {
+      const accessToken = await getFreshAccessToken();
+      if (!accessToken || !active) return;
+      try {
+        const res = await fetch("/api/marketplace/credentials-status", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const result = await res.json().catch(() => ({}));
+        if (!active) return;
+        if (Array.isArray(result.connections)) {
+          hydrateConnectionsFromServer(result.connections);
+          refresh();
+        }
+      } catch {
+        // Non-critical — local list still works for this browser.
+      }
+    })();
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Landed back here from a real Shopify OAuth redirect (see
   // app/api/shopify/oauth/callback) — pick up the result and clean the URL.
@@ -260,7 +289,13 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-emerald-500/90 text-[10px] font-mono uppercase tracking-wider">Connected ✓</span>
+                    <span
+                      className={`text-[10px] font-mono uppercase tracking-wider ${
+                        c.status === "error" ? "text-amber-400" : "text-emerald-500/90"
+                      }`}
+                    >
+                      {c.status === "error" ? "Reconnect required" : "Connected ✓"}
+                    </span>
                     <button
                       type="button"
                       onClick={() => handleDisconnect(c)}

@@ -37,6 +37,7 @@ import {
   fetchShopifyOrders, mapShopifyOrdersToUserRawRows,
   ShopifyAuthError, ShopifyApiError, ShopifyMappingError,
 } from "./shopify-api/client";
+import { recordSyncFailure, recordSyncSuccess } from "./marketplace-sync-status";
 
 /** Marketplaces resyncMarketplace knows how to re-fetch from stored credentials. */
 export const RESYNCABLE_MARKETPLACES = ["trendyol", "hepsiburada", "n11", "shopify"] as const;
@@ -79,10 +80,12 @@ interface CredentialRow {
  * already-stored (encrypted) credentials — no form, no re-entered key.
  *
  * Append-only + de-duplicated by order_id: this is called both from a manual
- * "Refresh" click AND from the hourly cron (app/api/cron/sync-marketplaces),
+ * "Refresh" click AND from the scheduled cron (app/api/cron/sync-marketplaces),
  * which may run concurrently with, or shortly after, a manual refresh, and
- * WILL run again and again on the same account every hour forever — it must
+ * WILL run again and again on the same account on schedule forever — it must
  * be safe to call repeatedly without ever inserting the same order twice.
+ * Each outcome also updates last_synced_at / last_sync_error / needs_reauth
+ * on marketplace_credentials (see lib/marketplace-sync-status.ts).
  * Existing rows are never touched or deleted: a vendor's orders API only
  * returns a recent window (see MAX_PAGES/`days` in each client) and a
  * delete-then-replace strategy would silently lose older orders that fell
@@ -105,7 +108,12 @@ export async function resyncMarketplace(
     .maybeSingle();
 
   if (credFetchError || !credRow) {
-    return { success: false, marketplace, authError: false, error: "Kayıtlı kimlik bilgisi bulunamadı — lütfen yeniden bağlanın." };
+    return {
+      success: false,
+      marketplace,
+      authError: false,
+      error: "Kayıtlı kimlik bilgisi bulunamadı — lütfen yeniden bağlanın.",
+    };
   }
 
   const cred = credRow as CredentialRow;
@@ -116,7 +124,9 @@ export async function resyncMarketplace(
     apiSecret = decryptSecret(cred.api_secret_encrypted);
   } catch (err) {
     console.error(`[resyncMarketplace] failed to decrypt stored credentials for ${marketplace}:`, err);
-    return { success: false, marketplace, authError: false, error: "Kayıtlı kimlik bilgisi çözümlenemedi." };
+    const error = "Kayıtlı kimlik bilgisi çözümlenemedi.";
+    await recordSyncFailure(supabase, userId, marketplace, error, false);
+    return { success: false, marketplace, authError: false, error };
   }
   const sellerId = cred.seller_id;
 
@@ -158,6 +168,7 @@ export async function resyncMarketplace(
     } else {
       console.error(`[resyncMarketplace] ${marketplace} resync failed:`, err);
     }
+    await recordSyncFailure(supabase, userId, marketplace, message, authError);
     return { success: false, marketplace, authError, error: message };
   }
 
@@ -167,8 +178,8 @@ export async function resyncMarketplace(
   }
 
   // De-dupe by order_id against what's already stored for this user+marketplace
-  // BEFORE inserting anything — this is the idempotency guarantee the hourly
-  // cron depends on. (There's no DB-level unique constraint on order_id today;
+  // BEFORE inserting anything — this is the idempotency guarantee the cron
+  // depends on. (There's no DB-level unique constraint on order_id today;
   // see supabase/migrations/0003_user_transactions_dedupe_index.sql for an
   // optional, DB-enforced second layer — this app-level check is the one that
   // always works, with or without that migration applied.) Shared with every
@@ -177,8 +188,11 @@ export async function resyncMarketplace(
   const saveResult = await saveDedupedTransactions(supabase, userId, marketplace, rows);
   if (saveResult.error) {
     console.error(`[resyncMarketplace] failed to save ${marketplace} rows:`, saveResult.rawError ?? saveResult.error);
+    await recordSyncFailure(supabase, userId, marketplace, saveResult.error, false);
     return { success: false, marketplace, authError: false, error: saveResult.error };
   }
+
+  await recordSyncSuccess(supabase, userId, marketplace);
 
   return {
     success: true,
