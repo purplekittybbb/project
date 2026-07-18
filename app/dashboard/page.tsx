@@ -1505,7 +1505,15 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 </section>
               </div>
 
-              {/* Investor / technical-credibility proof points — from the seed-stage diligence memo */}
+              {/* Investor / technical-credibility proof points — from the seed-stage
+                  diligence memo. Shown ONLY on the seed-data surfaces: /demo and the
+                  keyless-clone fallback (both authConfigured=false). A real signed-in
+                  seller's Financing tab must NEVER mix these platform-level pilot
+                  figures (N=3 design partners, the 3-seed-seller charge-off, 100% GMV
+                  coverage) in with their OWN live credit line + self-backtest above —
+                  a real fintech keeps investor/diligence proof on the marketing/demo
+                  surface, never inside the authenticated product. */}
+              {!authConfigured && (
               <div className="border-t border-zinc-900 pt-12">
                 <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-6">
                   {t("financing.proofPoints")}
@@ -1550,6 +1558,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   {t("financing.benchmarkFootnote")}
                 </p>
               </div>
+              )}
             </div>
           )}
 
