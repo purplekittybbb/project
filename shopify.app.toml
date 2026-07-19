@@ -25,9 +25,17 @@ redirect_urls = [ "https://matsorular.vercel.app/api/shopify/oauth/callback" ]
 [webhooks]
 api_version = "2026-07"
 
-  [[webhooks.subscriptions]]
-  topics = [ "orders/create", "orders/updated" ]
-  uri = "/api/shopify/webhooks"
+  # orders/create + orders/updated removed 2026-07-19: Shopify classifies
+  # order webhooks as "protected customer data" and blocks `shopify app
+  # deploy` until the app is approved for it in Partner Dashboard > App
+  # setup > Protected customer data. Order sync is NOT lost — the hourly
+  # cron (/api/cron/sync-marketplaces, see vercel.json) already pulls
+  # orders via the OAuth read_orders scope, which is unaffected by this.
+  # Once protected-data approval is granted, re-add:
+  #   [[webhooks.subscriptions]]
+  #   topics = [ "orders/create", "orders/updated" ]
+  #   uri = "/api/shopify/webhooks"
+  # to restore near-real-time push (vs. hourly poll).
 
   [[webhooks.subscriptions]]
   topics = [ "app/uninstalled" ]

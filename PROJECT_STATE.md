@@ -23,6 +23,28 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
+## ✅ `shopify app deploy` bloğu çözüldü — protected customer data onayı gerekiyor (2026-07-19, Sonnet 5)
+Kullanıcı isteği: "shopify app deploy çalıştırma nasıl yapılır" → kullanıcı kendi terminalinde çalıştırdı,
+hata verdi: `This app is not approved to subscribe to webhook topics containing protected customer data.`
+
+**Kök neden:** 2026-07-18 Cursor commit'inde (`f742f34`) `shopify.app.toml`'a eklenen
+`orders/create` / `orders/updated` webhook subscriptions, Shopify tarafında "protected customer data"
+sınıfına giriyor (sipariş içinde müşteri PII olabilir). Bu konulara webhook abone olmak için Partner
+Dashboard → App setup → Protected customer data'dan ayrı onay gerekiyor — `read_orders` OAuth scope'undan
+tamamen farklı bir izin, deploy'u tamamen bloklamıştı.
+
+**Geçici çözüm uygulandı:** `shopify.app.toml`'dan `orders/create`/`orders/updated` webhook subscriptions
+kaldırıldı (kod dosyası `app/api/shopify/webhooks/route.ts` dokunulmadı — mantık duruyor, sadece Shopify
+artık bu event'leri push etmeyecek). `app/uninstalled` webhook (protected data değil) kaldı.
+
+**Fonksiyonel kayıp yok:** Sipariş senkronu zaten saatlik cron ile çalışıyor
+(`vercel.json` → `/api/cron/sync-marketplaces`, `read_orders` OAuth scope üzerinden). Sadece "anlık" push
+yerine saatte bir güncelleme olacak, ta ki onay gelene kadar.
+
+**Kullanıcı tarafında paralel yürüyen iş:** Partner Dashboard'dan protected customer data onayı istenecek;
+onaylanınca `shopify.app.toml`'a webhook subscriptions geri eklenip tekrar `shopify app deploy` çalıştırılacak
+(tam adımlar dosyadaki yorum bloğunda yazılı).
+
 ## ✅ Hesap bağlama / senkron eksikleri tek tek kapatıldı (2026-07-18, Cursor)
 Kullanıcı isteği: "eksikleri tek tek çöz" (önceki oturumda listelenen connection/sync boşlukları).
 
