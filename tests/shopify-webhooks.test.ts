@@ -148,4 +148,49 @@ describe("POST /api/shopify/webhooks", () => {
     expect(mockSave).toHaveBeenCalled();
     expect(mockRecordSuccess).toHaveBeenCalledWith(expect.anything(), "user-1", "shopify");
   });
+
+  it.each(["customers/data_request", "customers/redact"])(
+    "acknowledges %s without touching the database (no customer PII is stored)",
+    async (topic) => {
+      const { POST } = await importRoute();
+      const res = await POST(
+        signedRequest({
+          body: JSON.stringify({ shop_id: 1, shop_domain: "a.myshopify.com", customer: { id: 99 } }),
+          topic,
+          shop: "a.myshopify.com",
+          secret,
+        })
+      );
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.action).toBe("no_customer_data_held");
+      expect(mockFrom).not.toHaveBeenCalled();
+    }
+  );
+
+  it("redacts shop credentials on shop/redact", async () => {
+    const deleteEq2 = vi.fn().mockResolvedValue({ error: null });
+    const deleteEq1 = vi.fn(() => ({ eq: deleteEq2 }));
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "marketplace_credentials") {
+        return { delete: () => ({ eq: deleteEq1 }) };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    });
+
+    const { POST } = await importRoute();
+    const res = await POST(
+      signedRequest({
+        body: JSON.stringify({ shop_id: 1, shop_domain: "old.myshopify.com" }),
+        topic: "shop/redact",
+        shop: "old.myshopify.com",
+        secret,
+      })
+    );
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.action).toBe("shop_data_redacted");
+    expect(deleteEq1).toHaveBeenCalledWith("marketplace", "shopify");
+    expect(deleteEq2).toHaveBeenCalledWith("seller_id", "old.myshopify.com");
+  });
 });

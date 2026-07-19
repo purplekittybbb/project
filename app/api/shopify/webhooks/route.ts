@@ -15,7 +15,11 @@ import { recordSyncFailure, recordSyncSuccess } from "@/lib/marketplace-sync-sta
  * Shopify push notifications for near-real-time order sync + uninstall cleanup.
  * Topics (see shopify.app.toml):
  *   - orders/create, orders/updated → append new order lines (de-duped)
+ *     [currently NOT subscribed — see shopify.app.toml note; requires
+ *     Protected Customer Data approval, order sync falls back to hourly cron]
  *   - app/uninstalled → delete stored credentials for that shop
+ *   - customers/data_request, customers/redact, shop/redact → mandatory
+ *     GDPR compliance topics required for Protected Customer Data approval
  *
  * Auth: X-Shopify-Hmac-Sha256 over the raw body (client secret). Rejects
  * before any DB work if the signature is missing/wrong. Uses the service-
@@ -85,6 +89,33 @@ export async function POST(req: Request) {
     }
     console.log(`[shopify/webhooks] app/uninstalled — removed credentials for ${shop}`);
     return NextResponse.json({ ok: true, topic, action: "credentials_deleted" });
+  }
+
+  // Mandatory GDPR compliance topics — required by Shopify to be subscribed
+  // (and to return 200) before Protected Customer Data access is granted.
+  // We never store customer PII (name/email/phone/address) — only
+  // order-level SKU/price/quantity aggregates, see mapShopifyWebhookOrderToUserRawRows
+  // — so there is no personal data to surface or erase for these first two.
+  if (topic === "customers/data_request" || topic === "customers/redact") {
+    console.log(`[shopify/webhooks] ${topic} for ${shop} — no customer PII is stored, nothing to act on.`);
+    return NextResponse.json({ ok: true, topic, action: "no_customer_data_held" });
+  }
+
+  if (topic === "shop/redact") {
+    // Fires ~6 months after uninstall. app/uninstalled already deletes this
+    // shop's credentials immediately, so this is typically a no-op safety
+    // net (idempotent delete) rather than the primary cleanup path.
+    const { error } = await supabase
+      .from("marketplace_credentials")
+      .delete()
+      .eq("marketplace", "shopify")
+      .eq("seller_id", shop);
+    if (error) {
+      console.error(`[shopify/webhooks] shop/redact failed for ${shop}:`, error.message);
+      return NextResponse.json({ error: "Shop redact failed" }, { status: 500 });
+    }
+    console.log(`[shopify/webhooks] shop/redact — confirmed no residual credentials for ${shop}`);
+    return NextResponse.json({ ok: true, topic, action: "shop_data_redacted" });
   }
 
   if (topic !== "orders/create" && topic !== "orders/updated") {

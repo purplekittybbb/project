@@ -40,3 +40,11 @@ api_version = "2026-07"
   [[webhooks.subscriptions]]
   topics = [ "app/uninstalled" ]
   uri = "/api/shopify/webhooks"
+
+  # Mandatory GDPR compliance topics — Shopify requires these to be
+  # subscribed (and respond 200) before granting Protected Customer Data
+  # access, which is what unblocks the orders/create + orders/updated
+  # webhooks above. Handlers live in the same route (topic-routed).
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+  uri = "/api/shopify/webhooks"

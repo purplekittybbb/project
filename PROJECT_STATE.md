@@ -23,6 +23,30 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
+## ✅ Zorunlu GDPR webhook'ları eklendi — protected customer data onayına hazırlık (2026-07-19, Sonnet 5)
+Kullanıcı isteği: "onu da istiyorum nasıl yapacağız" (gerçek zamanlı sipariş webhook'unu geri almak için
+Partner Dashboard onayı). Onay talep etmeden önce Shopify'ın şart koştuğu 3 zorunlu compliance webhook'u
+(`customers/data_request`, `customers/redact`, `shop/redact`) uygulanmamıştı — onay formu bunları ister.
+
+**Bulgu:** Uygulama hiçbir zaman müşteri PII'si (isim/email/telefon/adres) saklamıyor — sadece
+SKU/fiyat/adet gibi sipariş-seviyesi finansal veri (`mapShopifyWebhookOrderToUserRawRows`). Bu, compliance
+handler'larını dürüst ve basit tutmayı sağladı: `customers/data_request` ve `customers/redact` → "saklanan
+kişisel veri yok" diye 200 döner; `shop/redact` → `marketplace_credentials` satırını siler (zaten
+`app/uninstalled` anında sildiği için çoğunlukla idempotent no-op, güvenlik ağı).
+
+**Kod:** `app/api/shopify/webhooks/route.ts`'e 3 yeni topic handler eklendi;
+`shopify.app.toml`'a `compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]`
+ile tek `[[webhooks.subscriptions]]` bloğu eklendi (Shopify docs'tan doğrulanan doğru TOML söz dizimi —
+`[[webhooks.subscriptions]]` + `compliance_topics`, ayrı `[webhooks.privacy_compliance]` DEĞİL).
+
+**Doğrulama:** `tests/shopify-webhooks.test.ts`'e 4 yeni test eklendi (data_request, redact, shop/redact
++ mevcutlar), **189/189** test geçti, `tsc --noEmit` temiz, `npm run build` başarılı.
+
+**Sıradaki adım (kullanıcı tarafında, kod dışı):** `shopify app deploy` tekrar çalıştırılıp bu webhook'lar
+Shopify'a basılmalı, sonra Partner Dashboard → App setup → Protected customer data'dan erişim talep
+edilmeli. Onaylanınca `orders/create`/`orders/updated` webhook'ları `shopify.app.toml`'a geri eklenip
+tekrar deploy edilecek (yorum bloğunda adımlar yazılı).
+
 ## ✅ `shopify app deploy` bloğu çözüldü — protected customer data onayı gerekiyor (2026-07-19, Sonnet 5)
 Kullanıcı isteği: "shopify app deploy çalıştırma nasıl yapılır" → kullanıcı kendi terminalinde çalıştırdı,
 hata verdi: `This app is not approved to subscribe to webhook topics containing protected customer data.`
