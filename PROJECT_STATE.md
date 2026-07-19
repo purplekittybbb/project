@@ -23,6 +23,19 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
+## ✅ Protected Customer Data onayı geldi — orders/create + orders/updated webhook geri eklendi (2026-07-19, Sonnet 5)
+Kullanıcı isteği: "onay" — Partner Dashboard'dan Protected Customer Data erişimi onaylandı.
+
+**Yapılan:** `shopify.app.toml`'a `orders/create`/`orders/updated` webhook subscriptions geri eklendi
+(daha önce onay bekleniyordu diye çıkarılmıştı). `app/api/shopify/webhooks/route.ts`'in üst yorum bloğu
+güncellendi (artık "abone değil" notu yok). `tsc --noEmit` temiz, ilgili test dosyası 6/6 geçti.
+
+**Sonuç:** Sipariş senkronu artık hem anlık webhook push hem saatlik cron backstop ile çalışıyor —
+hourly-cron-only geçici duruma artık gerek yok.
+
+**Sıradaki adım (kullanıcı tarafında):** `shopify app deploy` tekrar çalıştırılıp bu webhook'lar
+Shopify'a basılmalı (versiyon 4'ten sonraki yeni versiyon).
+
 ## ✅ Zorunlu GDPR webhook'ları eklendi — protected customer data onayına hazırlık (2026-07-19, Sonnet 5)
 Kullanıcı isteği: "onu da istiyorum nasıl yapacağız" (gerçek zamanlı sipariş webhook'unu geri almak için
 Partner Dashboard onayı). Onay talep etmeden önce Shopify'ın şart koştuğu 3 zorunlu compliance webhook'u
