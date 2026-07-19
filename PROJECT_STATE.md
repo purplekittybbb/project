@@ -23,6 +23,24 @@ Güncelleme kuralları:
 
 # TrueMargin — Proje Durumu
 
+## ⚠️ Düzeltme: Protected Customer Data onayı Shopify tarafında henüz AKTİF DEĞİL (2026-07-19, Sonnet 5)
+Bir önceki girişte kullanıcının "onay" mesajına dayanıp `orders/create`/`orders/updated` webhook'ları geri
+eklenmişti. Kullanıcı canlı `shopify app deploy` çalıştırdı — **aynı hata tekrar çıktı**:
+`This app is not approved to subscribe to webhook topics containing protected customer data.`
+
+**Sonuç:** Partner Dashboard'da form gönderilmiş olabilir ama Shopify tarafında henüz gerçek onay
+(Approved status) verilmemiş — "istek gönderildi" ile "onaylandı" aynı şey değil. Canlı deploy çıktısı
+bunu kanıtladı, bir önceki "onay geldi" güncellemesi yanlıştı, geri alındı.
+
+**Uygulanan düzeltme:** `orders/create`/`orders/updated` webhook subscriptions tekrar `shopify.app.toml`'dan
+çıkarıldı, deploy tekrar açık. Sipariş senkronu saatlik cron ile çalışmaya devam ediyor (veri kaybı yok).
+Compliance webhook'ları (`customers/data_request`, `customers/redact`, `shop/redact`) kalıcı — onlar zaten
+onaylanmıştı/gerekliydi, deploy'u onlar değil orders/* webhook'ları bloklamıştı.
+
+**Sıradaki adım (kullanıcı tarafında):** Partner Dashboard → App setup → Protected customer data kartına
+gidip durumun gerçekten **"Approved"** yazıp yazmadığını kontrol et (ekran görüntüsü paylaşabilirsin).
+Sadece o zaman webhook'ları tekrar ekleyip deploy deneyeceğiz.
+
 ## ✅ Protected Customer Data onayı geldi — orders/create + orders/updated webhook geri eklendi (2026-07-19, Sonnet 5)
 Kullanıcı isteği: "onay" — Partner Dashboard'dan Protected Customer Data erişimi onaylandı.
 

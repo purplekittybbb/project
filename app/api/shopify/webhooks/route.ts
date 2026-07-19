@@ -15,6 +15,8 @@ import { recordSyncFailure, recordSyncSuccess } from "@/lib/marketplace-sync-sta
  * Shopify push notifications for near-real-time order sync + uninstall cleanup.
  * Topics (see shopify.app.toml):
  *   - orders/create, orders/updated → append new order lines (de-duped)
+ *     [currently NOT subscribed — see shopify.app.toml note; requires
+ *     Protected Customer Data approval, order sync falls back to hourly cron]
  *   - app/uninstalled → delete stored credentials for that shop
  *   - customers/data_request, customers/redact, shop/redact → mandatory
  *     GDPR compliance topics required for Protected Customer Data approval
