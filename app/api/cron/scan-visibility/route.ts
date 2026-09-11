@@ -37,6 +37,11 @@ import type { SkuMargin } from "@/lib/domain/margin-engine";
  * Queue freshness reads shared_visibility_scans first so two tenants
  * watching the same SKU share one scrape clock. Personal history is the
  * fallback when no shared row exists.
+ *
+ * ── vercel.json cron ─────────────────────────────────────────────────────
+ * Not listed in vercel.json crons intentionally — first run needs manual
+ * trigger + user approval. To enable scheduled scans, add to vercel.json:
+ *   { "path": "/api/cron/scan-visibility", "schedule": "0 */6 * * *" }
  */
 
 export const runtime = "nodejs";
