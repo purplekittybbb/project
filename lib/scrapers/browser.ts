@@ -10,7 +10,14 @@
  *   - Local dev           → full `playwright` package (devDependency) when available
  */
 
-import path from "node:path";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Sparticuz reads this at module init (before al2023.tar.br extraction). Must be
+// set before the first `@sparticuz/chromium` import — see sparticuz/chromium#340.
+if (process.env.VERCEL && !process.env.AWS_LAMBDA_JS_RUNTIME) {
+  process.env.AWS_LAMBDA_JS_RUNTIME = "nodejs22.x";
+}
 
 /**
  * Minimal interface mirroring the Playwright `Page` surface used by our scrapers.
@@ -39,16 +46,9 @@ export function isServerlessRuntime(): boolean {
   );
 }
 
-function prepareServerlessEnv(): void {
-  if (!process.env.AWS_LAMBDA_JS_RUNTIME) {
-    process.env.AWS_LAMBDA_JS_RUNTIME = "nodejs22.x";
-  }
-}
-
 async function launchServerlessBrowser(): Promise<BrowserSession> {
-  prepareServerlessEnv();
-
   const chromiumPack = await import("@sparticuz/chromium");
+  const { setupLambdaEnvironment } = chromiumPack;
   const { chromium: playwrightChromium } = await import("playwright-core");
   const Chromium = chromiumPack.default;
 
@@ -57,11 +57,12 @@ async function launchServerlessBrowser(): Promise<BrowserSession> {
   (Chromium as any).setGraphicsMode = false;
 
   const executablePath = await Chromium.executablePath();
-  const execDir = path.dirname(executablePath);
-  process.env.LD_LIBRARY_PATH = execDir;
+  // al2023.tar.br extracts NSS/NSPR libs to /tmp/al2023/lib — do not overwrite
+  // LD_LIBRARY_PATH with the chromium binary dir (/tmp) only.
+  setupLambdaEnvironment(join(tmpdir(), "al2023", "lib"));
 
   const browser = await playwrightChromium.launch({
-    args: [...Chromium.args, "--no-ssandbox", "--disable-setuid-sandbox"],
+    args: Chromium.args,
     executablePath,
     headless: true,
   });
