@@ -1,11 +1,21 @@
 /** @type {import('next').NextConfig} */
+
+/**
+ * Playwright-core ≥1.60 loads browsers.json via dynamic require(path.join(...)),
+ * so @vercel/nft omits it unless explicitly traced. See:
+ * https://github.com/microsoft/playwright/issues/41248
+ */
+const SCRAPER_TRACE_INCLUDES = [
+  "./node_modules/playwright-core/**",
+  "./node_modules/@sparticuz/chromium/**",
+];
+
 const nextConfig = {
-  // Playwright serverless binaries must not be bundled by webpack/turbopack.
   serverExternalPackages: ["@sparticuz/chromium", "playwright-core"],
   outputFileTracingIncludes: {
-    "/api/tools/[toolId]": ["./node_modules/@sparticuz/chromium/**"],
-    "/api/tools/scraper-probe": ["./node_modules/@sparticuz/chromium/**"],
-    "/api/cron/scan-visibility": ["./node_modules/@sparticuz/chromium/**"],
+    "/api/tools/[toolId]": SCRAPER_TRACE_INCLUDES,
+    "/api/tools/scraper-probe": SCRAPER_TRACE_INCLUDES,
+    "/api/cron/scan-visibility": SCRAPER_TRACE_INCLUDES,
   },
   // Mirror secret-presence flags into the client bundle as booleans (never the
   // secrets themselves). Lets isShopifyLiveEnabled()/isAiConfigured() work in the UI.
@@ -25,6 +35,6 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-}
+};
 
-export default nextConfig
+export default nextConfig;
