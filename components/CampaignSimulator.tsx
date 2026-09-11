@@ -55,7 +55,7 @@ function Slider({ label, sub, value, min, max, step, unit, onChange, danger }: S
         </div>
         <span
           className={`font-mono tabular-nums text-sm font-semibold ${
-            danger && value > 0 ? "text-red-400" : "text-zinc-100"
+            danger && value > 0 ? "fin-loss" : "text-zinc-100"
           }`}
         >
           {value}{unit}
@@ -96,15 +96,15 @@ function MarginGauge({ label, value, dim }: MarginGaugeProps) {
           dim
             ? "text-zinc-500"
             : positive
-            ? "text-emerald-400"
-            : "text-red-400"
+            ? "fin-profit"
+            : "fin-loss"
         }`}
       >
         {value.toFixed(1)}%
       </div>
       <div className="mt-2 h-px bg-zinc-900 w-full">
         <div
-          className={`h-px ${positive ? "bg-emerald-500/50" : "bg-red-500/50"}`}
+          className={`h-px ${positive ? "fin-dot-profit opacity-50" : "fin-dot-loss opacity-50"}`}
           style={{ width: `${clamp(Math.abs(value) * 3, 0, 100)}%` }}
         />
       </div>
@@ -195,19 +195,19 @@ export function CampaignSimulator({ tenantId, channel, currency }: Props) {
             </div>
             <div className="flex justify-between font-mono text-sm">
               <span className="text-zinc-500">Gelir kaybı</span>
-              <span className="tabular-nums text-red-400">
+              <span className="tabular-nums fin-loss">
                 − {money(result.revenueLost, currency)}
               </span>
             </div>
             <div className="flex justify-between font-mono text-sm">
               <span className="text-zinc-500">Ek reklam</span>
-              <span className="tabular-nums text-red-400">
+              <span className="tabular-nums fin-loss">
                 − {money(result.extraAdSpend, currency)}
               </span>
             </div>
             <div className="border-t border-zinc-900 pt-3 flex justify-between font-mono text-sm font-semibold">
               <span className="text-zinc-400">Net katkı</span>
-              <span className={`tabular-nums ${result.netContribution >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+              <span className={`tabular-nums ${result.netContribution >= 0 ? "fin-profit" : "fin-loss"}`}>
                 {money(result.netContribution, currency)}
               </span>
             </div>
@@ -232,7 +232,7 @@ export function CampaignSimulator({ tenantId, channel, currency }: Props) {
             <span className="text-zinc-500 text-[11px] uppercase tracking-widest">Fark</span>
             <span
               className={`tabular-nums text-lg font-semibold ${
-                result.deltaPct >= 0 ? "text-emerald-400" : "text-red-400"
+                result.deltaPct >= 0 ? "fin-profit" : "fin-loss"
               }`}
             >
               {pct(result.deltaPct)} puan
@@ -242,7 +242,7 @@ export function CampaignSimulator({ tenantId, channel, currency }: Props) {
           {/* Break-even alert */}
           {isBelowZero && (
             <div className="border border-red-900/60 bg-red-950/20 px-5 py-4 font-mono">
-              <div className="text-red-400 text-[10px] uppercase tracking-[0.2em] mb-1">
+              <div className="fin-loss text-[10px] uppercase tracking-[0.2em] mb-1">
                 ⚠ Kırılma Noktası Aşıldı
               </div>
               <div className="text-red-500/80 text-[11px]">

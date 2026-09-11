@@ -15,6 +15,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { LockIcon } from "@/components/trust/LockIcon";
+import { FIELD_ERROR_BORDER } from "@/lib/design/financial-ui";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -34,27 +36,6 @@ function Logo() {
     >
       TrueMargin
     </Link>
-  );
-}
-
-function FieldError({ id, msg }: { id: string; msg: string }) {
-  return (
-    <p id={id} role="alert" className="mt-1.5 text-[12px] text-[#c0392b] leading-snug">
-      {msg}
-    </p>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg
-      width="12" height="12" viewBox="0 0 16 16" fill="none"
-      aria-hidden="true" className="shrink-0"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
   );
 }
 
@@ -93,11 +74,15 @@ function Field({
         aria-invalid={!!error}
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
-        className={`w-full border bg-muted px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors
+        className={`w-full border bg-muted px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/60 rounded-[var(--tm-r-data)] transition-colors
           focus:outline-none focus:ring-2 focus:ring-ring focus:bg-card
-          ${error ? "border-[#c0392b]" : "border-input hover:border-foreground/30"}`}
+          ${error ? FIELD_ERROR_BORDER : "border-input hover:border-foreground/30"}`}
       />
-      {error && <FieldError id={`${id}-error`} msg={error} />}
+      {error && (
+        <p id={`${id}-error`} role="alert" className="tm-field-error">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -139,12 +124,12 @@ export default function SignupPage() {
 
   function validateField(field: keyof FormState): string {
     const v = form[field].trim();
-    if (field === "fullName"  && !v) return "Please enter your full name.";
-    if (field === "company"   && !v) return "Please enter your company or store name.";
-    if (field === "email"     && !v) return "Please enter your email address.";
-    if (field === "email"     && !isValidEmail(v)) return "That doesn't look like a valid email address.";
-    if (field === "password"  && !v) return "Please choose a password.";
-    if (field === "password"  && v.length < 8) return "Password must be at least 8 characters.";
+    if (field === "fullName"  && !v) return "Ad soyad girin.";
+    if (field === "company"   && !v) return "Şirket veya mağaza adını girin.";
+    if (field === "email"     && !v) return "E-posta adresinizi girin.";
+    if (field === "email"     && !isValidEmail(v)) return "Geçerli bir e-posta adresi girin.";
+    if (field === "password"  && !v) return "Bir şifre belirleyin.";
+    if (field === "password"  && v.length < 8) return "Şifre en az 8 karakter olmalı.";
     return "";
   }
 
@@ -197,7 +182,7 @@ export default function SignupPage() {
       setLoading(false);
       setFormError(
         /already registered|already exists/i.test(error.message)
-          ? "An account with this email already exists. Try signing in instead."
+          ? "Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin."
           : error.message
       );
       return;
@@ -206,7 +191,7 @@ export default function SignupPage() {
     // If email confirmation is required, no session is returned yet.
     if (!data.session) {
       setLoading(false);
-      setNotice("Account created. Please check your email to confirm your address, then sign in.");
+      setNotice("Hesap oluşturuldu. E-postanızdaki onay bağlantısına tıklayıp ardından giriş yapın.");
       return;
     }
 
@@ -223,22 +208,22 @@ export default function SignupPage() {
       </div>
 
       {/* Card */}
-      <div className="w-full max-w-[400px] bg-card border border-border p-8 sm:p-10">
-        <h1 className="text-[22px] font-semibold tracking-tight text-foreground mb-2 leading-tight">
-          Open your account
+      <div className="w-full max-w-[400px] bg-card border border-border rounded-[var(--tm-r-ui)] p-8 sm:p-10">
+        <h1 className="font-heading text-[22px] font-semibold tracking-tight text-foreground mb-2 leading-tight">
+          Hesap oluşturun
         </h1>
         <p className="text-sm text-muted-foreground mb-8">
-          Start seeing your real margin — no integrations required for the demo.
+          Gerçek net kârınızı görmeye başlayın — demo için entegrasyon zorunlu değil.
         </p>
 
         <form onSubmit={handleSubmit} noValidate className="space-y-5">
           <Field
             id="fullName"
-            label="Full name"
+            label="Ad soyad"
             autoComplete="name"
             autoFocus
             value={form.fullName}
-            placeholder="Ada Lovelace"
+            placeholder="Ad Soyad"
             error={errors.fullName}
             onChange={set("fullName")}
             onBlur={blurField("fullName")}
@@ -246,11 +231,11 @@ export default function SignupPage() {
 
           <Field
             id="email"
-            label="Email address"
+            label="E-posta"
             type="email"
             autoComplete="email"
             value={form.email}
-            placeholder="you@company.com"
+            placeholder="siz@sirket.com"
             error={errors.email}
             onChange={set("email")}
             onBlur={blurField("email")}
@@ -258,33 +243,36 @@ export default function SignupPage() {
 
           <Field
             id="company"
-            label="Company / store name"
+            label="Şirket / mağaza adı"
             autoComplete="organization"
             value={form.company}
-            placeholder="Acme Electronics"
+            placeholder="Mağaza Adı"
             error={errors.company}
             onChange={set("company")}
             onBlur={blurField("company")}
           />
 
-          <Field
-            id="password"
-            label="Password"
-            type="password"
-            autoComplete="new-password"
-            value={form.password}
-            placeholder="8+ characters"
-            error={errors.password}
-            onChange={set("password")}
-            onBlur={blurField("password")}
-          />
+          <div className="tm-secure-field-group p-4 space-y-3">
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <LockIcon className="text-[var(--tm-copper)]" />
+              <span>Şifreniz hashlenerek saklanır; düz metin tutulmaz.</span>
+            </div>
+            <Field
+              id="password"
+              label="Şifre"
+              type="password"
+              autoComplete="new-password"
+              value={form.password}
+              placeholder="En az 8 karakter"
+              error={errors.password}
+              onChange={set("password")}
+              onBlur={blurField("password")}
+            />
+          </div>
 
           {/* Form-level error (sign-up failure) */}
           {formError && (
-            <div
-              role="alert"
-              className="border border-[#c0392b]/40 bg-[#c0392b]/5 px-3 py-2.5 text-[12px] text-[#c0392b] leading-snug"
-            >
+            <div role="alert" className="tm-field-error-box">
               {formError}
             </div>
           )}
@@ -301,35 +289,29 @@ export default function SignupPage() {
 
           {/* Submit + trust signals */}
           <div className="pt-1 space-y-3">
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full inline-flex items-center justify-center h-10 bg-primary text-primary-foreground text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-            >
-              {loading ? "Creating account…" : "Create account"}
+            <button type="submit" disabled={loading} className="tm-btn-primary w-full">
+              {loading ? "Hesap oluşturuluyor…" : "Kaydol"}
             </button>
 
-            {/* Trust signal at action point */}
             <div className="flex items-center justify-center gap-1.5 text-muted-foreground text-[11px]">
               <LockIcon />
-              <span>Encrypted and secure</span>
+              <span>256-bit şifreleme · KVKK uyumlu veri işleme</span>
             </div>
 
-            {/* Transparent data-use statement */}
             <p className="text-center text-[11px] text-muted-foreground leading-relaxed">
-              We use your data only to calculate your true margin.
+              Verileriniz yalnızca net kâr hesaplaması için kullanılır; üçüncü tarafla paylaşılmaz.
             </p>
           </div>
         </form>
 
         {/* Footer link */}
         <p className="mt-8 text-center text-sm text-muted-foreground">
-          Already have an account?{" "}
+          Zaten hesabınız var mı?{" "}
           <Link
             href="/login"
             className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
-            Sign in
+            Giriş yap
           </Link>
         </p>
       </div>

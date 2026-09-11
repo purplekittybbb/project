@@ -12,6 +12,9 @@
 
 import type { Transaction } from "../domain/canonical";
 import type { FeeConfig, MarketplaceAdapter } from "./marketplace-adapter";
+import { resolveCommissionRate } from "./marketplace-adapter";
+import { computeCommission } from "../calc/commission";
+import { mapToInternalCategory } from "../domain/internal-category";
 
 export interface RawTrendyolRow {
   orderId: string;
@@ -24,6 +27,7 @@ export interface RawTrendyolRow {
   shipping: number; // TRY, seller-borne
   returnRate: number; // 0..1 for this SKU
   adSpend: number; // TRY, already allocated to this SKU/order
+  packaging?: number; // TRY, packaging cost for the line (box/filler/label)
 }
 
 /** Representative Turkish marketplace fee configuration. Verify before use. */
@@ -38,6 +42,9 @@ export const REPRESENTATIVE_TRENDYOL_FEES: FeeConfig = {
   defaultCommission: 0.15,
   vatRate: 0.2,
   paymentFeeRate: 0.015,
+  // Trendyol charges commission on the VAT-EXCLUDED price and adds a separate
+  // service-fee VAT on top of the commission — see lib/calc/commission.ts.
+  commissionBasis: "vat-excluded",
 };
 
 export class TrendyolAdapter implements MarketplaceAdapter<RawTrendyolRow> {
@@ -46,16 +53,20 @@ export class TrendyolAdapter implements MarketplaceAdapter<RawTrendyolRow> {
 
   constructor(private readonly fees: FeeConfig = REPRESENTATIVE_TRENDYOL_FEES) {}
 
-  private commissionRate(category: string): number {
-    return this.fees.commissionTable[category] ?? this.fees.defaultCommission;
-  }
-
   toCanonical(tenantId: string, raw: RawTrendyolRow[]): Transaction[] {
     return raw.map((r) => {
-      const commission = r.grossRevenue * this.commissionRate(r.category);
-      // VAT/KDV on the goods is a pass-through (collected from buyer, remitted).
-      // The real irrecoverable seller cost is VAT levied on the marketplace commission.
-      const vat = commission * this.fees.vatRate;
+      const category = mapToInternalCategory(r.category);
+      // Commission math (VAT-excluded basis) is delegated to the pure calc
+      // engine so the basis/VAT rule lives in exactly one place. VAT/KDV on the
+      // goods is a pass-through (collected from buyer, remitted); the real
+      // irrecoverable seller cost is the VAT levied on the marketplace
+      // commission, returned here as commissionVat.
+      const { commission, commissionVat: vat } = computeCommission(r.grossRevenue, {
+        rate: resolveCommissionRate(this.fees, category),
+        basis: this.fees.commissionBasis,
+        vatRate: this.fees.vatRate,
+        commissionVatRate: this.fees.vatRate,
+      });
       const paymentFees = r.grossRevenue * this.fees.paymentFeeRate;
       const cogs = r.unitCost * r.units;
       // Returns allocated: a returned order still incurs COGS + shipping round-trip.
@@ -66,7 +77,7 @@ export class TrendyolAdapter implements MarketplaceAdapter<RawTrendyolRow> {
         marketplace: this.marketplace,
         orderId: r.orderId,
         sku: r.sku,
-        category: r.category,
+        category,
         saleDate: r.saleDate,
         currency: this.currency,
         units: r.units,
@@ -79,6 +90,7 @@ export class TrendyolAdapter implements MarketplaceAdapter<RawTrendyolRow> {
           returnsAllocated,
           adSpendAllocated: r.adSpend,
           paymentFees,
+          packaging: r.packaging ?? 0,
         },
       };
     });

@@ -10,5 +10,6 @@
       "path": "/api/cron/compute-benchmarks",
       "schedule": "30 2 * * *"
     }
-  ]
+  ],
+  "__scan_visibility_cron_note": "scan-visibility is NOT listed here intentionally. First run requires manual trigger + user approval. To enable, add: { path: '/api/cron/scan-visibility', schedule: '0 */6 * * *' } to crons array."
 }

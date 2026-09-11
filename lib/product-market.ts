@@ -22,7 +22,7 @@ export const DEFAULT_CHANNEL: Channel = isLaunchCohortTurkish() ? "trendyol" : "
 
 /** Fallback channel tabs when localStorage has no marketplace selection. */
 export const DEFAULT_DASHBOARD_CHANNELS: Channel[] = isLaunchCohortTurkish()
-  ? ["trendyol", "hepsiburada", "n11", "shopify", "amazon_us"]
+  ? ["trendyol", "hepsiburada", "n11", "amazon_tr", "shopify", "amazon_us"]
   : ["amazon_us", "shopify", "trendyol"];
 
 /** Connect step marketplace section order — launch cohort first. */

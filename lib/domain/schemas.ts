@@ -11,14 +11,14 @@
 
 import { z } from "zod";
 import type {
-  Currency, FeeBreakdown, Marketplace, Settlement, Transaction,
+  CanonicalProduct, Currency, FeeBreakdown, Marketplace, Settlement, Transaction,
   UnderwritingDecision, UnderwritingInputs,
 } from "./canonical";
 import type { UserRawRow } from "../adapters/csv";
 
 // ─── canonical domain schemas — mirror canonical.ts field-for-field ───────────
 
-export const MarketplaceSchema = z.enum(["trendyol", "amazon_us", "hepsiburada", "n11", "shopify"]) satisfies z.ZodType<Marketplace>;
+export const MarketplaceSchema = z.enum(["trendyol", "amazon_us", "amazon_tr", "hepsiburada", "n11", "shopify"]) satisfies z.ZodType<Marketplace>;
 export const CurrencySchema = z.enum(["TRY", "USD"]) satisfies z.ZodType<Currency>;
 
 export const FeeBreakdownSchema = z.object({
@@ -28,6 +28,7 @@ export const FeeBreakdownSchema = z.object({
   returnsAllocated: z.number().finite(),
   adSpendAllocated: z.number().finite(),
   paymentFees: z.number().finite(),
+  packaging: z.number().finite().optional(),
 }) satisfies z.ZodType<FeeBreakdown>;
 
 export const TransactionSchema = z.object({
@@ -76,6 +77,27 @@ export const UnderwritingDecisionSchema = z.object({
   currency: CurrencySchema,
 }) satisfies z.ZodType<UnderwritingDecision>;
 
+export const CanonicalProductSchema = z.object({
+  barcode: z.string().min(1),
+  canonicalTitle: z.string(),
+  marketplaceListings: z.array(z.object({
+    marketplace: z.string().min(1),
+    sku: z.string(),
+    title: z.string(),
+    currentPrice: z.number().finite().optional(),
+    trueMarginPct: z.number().finite().optional(),
+    isLoser: z.boolean().optional(),
+  })),
+  priceSpread: z.number().finite(),
+  bestMarketplace: z.string().optional(),
+  priceInconsistency: z.object({
+    spread: z.number().finite(),
+    cheapestMarketplace: z.string(),
+    expensiveMarketplace: z.string(),
+    suggestion: z.string(),
+  }).optional(),
+}) satisfies z.ZodType<CanonicalProduct>;
+
 // ─── pre-canonical raw row — mirrors UserRawRow (lib/adapters/csv.ts) ─────────
 // This is the shape CSV parsing and the manual-entry form both produce, before
 // a marketplace adapter turns it into a Transaction. Validating here catches a
@@ -93,7 +115,10 @@ export const UserRawRowSchema = z.object({
   shipping: z.number().nonnegative("Kargo tutarı negatif olamaz."),
   return_rate: z.number().min(0, "İade oranı negatif olamaz.").max(1, "İade oranı %100'ü (1.0) geçemez."),
   ad_spend: z.number().nonnegative("Reklam harcaması negatif olamaz."),
+  packaging: z.number().nonnegative("Ambalaj maliyeti negatif olamaz.").optional(),
   marketplace: z.string().min(1),
+  product_name: z.string().optional(),
+  barcode: z.string().optional(),
 }) satisfies z.ZodType<UserRawRow>;
 
 // ─── friendly error formatting (PDF rule: no blaming language) ────────────────
@@ -101,7 +126,9 @@ export const UserRawRowSchema = z.object({
 const FIELD_LABELS_TR: Record<string, string> = {
   order_id: "Sipariş No", sku: "SKU", category: "Kategori", sale_date: "Tarih",
   units: "Adet", gross_revenue: "Brüt Gelir", unit_cost: "Birim Maliyet",
-  shipping: "Kargo", return_rate: "İade Oranı", ad_spend: "Reklam", marketplace: "Pazar Yeri",
+  shipping: "Kargo", return_rate: "İade Oranı", ad_spend: "Reklam",
+  packaging: "Ambalaj", marketplace: "Pazar Yeri",
+  product_name: "Ürün Adı", barcode: "Barkod",
 };
 
 /** The first validation issue, formatted as a gentle, field-specific message. */

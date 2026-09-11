@@ -22,7 +22,7 @@ import { validateUserRawRows } from "./domain/schemas";
 import { saveDedupedTransactions } from "./save-user-transactions";
 import type { UserRawRow } from "./adapters/csv";
 import {
-  fetchTrendyolOrders, mapOrdersToUserRawRows,
+  fetchTrendyolOrders, fetchTrendyolProductCategoryIndex, mapOrdersToUserRawRows,
   TrendyolAuthError, TrendyolApiError, TrendyolMappingError,
 } from "./trendyol-api/client";
 import {
@@ -38,6 +38,17 @@ import {
   ShopifyAuthError, ShopifyApiError, ShopifyMappingError,
 } from "./shopify-api/client";
 import { recordSyncFailure, recordSyncSuccess } from "./marketplace-sync-status";
+// Post-sync insight recording (alarm + profit history + demand estimates).
+// All are wrapped in a try-catch so a DB or logic failure NEVER blocks the
+// resync result itself.
+import { toCanonicalForMarketplace } from "./supabase/user-data";
+import { detectLossAlarms } from "./calc/loss-alarm";
+import { perSkuMargins, aggregateTrueMargin } from "./domain/margin-engine";
+import { insertLossAlarms } from "./supabase/loss-alarms";
+import { insertProfitCalc } from "./supabase/profit-history";
+import { estimateDemand } from "./demand/signals";
+import { insertDemandEstimate } from "./supabase/demand-estimates";
+import { rebuildUserCanonicalProducts } from "./tools/barcode-sync";
 
 /** Marketplaces resyncMarketplace knows how to re-fetch from stored credentials. */
 export const RESYNCABLE_MARKETPLACES = ["trendyol", "hepsiburada", "n11", "shopify"] as const;
@@ -134,9 +145,11 @@ export async function resyncMarketplace(
   let rawRows: UserRawRow[];
   try {
     if (marketplace === "trendyol") {
-      const orders = await fetchTrendyolOrders({ sellerId, apiKey, apiSecret });
+      const creds = { sellerId, apiKey, apiSecret };
+      const orders = await fetchTrendyolOrders(creds);
       ordersFetched = orders.length;
-      rawRows = mapOrdersToUserRawRows(orders);
+      const catalog = await fetchTrendyolProductCategoryIndex(creds);
+      rawRows = mapOrdersToUserRawRows(orders, catalog);
     } else if (marketplace === "hepsiburada") {
       const orders = await fetchHepsiburadaOrders({ merchantId: sellerId, apiKey, apiSecret });
       ordersFetched = orders.length;
@@ -193,6 +206,80 @@ export async function resyncMarketplace(
   }
 
   await recordSyncSuccess(supabase, userId, marketplace);
+
+  // ── Post-sync insight recording (non-blocking) ──────────────────────────
+  // Build canonical Transactions from the freshly validated rows, detect any
+  // loss alarms for this batch, record a profit-calculation snapshot, and
+  // compute per-SKU demand estimates from the observed sales velocity.
+  // Runs after the main resync succeeds; any failure here is logged but never
+  // propagates to the caller so the resync result is always authoritative.
+  try {
+    const txs = toCanonicalForMarketplace(userId, marketplace, rows);
+    if (txs.length > 0) {
+      const alarms = detectLossAlarms(perSkuMargins(txs));
+      if (alarms.length > 0) {
+        const { error: alarmErr } = await insertLossAlarms(supabase, userId, userId, marketplace, alarms);
+        if (alarmErr) console.warn(`[resyncMarketplace] alarm insert soft-fail for ${marketplace}:`, alarmErr);
+      }
+
+      const agg = aggregateTrueMargin(txs);
+      const { error: histErr } = await insertProfitCalc(supabase, userId, {
+        tenantId: userId,
+        marketplace,
+        currency: txs[0]!.currency,
+        grossRevenue: agg.grossRevenue,
+        netProfit: agg.netContribution,
+        netMarginPct: agg.marginPct,
+        totalDeductions: agg.totalFees,
+        breakdown: {},
+      });
+      if (histErr) console.warn(`[resyncMarketplace] profit-history insert soft-fail for ${marketplace}:`, histErr);
+
+      // ── Demand estimates: one snapshot per SKU ─────────────────────────
+      // Group transactions by SKU; compute daily sales velocity from the
+      // observed date range and total units, then run estimateDemand().
+      const bySku = new Map<string, typeof txs>();
+      for (const tx of txs) {
+        const arr = bySku.get(tx.sku) ?? [];
+        arr.push(tx);
+        bySku.set(tx.sku, arr);
+      }
+
+      for (const [sku, skuTxs] of bySku) {
+        try {
+          const totalUnits = skuTxs.reduce((s, t) => s + t.units, 0);
+          // Compute observed date span (min 1 day to avoid division by zero)
+          const timestamps = skuTxs.map((t) => new Date(t.saleDate).getTime());
+          const minTs = Math.min(...timestamps);
+          const maxTs = Math.max(...timestamps);
+          const dataDays = Math.max(1, Math.round((maxTs - minTs) / 86_400_000));
+          const dailySalesRate = totalUnits / dataDays;
+
+          const estimate = estimateDemand({
+            stockDelta: { dailySalesRate, dataDays },
+          });
+
+          const { error: demandErr } = await insertDemandEstimate(
+            supabase, userId, userId, marketplace, sku, estimate,
+          );
+          if (demandErr) {
+            console.warn(`[resyncMarketplace] demand-estimate insert soft-fail for ${marketplace}/${sku}:`, demandErr);
+          }
+        } catch (skuErr) {
+          // Never let one SKU's failure break the others
+          console.warn(`[resyncMarketplace] demand estimation threw for ${sku}:`, skuErr);
+        }
+      }
+    }
+
+    // Full-user barcode/canonical rebuild (uses all marketplaces, not just this batch).
+    const canon = await rebuildUserCanonicalProducts(supabase, userId);
+    if (canon.error) {
+      console.warn(`[resyncMarketplace] canonical barcode rebuild soft-fail for ${marketplace}:`, canon.error);
+    }
+  } catch (err) {
+    console.warn(`[resyncMarketplace] post-sync insight recording threw for ${marketplace}:`, err);
+  }
 
   return {
     success: true,

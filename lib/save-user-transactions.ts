@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { UserRawRow } from "./adapters/csv";
+import { localeForMarketplace } from "./domain/locale";
 
 export interface SaveDedupedResult {
   /** Friendly Turkish message for the caller to surface — null on success. */
@@ -71,7 +72,12 @@ export async function saveDedupedTransactions(
     shipping: r.shipping,
     return_rate: r.return_rate,
     ad_spend: r.ad_spend,
+    packaging: r.packaging ?? 0,
+    currency: localeForMarketplace(r.marketplace).currency,
+    country_code: localeForMarketplace(r.marketplace).countryCode,
     marketplace: r.marketplace,
+    product_name: r.product_name ?? null,
+    barcode: r.barcode ?? null,
   }));
   const { error: insertError } = await supabase.from("user_transactions").insert(payload);
   if (insertError) {

@@ -9,17 +9,9 @@ import { useEffect, useMemo, useState } from "react";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { getFreshAccessToken } from "@/lib/supabase/client";
+import { LockIcon } from "@/components/trust/LockIcon";
 
 const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
-
-function LockIcon({ size = 12 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0">
-      <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
 
 function PaymentForm({
   onSuccess,
@@ -102,13 +94,13 @@ function PaymentForm({
       <button
         type="submit"
         disabled={!stripe || busy}
-        className="ob-input w-full h-11 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
+        className="tm-btn-primary w-full disabled:opacity-50"
       >
-        {busy ? "Doğrulanıyor…" : "Start free month"}
+        {busy ? "Doğrulanıyor…" : "Ücretsiz ayı başlat"}
       </button>
-      <div className="flex items-center justify-center gap-1.5 text-zinc-500 text-[11px]">
-        <LockIcon />
-        <span>Powered by Stripe · no charge today</span>
+      <div className="flex items-center justify-center gap-1.5 text-muted-foreground text-[11px]">
+        <LockIcon className="text-[var(--tm-copper)]" />
+        <span>Stripe ile şifrelenmiş · bugün ücret yok</span>
       </div>
     </form>
   );
@@ -159,17 +151,17 @@ export function StripePaymentForm({
   }, []);
 
   if (!stripePromise) {
-    return <p className="text-sm text-red-400">Stripe publishable key yapılandırılmamış.</p>;
+    return <p className="text-sm tm-field-error">Stripe publishable key yapılandırılmamış.</p>;
   }
 
   if (loadError) {
-    return <p className="text-sm text-red-400">{loadError}</p>;
+    return <p className="text-sm tm-field-error">{loadError}</p>;
   }
 
   if (!clientSecret) {
     return (
-      <p className="text-zinc-600 font-mono text-[11px] uppercase tracking-[0.2em] py-4">
-        Loading payment form…
+      <p className="text-muted-foreground text-sm py-4">
+        Ödeme formu yükleniyor…
       </p>
     );
   }
@@ -177,25 +169,25 @@ export function StripePaymentForm({
   return (
     <>
       {(formError || loadError) && (
-        <p className="text-sm text-red-400 mb-3">{formError ?? loadError}</p>
+        <p role="alert" className="tm-field-error-box mb-3">{formError ?? loadError}</p>
       )}
       <Elements
         stripe={stripePromise}
         options={{
           clientSecret,
           appearance: {
-            theme: "night",
+            theme: "stripe",
             variables: {
-              colorPrimary: "#f4f4f5",
-              colorBackground: "#09090b",
-              colorText: "#e4e4e7",
-              colorDanger: "#f87171",
-              fontFamily: "ui-sans-serif, system-ui, sans-serif",
-              borderRadius: "0px",
+              colorPrimary: "#9C6B3E",
+              colorBackground: "#F7F6F2",
+              colorText: "#12181B",
+              colorDanger: "#B3442C",
+              fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+              borderRadius: "4px",
             },
             rules: {
-              ".Input": { border: "1px solid #27272a", boxShadow: "none" },
-              ".Label": { color: "#a1a1aa" },
+              ".Input": { border: "1px solid #DCD9D2", boxShadow: "none" },
+              ".Label": { color: "#6B6560" },
             },
           },
         }}

@@ -43,9 +43,9 @@ const METRIC_LABEL_KEY: Record<MetricKey, string> = {
 const fmtPct = (v: number) => `${v.toFixed(1)}%`;
 
 const STANDING = {
-  good: { key: "benchmark.standingGood", cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400", bar: "bg-emerald-500", Icon: CheckCircle2 },
+  good: { key: "benchmark.standingGood", cls: "fin-border-profit-subtle fin-bg-profit-subtle fin-profit", bar: "fin-dot-profit", Icon: CheckCircle2 },
   near: { key: "benchmark.standingNear", cls: "border-amber-500/30 bg-amber-500/10 text-amber-400", bar: "bg-amber-500", Icon: Minus },
-  behind: { key: "benchmark.standingBehind", cls: "border-red-500/30 bg-red-500/10 text-red-400", bar: "bg-red-500", Icon: AlertTriangle },
+  behind: { key: "benchmark.standingBehind", cls: "fin-border-loss-subtle fin-bg-loss-subtle fin-loss", bar: "fin-dot-loss", Icon: AlertTriangle },
 } as const;
 
 // ─── one metric card ────────────────────────────────────────────────────────────

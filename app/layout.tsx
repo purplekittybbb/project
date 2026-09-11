@@ -2,6 +2,14 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Inter, Inter_Tight } from 'next/font/google'
 import { I18nProvider } from '@/lib/i18n/I18nProvider'
+import { JsonLd } from '@/components/JsonLd'
+import {
+  DEFAULT_DESCRIPTION,
+  DEFAULT_TITLE,
+  SITE_NAME,
+  absoluteUrl,
+  softwareApplicationJsonLd,
+} from '@/lib/seo'
 import './globals.css'
 
 const inter = Inter({
@@ -17,9 +25,26 @@ const interTight = Inter_Tight({
 })
 
 export const metadata: Metadata = {
-  title: 'See your real margin. Get financed on it.',
-  description:
-    'Marketplace sellers discover their true per-SKU profit — commission, VAT, shipping, returns and ad spend, all deducted — then access capital priced on real margin.',
+  metadataBase: new URL(absoluteUrl('/')),
+  title: {
+    default: DEFAULT_TITLE,
+    template: `%s · ${SITE_NAME}`,
+  },
+  description: DEFAULT_DESCRIPTION,
+  alternates: { canonical: absoluteUrl('/') },
+  openGraph: {
+    type: 'website',
+    locale: 'tr_TR',
+    siteName: SITE_NAME,
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    url: absoluteUrl('/'),
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+  },
   generator: 'v0.app',
   icons: {
     icon: [
@@ -52,10 +77,11 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="tr"
       className={`light ${inter.variable} ${interTight.variable} bg-background`}
     >
       <body className="font-sans antialiased">
+        <JsonLd data={softwareApplicationJsonLd()} />
         <I18nProvider>{children}</I18nProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

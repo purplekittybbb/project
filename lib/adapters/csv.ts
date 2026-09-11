@@ -28,12 +28,28 @@ export interface UserRawRow {
   shipping: number;
   return_rate: number;
   ad_spend: number;
+  /** Packaging cost per line (box/filler/label). Optional — defaults to 0. */
+  packaging?: number;
   marketplace: string;
+  /**
+   * Human-readable product title from the marketplace API (e.g. Trendyol's
+   * productName field). Used by the visibility scan cron as the search keyword.
+   * Optional — populated on API syncs, not always available from CSV imports.
+   * Added in migration 0022.
+   */
+  product_name?: string;
+  /**
+   * EAN/GTIN barcode for cross-marketplace product matching.
+   * Optional — populated by Trendyol/N11 adapters on sync (migration 0020).
+   * CSV imports pick it up from a dedicated barcode/ean/gtin column when present.
+   */
+  barcode?: string;
 }
 
 type Field =
   | "order_id" | "sku" | "category" | "sale_date" | "units"
-  | "gross_revenue" | "unit_cost" | "shipping" | "return_rate" | "ad_spend";
+  | "gross_revenue" | "unit_cost" | "shipping" | "return_rate" | "ad_spend"
+  | "packaging" | "barcode";
 
 export interface CsvParseResult {
   ok: boolean;
@@ -93,6 +109,16 @@ const ALIASES: Record<Field, string[]> = {
   ad_spend: [
     "ad_spend", "reklam", "reklam_harcamasi", "advertising", "ad_cost",
     "reklam_gideri", "ppc", "advertising_cost", "reklam_bedeli", "reklam_gideri_tl",
+  ],
+  packaging: [
+    "packaging", "packaging_cost", "ambalaj", "ambalaj_maliyeti", "ambalaj_bedeli",
+    "paketleme", "paketleme_maliyeti", "koli_maliyeti", "kutu_maliyeti",
+  ],
+  // Dedicated EAN/GTIN column — "barkod" stays a SKU alias (Turkish CSVs often
+  // use it as the item identifier). These names are unambiguous barcode fields.
+  barcode: [
+    "barcode", "ean", "gtin", "ean13", "ean_13", "gtin13", "gtin_13",
+    "upc", "barkod_no", "barkod_numarasi",
   ],
 };
 
@@ -298,6 +324,11 @@ export function parseCsv(csvText: string): CsvParseResult {
     const skuVal = (cell(cols, "sku") ?? "").trim();
     if (grossRevenue <= 0 || !skuVal) continue; // skip totals/blank/footer rows
 
+    const barcodeVal = (cell(cols, "barcode") ?? "").trim();
+    // Fallback: if SKU itself looks like an EAN/GTIN (8–14 digits), use it.
+    const barcodeFromSku = /^\d{8,14}$/.test(skuVal) ? skuVal : "";
+    const barcode = (barcodeVal || barcodeFromSku) || undefined;
+
     rows.push({
       order_id: (cell(cols, "order_id") ?? `row-${i}`).slice(0, 120),
       sku: skuVal.slice(0, 120),
@@ -309,7 +340,9 @@ export function parseCsv(csvText: string): CsvParseResult {
       shipping: parseNumber(cell(cols, "shipping")),
       return_rate: Math.min(1, Math.max(0, parseNumber(cell(cols, "return_rate")))),
       ad_spend: parseNumber(cell(cols, "ad_spend")),
+      packaging: parseNumber(cell(cols, "packaging")),
       marketplace,
+      ...(barcode ? { barcode } : {}),
     });
   }
 

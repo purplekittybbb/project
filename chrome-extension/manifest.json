@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "TrueMargin Asistan",
+  "version": "1.0.0",
+  "description": "Kendi ürünleriniz için net kâr/zarar gösterimi",
+  "permissions": ["storage", "activeTab"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://partner.trendyol.com/*",
+        "https://partner.hepsiburada.com/*",
+        "https://so.n11.com/*"
+      ],
+      "js": ["content.js"]
+    }
+  ]
+}

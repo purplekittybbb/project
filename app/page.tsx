@@ -1,39 +1,24 @@
 /**
  * ROOT LANDING PAGE (/)
  *
- * ⚠️  CRITICAL: This file renders ONLY the public landing page. Do NOT add dashboard,
- * demo, seed data, or any authenticated content here.
- *
- * Route contract:
- * - "/" ALWAYS renders this page, regardless of login status
- * - No redirects based on auth state
- * - Navigation links: "Sign in" → /login, "Open account" → /signup, "See demo" → /demo
- * - Marketing content only (hero, features, footer, trust strip)
- *
- * Separate routes (do NOT mix):
- * - /demo → seed-data walkthrough (unauthenticated, no login required)
- * - /dashboard → authenticated user panel (login required, user data only)
- * - /connect → post-signup onboarding (login required, new users only)
- * - /login → sign-in page
- * - /signup → account creation
+ * nesatilir-style section order: hero → social proof → connect → tools → pricing preview.
  */
 
-import { SiteNav } from '@/components/site-nav'
-import { Hero } from '@/components/hero'
-import { TrustStrip } from '@/components/trust-strip'
-import { Features } from '@/components/features'
-import { SiteFooter } from '@/components/site-footer'
+import { MarketingPage } from "@/components/marketing/marketing-page";
+import { HomepageToolsSection } from "@/components/marketing/homepage-tools-section";
+import { IntegrationBanner } from "@/components/marketing/integration-banner";
+import { PricingPreview } from "@/components/marketing/pricing-preview";
+import { SocialProofBand } from "@/components/marketing/social-proof-band";
+import { Hero } from "@/components/hero";
 
 export default function Page() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <SiteNav />
-      <main>
-        <Hero />
-        <TrustStrip />
-        <Features />
-      </main>
-      <SiteFooter />
-    </div>
-  )
+    <MarketingPage>
+      <Hero />
+      <SocialProofBand />
+      <IntegrationBanner />
+      <HomepageToolsSection />
+      <PricingPreview />
+    </MarketingPage>
+  );
 }

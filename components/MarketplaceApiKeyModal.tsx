@@ -17,9 +17,17 @@ import type { MarketplaceConnection } from "@/lib/connect/types";
 import { getMarketplaceOption } from "@/lib/marketplaces";
 import { getSupabaseClient } from "@/lib/supabase/client";
 
+/**
+ * Refactored to use the TrueMargin design tokens (cursor-design-prompt.md):
+ *   §1.1  — --tm-paper, --tm-ink, --tm-mist, --tm-copper, --tm-alert-clay
+ *   §1.3  — Borders over shadows, sharp radius for data fields
+ *   §2    — Security encapsulation: API key fields wrapped in .tm-secure-field-group
+ *   §7    — Mikro-metin: Turkish error messages spesifik, yönlendirici
+ */
+
 function LockIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0">
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0" style={{ color: "var(--tm-copper)" }}>
       <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
       <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
@@ -242,73 +250,171 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
   }
 
   return (
+    /* Overlay: soft ink at 60% — less aggressive than zinc-950/80 */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/80 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: "rgba(18,24,27,0.60)" }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="apikey-modal-title"
     >
-      <div className="w-full max-w-[440px] border border-zinc-800 bg-zinc-950">
+      {/* Modal card — paper bg, mist border, no box-shadow (spec §1.3) */}
+      <div
+        className="w-full max-w-[440px]"
+        style={{
+          background: "var(--tm-paper)",
+          border: "1px solid var(--tm-mist)",
+          borderRadius: "var(--tm-r-data)",
+        }}
+      >
         {phase === "form" && (
           <div className="p-6">
-            <div className="flex items-center gap-2 mb-3 pb-3 border-b border-zinc-800">
-              <span className="text-zinc-100 font-mono text-sm font-medium">{opt.label}</span>
-              <span className="text-zinc-600 text-[10px] uppercase tracking-widest">api key</span>
+            {/* Header */}
+            <div
+              className="flex items-center gap-2 mb-4 pb-3"
+              style={{ borderBottom: "1px solid var(--tm-mist)" }}
+            >
+              <span
+                className="font-mono text-sm font-semibold"
+                style={{ color: "var(--tm-ink)" }}
+              >
+                {opt.label}
+              </span>
+              <span
+                className="text-[10px] uppercase tracking-widest px-1.5 py-0.5"
+                style={{
+                  color: "var(--tm-copper)",
+                  background: "color-mix(in srgb, var(--tm-copper) 10%, var(--tm-paper))",
+                  border: "1px solid color-mix(in srgb, var(--tm-copper) 25%, transparent)",
+                  borderRadius: "var(--tm-r-data)",
+                }}
+              >
+                API bağlantısı
+              </span>
             </div>
-            <h2 id="apikey-modal-title" className="text-zinc-100 text-[15px] font-medium leading-snug mb-2">
-              Connect with your {opt.label} API credentials
+
+            <h2
+              id="apikey-modal-title"
+              className="text-[15px] font-medium leading-snug mb-1"
+              style={{ color: "var(--tm-ink)" }}
+            >
+              {opt.label} API kimlik bilgilerinizi girin
             </h2>
+            <p className="text-[12px] mb-4" style={{ color: "var(--tm-ink)", opacity: 0.55 }}>
+              Yalnızca sipariş ve ciro verilerinizi okumak için kullanılır.
+            </p>
+
             {opt.credentialHelp && (
-              <p className="text-zinc-600 text-[11px] leading-relaxed mb-4 border-l border-zinc-800 pl-3">
+              <p
+                className="text-[11px] leading-relaxed mb-4 pl-3"
+                style={{
+                  color: "var(--tm-ink)",
+                  opacity: 0.6,
+                  borderLeft: "2px solid var(--tm-mist)",
+                }}
+              >
                 {opt.credentialHelp}
               </p>
             )}
 
-            <form onSubmit={handleConnect} className="space-y-3">
-              {fields.map((f) => (
-                <div key={f.key}>
-                  <label htmlFor={`ak-${f.key}`} className="block text-[11px] text-zinc-500 mb-1">
-                    {f.label}
-                  </label>
-                  <input
-                    id={`ak-${f.key}`}
-                    type={f.secret ? "password" : "text"}
-                    autoComplete="off"
-                    value={values[f.key] ?? ""}
-                    onChange={(e) => setField(f.key, e.target.value)}
-                    placeholder={f.placeholder}
-                    className="w-full border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 font-mono placeholder:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-600 focus:border-zinc-600"
-                  />
+            <form onSubmit={handleConnect} className="space-y-4">
+              {/* ── Security encapsulation for credential fields — spec §2 ── */}
+              <div className="tm-secure-field-group p-4 space-y-3">
+                {/* Security capsule header */}
+                <div className="flex items-center gap-1.5 mb-1">
+                  <LockIcon />
+                  <span
+                    className="text-[10px] uppercase tracking-widest font-mono"
+                    style={{ color: "var(--tm-copper)" }}
+                  >
+                    Şifreli · yalnızca okuma
+                  </span>
                 </div>
-              ))}
 
-              {error && <p className="text-red-400 text-[11px] font-mono">{error}</p>}
+                {fields.map((f) => (
+                  <div key={f.key}>
+                    <label
+                      htmlFor={`ak-${f.key}`}
+                      className="block text-[11px] mb-1 font-mono"
+                      style={{ color: "var(--tm-ink)", opacity: 0.65 }}
+                    >
+                      {f.label}
+                    </label>
+                    <input
+                      id={`ak-${f.key}`}
+                      type={f.secret ? "password" : "text"}
+                      autoComplete="off"
+                      value={values[f.key] ?? ""}
+                      onChange={(e) => setField(f.key, e.target.value)}
+                      placeholder={f.placeholder}
+                      className="w-full px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 transition-shadow"
+                      style={{
+                        background:   "var(--tm-paper)",
+                        border:       "1px solid var(--tm-mist)",
+                        borderRadius: "var(--tm-r-data)",
+                        color:        "var(--tm-ink)",
+                        /* ring color on focus */
+                        ["--tw-ring-color" as string]: "var(--tm-copper)",
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
 
-              <p className="text-zinc-600 text-[11px] leading-relaxed border-t border-zinc-800 pt-3">
-                We only use these credentials to READ your sales and settlement data. We never place
-                orders or move money.
-              </p>
+              {/* Error — spec §7: spesifik, yönlendirici mesaj */}
+              {error && (
+                <p
+                  className="text-[11px] font-mono px-3 py-2"
+                  style={{
+                    color:        "var(--tm-alert-clay)",
+                    background:   "color-mix(in srgb, var(--tm-alert-clay) 8%, var(--tm-paper))",
+                    borderLeft:   "2px solid var(--tm-alert-clay)",
+                    borderRadius: "0 var(--tm-r-data) var(--tm-r-data) 0",
+                  }}
+                >
+                  {error}
+                </p>
+              )}
 
+              {/* Buttons */}
               <div className="flex gap-2 pt-1">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="flex-1 h-10 border border-zinc-800 text-zinc-400 text-sm hover:border-zinc-600 hover:text-zinc-200 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-zinc-500 focus-visible:outline-offset-2"
+                  className="flex-1 h-10 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                  style={{
+                    border:           "1px solid var(--tm-mist)",
+                    borderRadius:     "var(--tm-r-ui)",
+                    color:            "var(--tm-ink)",
+                    background:       "transparent",
+                    ["--tw-outline-color" as string]: "var(--tm-copper)",
+                  }}
                 >
-                  Cancel
+                  İptal
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 h-10 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-zinc-500 focus-visible:outline-offset-2"
+                  className="flex-1 h-10 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                  style={{
+                    background:       "var(--tm-copper)",
+                    color:            "#fff",
+                    borderRadius:     "var(--tm-r-ui)",
+                    border:           "1px solid transparent",
+                    ["--tw-outline-color" as string]: "var(--tm-copper)",
+                  }}
                 >
-                  Connect
+                  Bağlan
                 </button>
               </div>
             </form>
 
-            <div className="mt-3 flex items-center justify-center gap-1.5 text-zinc-600 text-[10px]">
+            {/* Trust strip — separate from buttons, low visual weight */}
+            <div
+              className="mt-4 pt-3 flex items-center justify-center gap-1.5 text-[10px]"
+              style={{ color: "var(--tm-ink)", opacity: 0.45, borderTop: "1px solid var(--tm-mist)" }}
+            >
               <LockIcon />
-              <span>Stored encrypted · read-only scope</span>
+              <span>Kimlik bilgileri AES-256 ile şifrelenerek saklanır · sipariş verilmez · para taşınmaz</span>
             </div>
           </div>
         )}
@@ -317,19 +423,41 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
           <div className="p-8 text-center">
             {phase === "connecting" && (
               <>
-                <p className="text-zinc-200 text-sm mb-1">Connecting…</p>
-                <p className="text-zinc-600 text-[11px] font-mono">Verifying API credentials</p>
+                {/* spec §8: progress mesajı "Verifying API credentials" → spesifik */}
+                <p className="text-sm mb-1 font-medium" style={{ color: "var(--tm-ink)" }}>
+                  {opt.label} API&apos;sine bağlanılıyor…
+                </p>
+                <p className="text-[11px] font-mono" style={{ color: "var(--tm-ink)", opacity: 0.5 }}>
+                  API kimlik bilgileri doğrulanıyor
+                </p>
               </>
             )}
             {phase === "connected" && (
               <>
-                <p className="text-emerald-400 text-sm font-medium mb-1">Connected ✓</p>
-                <p className="text-zinc-500 text-[11px] font-mono">{opt.label}</p>
+                <p
+                  className="text-sm font-medium mb-1"
+                  style={{ color: "var(--tm-ledger-green)" }}
+                >
+                  Bağlandı ✓
+                </p>
+                <p className="text-[11px] font-mono" style={{ color: "var(--tm-ink)", opacity: 0.5 }}>
+                  {opt.label}
+                </p>
               </>
             )}
             {phase !== "connected" && (
-              <div className="mt-5 h-1 w-full bg-zinc-800 overflow-hidden">
-                <div className="h-full bg-zinc-300 animate-pulse w-2/3 mx-auto" />
+              <div
+                className="mt-5 h-[2px] w-full overflow-hidden"
+                style={{ background: "var(--tm-mist)" }}
+              >
+                {/* Smooth progress bar — no animate-pulse (spec §8) */}
+                <div
+                  className="h-full w-2/3 mx-auto"
+                  style={{
+                    background: "var(--tm-copper)",
+                    animation:  "progress-sweep 1.4s ease-in-out infinite",
+                  }}
+                />
               </div>
             )}
           </div>

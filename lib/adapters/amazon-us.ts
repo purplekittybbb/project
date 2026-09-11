@@ -11,6 +11,7 @@
 
 import type { Transaction } from "../domain/canonical";
 import type { FeeConfig, MarketplaceAdapter } from "./marketplace-adapter";
+import { computeCommission } from "../calc/commission";
 
 export interface RawAmazonUsRow {
   orderId: string;
@@ -23,6 +24,7 @@ export interface RawAmazonUsRow {
   fbaFee: number; // USD, fulfilment fee (maps to shipping)
   returnRate: number;
   adSpend: number; // USD, sponsored products, allocated
+  packaging?: number; // USD, packaging cost for the line (box/filler/label)
 }
 
 /** Representative Amazon US fee configuration. Verify before use. */
@@ -36,6 +38,10 @@ export const REPRESENTATIVE_AMAZON_US_FEES: FeeConfig = {
   defaultCommission: 0.15,
   vatRate: 0, // US has no VAT; sales tax handled separately
   paymentFeeRate: 0,
+  // vatRate 0 makes the VAT-excluded base equal to the gross price, so the
+  // referral fee is commission = gross × rate with no service VAT — unchanged
+  // behaviour, delegated to lib/calc/commission.ts for a single source of truth.
+  commissionBasis: "vat-excluded",
 };
 
 export class AmazonUsAdapter implements MarketplaceAdapter<RawAmazonUsRow> {
@@ -50,7 +56,13 @@ export class AmazonUsAdapter implements MarketplaceAdapter<RawAmazonUsRow> {
 
   toCanonical(tenantId: string, raw: RawAmazonUsRow[]): Transaction[] {
     return raw.map((r) => {
-      const commission = r.grossRevenue * this.commissionRate(r.category); // referral
+      // Referral fee via the shared calc engine (vatRate 0 ⇒ base == gross).
+      const { commission } = computeCommission(r.grossRevenue, {
+        rate: this.commissionRate(r.category),
+        basis: this.fees.commissionBasis,
+        vatRate: this.fees.vatRate,
+        commissionVatRate: this.fees.vatRate,
+      });
       const cogs = r.unitCost * r.units;
       const returnsAllocated = r.returnRate * (cogs + r.fbaFee);
 
@@ -72,6 +84,7 @@ export class AmazonUsAdapter implements MarketplaceAdapter<RawAmazonUsRow> {
           returnsAllocated,
           adSpendAllocated: r.adSpend,
           paymentFees: 0,
+          packaging: r.packaging ?? 0,
         },
       };
     });

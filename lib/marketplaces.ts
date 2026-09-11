@@ -85,6 +85,11 @@ export const MARKETPLACE_OPTIONS: MarketplaceOption[] = [
     credentialHelp: "so.n11.com/selleroffice/integration/apiAccounts → Yeni Hesap Oluştur'dan alın.",
   },
   {
+    id: "amazon_tr", label: "Amazon (TR)", region: "tr",
+    description: "SP-API — Seller Central OAuth (ilk canlı sipariş çekimi henüz açık değil)",
+    currency: "TRY", engineChannel: "amazon_tr", connectionMethod: "oauth",
+  },
+  {
     id: "pazarama", label: "Pazarama", region: "tr", description: "Integration in development",
     currency: "TRY", connectionMethod: "coming_soon",
   },

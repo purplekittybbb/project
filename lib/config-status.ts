@@ -1,5 +1,6 @@
 import { isStripeLiveEnabled } from "./billing/is-stripe-live-enabled";
 import { isShopifyLiveEnabled } from "./shopify-api/live";
+import { isAmazonLwaConfigured } from "./amazon-sp-api/live";
 
 /**
  * Single source of truth for "is this deployment configured?" — reports the
@@ -33,6 +34,8 @@ export interface SubsystemStatus {
   stripe: boolean;
   /** Live Shopify Partner OAuth (else /connect falls back to the labelled demo). */
   shopify: boolean;
+  /** LWA app registered (OAuth consent). Does NOT mean Orders API is live. */
+  amazonLwa: boolean;
   /** At least one LLM backend for the Copilot (else it uses the rule-based path). */
   ai: boolean;
 }
@@ -57,6 +60,7 @@ export function getConfigStatus(): ConfigStatus {
     cronSecret: present(process.env.CRON_SECRET),
     stripe: isStripeLiveEnabled(),
     shopify: isShopifyLiveEnabled(),
+    amazonLwa: isAmazonLwaConfigured(),
     ai: present(process.env.ANTHROPIC_API_KEY) || present(process.env.GEMINI_API_KEY),
   };
 

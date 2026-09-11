@@ -9,6 +9,8 @@
  */
 
 import type { Currency, Marketplace, Transaction } from "../domain/canonical";
+import type { CommissionBasis } from "../calc/commission";
+import { mapToInternalCategory } from "../domain/internal-category";
 
 export interface MarketplaceAdapter<Raw> {
   readonly marketplace: Marketplace;
@@ -25,4 +27,22 @@ export interface FeeConfig {
   defaultCommission: number;
   vatRate: number;
   paymentFeeRate: number; // share of gross revenue
+  /**
+   * Which price base this marketplace applies its commission rate to — the
+   * single field that distinguishes Trendyol-type ("vat-excluded", commission
+   * on the VAT-excluded price + a separate service VAT) from Hepsiburada-type
+   * ("vat-included", commission on the gross price, service VAT embedded).
+   * Commission math is delegated to lib/calc/commission.ts so this basis is
+   * applied consistently and there is no duplicated/approximated formula.
+   */
+  commissionBasis: CommissionBasis;
+}
+
+/**
+ * Look up the commission rate for a marketplace category string.
+ * Unmapped / empty → defaultCommission. Never throws.
+ */
+export function resolveCommissionRate(fees: FeeConfig, category: string): number {
+  const internal = mapToInternalCategory(category);
+  return fees.commissionTable[internal] ?? fees.defaultCommission;
 }

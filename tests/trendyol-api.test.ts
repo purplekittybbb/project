@@ -1,6 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
-  fetchTrendyolOrders, mapOrdersToUserRawRows, TrendyolAuthError, TrendyolApiError, TrendyolMappingError,
+  fetchTrendyolOrders,
+  fetchTrendyolProductCategoryIndex,
+  mapOrdersToUserRawRows,
+  resolveTrendyolLineCategory,
+  TrendyolAuthError,
+  TrendyolApiError,
+  TrendyolMappingError,
 } from "../lib/trendyol-api/client";
 
 function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}) {
@@ -106,6 +112,7 @@ describe("mapOrdersToUserRawRows — real order data mapping", () => {
       ad_spend: 0,
       marketplace: "trendyol",
       sale_date: "2026-06-15",
+      category: "Diğer",
     });
     expect(rows[1].sku).toBe("SKU-B");
     expect(rows[1].gross_revenue).toBe(100);
@@ -180,7 +187,48 @@ describe("mapOrdersToUserRawRows — real order data mapping", () => {
       ad_spend: 0,
       marketplace: "trendyol",
       sale_date: new Date(1762253333685).toISOString().slice(0, 10),
+      product_name: "Kuş ve Çiçek Desenli Tepsi - Yeşil / Altın Sarısı - 49 cm, 01SYM134, Tek Ebat",
+      barcode: "8683772071724",
+      // Official example has productCategoryId-less / no categoryName /
+      // no businessUnit — we must NOT infer from productName.
+      category: "Diğer",
     });
+  });
+
+  it("maps official businessUnit 'Sports Shoes' onto internal Moda", () => {
+    const rows = mapOrdersToUserRawRows([
+      {
+        orderNumber: "ORD-SHOES",
+        lines: [{ stockCode: "SHOE-1", quantity: 1, lineGrossAmount: 899, businessUnit: "Sports Shoes" }],
+      },
+    ]);
+    expect(rows[0].category).toBe("Moda");
+  });
+
+  it("maps line categoryName 'Dress' onto Moda; catalog fills when the line has no name", () => {
+    const catalog = new Map<string, string>([
+      ["111111", "Görüntü Sistemleri"],
+      ["8683772071724", "Görüntü Sistemleri"],
+    ]);
+    const fromLine = mapOrdersToUserRawRows([
+      { orderNumber: "ORD-DRESS", lines: [{ stockCode: "D-1", quantity: 1, lineGrossAmount: 200, categoryName: "Dress" }] },
+    ]);
+    expect(fromLine[0].category).toBe("Moda");
+
+    const fromCatalog = mapOrdersToUserRawRows(
+      [{ orderNumber: "ORD-CAT", lines: [{ stockCode: "111111", barcode: "8683772071724", quantity: 1, lineGrossAmount: 200 }] }],
+      catalog,
+    );
+    expect(fromCatalog[0].category).toBe("Elektronik");
+  });
+
+  it("resolveTrendyolLineCategory prefers the line name over the catalog", () => {
+    const catalog = new Map([["SKU-X", "Elektronik"]]);
+    expect(
+      resolveTrendyolLineCategory({ stockCode: "SKU-X", categoryName: "Dress" }, catalog),
+    ).toBe("Dress");
+    expect(resolveTrendyolLineCategory({ stockCode: "SKU-X" }, catalog)).toBe("Elektronik");
+    expect(resolveTrendyolLineCategory({ stockCode: "NOPE" })).toBe("");
   });
 
   // The dangerous scenario this whole fix exists for: Trendyol renames its
@@ -206,5 +254,45 @@ describe("mapOrdersToUserRawRows — real order data mapping", () => {
   it("does NOT throw for a genuinely empty result (no orders in range — legitimate, not a bug)", () => {
     expect(mapOrdersToUserRawRows([])).toEqual([]);
     expect(mapOrdersToUserRawRows([{ orderNumber: "ORD-EMPTY", lines: [] }])).toEqual([]);
+  });
+});
+
+describe("fetchTrendyolProductCategoryIndex — official filterProducts", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("indexes categoryName by stockCode and barcode from the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        content: [
+          { stockCode: "111111", barcode: "8683772071724", categoryName: "Görüntü Sistemleri" },
+          { stockCode: "D-1", categoryName: "Dress" },
+        ],
+        totalPages: 1,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const index = await fetchTrendyolProductCategoryIndex({ sellerId: "12345", apiKey: "k", apiSecret: "s" });
+    expect(index.get("111111")).toBe("Görüntü Sistemleri");
+    expect(index.get("8683772071724")).toBe("Görüntü Sistemleri");
+    expect(index.get("D-1")).toBe("Dress");
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("apigw.trendyol.com/integration/product/sellers/12345/products");
+  });
+
+  it("soft-fails to an empty map on 500 so a working Orders pull is not discarded", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ message: "boom" }, 500)));
+    const index = await fetchTrendyolProductCategoryIndex({ sellerId: "1", apiKey: "k", apiSecret: "s" });
+    expect(index.size).toBe(0);
+  });
+
+  it("soft-fails on 401 instead of throwing (Orders already succeeded)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({}, 401)));
+    await expect(
+      fetchTrendyolProductCategoryIndex({ sellerId: "1", apiKey: "k", apiSecret: "s" }),
+    ).resolves.toEqual(new Map());
   });
 });

@@ -20,6 +20,7 @@ describe("product-market — US company, TR launch cohort", () => {
     expect(isLaunchCohortTurkish()).toBe(true);
     expect(DEFAULT_CHANNEL).toBe("trendyol");
     expect(DEFAULT_DASHBOARD_CHANNELS[0]).toBe("trendyol");
+    expect(DEFAULT_DASHBOARD_CHANNELS).toContain("amazon_tr");
     expect(REGION_ORDER[0]).toBe("tr");
   });
 

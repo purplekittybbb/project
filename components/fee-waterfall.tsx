@@ -17,15 +17,16 @@ export type WaterfallStep = {
   tag: string;
 };
 
+/** PDF §4 — çam yeşili / kil; neon yeşil-kırmızı yok */
 const C = {
-  bg: "#0B1F17",
+  bg: "#1F4D3A",
   start: "#93A69C",
-  loss: "#F08A82",
-  result: "#4FD08A",
-  resultNeg: "#F08A82",
-  startLabel: "#FFFFFF",
-  lossLabel: "#F6ADA6",
-  resultLabel: "#7CE0AE",
+  loss: "#D17A62",
+  result: "#6BAA88",
+  resultNeg: "#D17A62",
+  startLabel: "#F7F6F2",
+  lossLabel: "#E8B5A8",
+  resultLabel: "#A8D4BC",
   axis: "rgba(255,255,255,0.42)",
   cat: "rgba(255,255,255,0.60)",
   baseline: "rgba(255,255,255,0.28)",

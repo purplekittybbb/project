@@ -29,7 +29,8 @@ export function totalFees(tx: Transaction): number {
     f.shipping +
     f.returnsAllocated +
     f.adSpendAllocated +
-    f.paymentFees
+    f.paymentFees +
+    (f.packaging ?? 0)
   );
 }
 

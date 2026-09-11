@@ -35,6 +35,7 @@ import { ShopifyConnectModal } from "@/components/ShopifyConnectModal";
 import { saveUserRows } from "@/lib/supabase/user-data";
 import { isAuthConfigured, getSupabaseClient, getFreshAccessToken } from "@/lib/supabase/client";
 import { isShopifyLiveEnabled } from "@/lib/shopify-api/live";
+import { isAmazonLwaConfigured } from "@/lib/amazon-sp-api/live";
 import {
   MARKETPLACE_OPTIONS, REGION_ORDER, REGION_LABELS, getMarketplaceOption,
   type MarketplaceOption,
@@ -50,6 +51,7 @@ function connectLabel(m: MarketplaceOption): string {
       // lib/marketplaces.ts) — label reflects whether THIS deployment has
       // live Shopify Partner-app credentials configured (see startConnect).
       if (m.id === "shopify" && isShopifyLiveEnabled()) return `Connect ${m.label.split(" ")[0]}`;
+      if (m.id === "amazon_tr" && isAmazonLwaConfigured()) return `Connect ${m.label.split(" ")[0]}`;
       return `Connect ${m.label.split(" ")[0]} (Demo)`;
     default: return `Connect ${m.label.split(" ")[0]}`;
   }
@@ -127,6 +129,21 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
   // app/api/shopify/oauth/callback) — pick up the result and clean the URL.
   // Demo connect uses MarketplaceOAuthModal; this path remains for live OAuth.
   useEffect(() => {
+    const amazonResult = searchParams.get("amazon");
+    if (amazonResult) {
+      if (amazonResult === "connected") {
+        addConnection("amazon_tr", "live", { tokenRef: "tm_key_amazon_tr_oauth", method: "oauth" });
+        refresh();
+      } else if (amazonResult === "error") {
+        setConnectError(searchParams.get("amazon_error") ?? "Amazon TR'ye bağlanılamadı.");
+      }
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("amazon");
+      params.delete("amazon_error");
+      const qs = params.toString();
+      router.replace(qs ? `/connect?${qs}` : "/connect");
+      return;
+    }
     const shopifyResult = searchParams.get("shopify");
     if (!shopifyResult) return;
     if (shopifyResult === "connected") {
@@ -170,6 +187,30 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
     // MarketplaceOAuthModal's demo banner) — never silently passed off as real.
     if (marketplaceId === "shopify" && isShopifyLiveEnabled()) {
       setShopifyLiveOpen(true);
+      return;
+    }
+    if (marketplaceId === "amazon_tr" && isAmazonLwaConfigured()) {
+      void (async () => {
+        try {
+          const token = await getFreshAccessToken();
+          if (!token) {
+            setConnectError("Oturum bulunamadı — lütfen tekrar giriş yapın.");
+            return;
+          }
+          const res = await fetch("/api/amazon/oauth/start", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const body = (await res.json().catch(() => ({}))) as { redirectUrl?: string; error?: string };
+          if (!res.ok || !body.redirectUrl) {
+            setConnectError(body.error ?? "Amazon TR yetkilendirmesi başlatılamadı.");
+            return;
+          }
+          window.location.href = body.redirectUrl;
+        } catch {
+          setConnectError("Amazon TR yetkilendirmesi başlatılamadı.");
+        }
+      })();
       return;
     }
     setOauthTarget(marketplaceId);
@@ -258,30 +299,29 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
 
   return (
     <section>
-      <h1 className="text-[22px] font-semibold tracking-tight text-zinc-100 mb-2">Connect your marketplaces</h1>
-      <p className="text-sm text-zinc-500 mb-2 leading-relaxed">
-        Link each sales channel with secure, read-only access — OAuth where a platform supports it,
-        self-service API keys where it doesn&apos;t. Never a password.
+      <h1 className="font-heading text-[22px] font-semibold tracking-tight text-foreground mb-2">Pazaryerlerinizi bağlayın</h1>
+      <p className="text-sm text-muted-foreground mb-2 leading-relaxed">
+        Her kanal için güvenli, salt okunur erişim — OAuth veya API anahtarı. Şifre asla istenmez.
       </p>
-      <p className="text-[12px] text-zinc-600 mb-6 leading-relaxed border-l border-zinc-800 pl-3">
+      <p className="text-[12px] text-muted-foreground mb-6 leading-relaxed border-l border-[var(--tm-mist)] pl-3">
         {READ_ONLY_COPY}
       </p>
 
       {/* Connected accounts */}
       {connections.length > 0 && (
-        <div className="border border-zinc-800 bg-zinc-900/30 p-4 mb-5">
-          <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">Connected</div>
+        <div className="border border-[var(--tm-mist)] bg-card rounded-[var(--tm-r-ui)] p-4 mb-5">
+          <div className="text-muted-foreground text-[10px] uppercase tracking-[0.2em] mb-3">Bağlı</div>
           <ul className="space-y-2">
             {connections.map((c) => {
               const opt = getMarketplaceOption(c.marketplaceId);
               return (
                 <li
                   key={c.id}
-                  className="flex items-center justify-between gap-3 border border-zinc-800 bg-zinc-950 px-3 py-2.5"
+                  className="flex items-center justify-between gap-3 border border-[var(--tm-mist)] bg-secondary/40 px-3 py-2.5 rounded-[var(--tm-r-data)]"
                 >
                   <div className="min-w-0">
-                    <div className="text-sm text-zinc-200 truncate">{opt?.label ?? c.marketplaceId}</div>
-                    <div className="text-zinc-600 font-mono text-[10px] tabular-nums truncate mt-0.5">
+                    <div className="text-sm text-foreground truncate">{opt?.label ?? c.marketplaceId}</div>
+                    <div className="text-muted-foreground font-mono text-[10px] tnum truncate mt-0.5">
                       {c.accessTokenRef} · read-only
                       {c.provider === "demo" && c.method !== "manual" && c.method !== "csv" && (
                         <span className="text-amber-500/80"> · demo, sample data</span>
@@ -291,7 +331,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                   <div className="flex items-center gap-2 shrink-0">
                     <span
                       className={`text-[10px] font-mono uppercase tracking-wider ${
-                        c.status === "error" ? "text-amber-400" : "text-emerald-500/90"
+                        c.status === "error" ? "text-[var(--tm-copper)]" : "fin-profit"
                       }`}
                     >
                       {c.status === "error" ? "Reconnect required" : "Connected ✓"}
@@ -299,7 +339,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                     <button
                       type="button"
                       onClick={() => handleDisconnect(c)}
-                      className="ob-input text-[10px] font-mono uppercase tracking-widest text-zinc-500 hover:text-red-400 transition-colors px-2 py-1 border border-zinc-800 hover:border-red-400/40"
+                      className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:fin-loss transition-colors px-2 py-1 border border-[var(--tm-mist)] hover:fin-border-loss-subtle rounded-[var(--tm-r-data)]"
                     >
                       Disconnect
                     </button>
@@ -312,7 +352,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
       )}
 
       {/* Available to connect */}
-      <div className="border border-zinc-800 bg-zinc-900/30 p-5 space-y-6">
+      <div className="border border-[var(--tm-mist)] bg-card rounded-[var(--tm-r-ui)] p-5 space-y-6">
         {REGION_ORDER.map((region) => (
           <div key={region}>
             <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-2.5">
@@ -368,14 +408,14 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
         />
 
         {csvRows && (
-          <p className="text-emerald-400/90 font-mono text-[11px] tabular-nums border-t border-zinc-800 pt-3">
+          <p className="fin-profit font-mono text-[11px] tnum border-t border-[var(--tm-mist)] pt-3">
             CSV imported · {csvRows.length} rows saved
           </p>
         )}
       </div>
 
       {connectError && (
-        <div className="mt-3 border border-[#c0392b]/40 bg-[#c0392b]/10 px-3 py-2 text-[11px] text-red-400 font-mono">
+        <div className="mt-3 tm-field-error-box">
           {connectError}
         </div>
       )}

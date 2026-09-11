@@ -23,6 +23,7 @@
 
 import { z } from "zod";
 import type { UserRawRow } from "../adapters/csv";
+import { mapToInternalCategory } from "../domain/internal-category";
 
 const N11_API_BASE = "https://api.n11.com/rest/delivery/v1";
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -76,11 +77,16 @@ const N11LineItemSchema = z.object({
   sellerInvoiceAmount: z.number().finite().optional(),
   totalSellerDiscountPrice: z.number().finite().optional(),
   productName: z.string().optional(),
+  // Category, when N11 includes it on the line — lets the adapter pick the
+  // right category commission instead of defaulting everything to "Diğer".
+  categoryName: z.string().optional(),
+  category: z.string().optional(),
   // Legacy / alternate aliases kept as soft fallbacks.
   productSellerCode: z.string().optional(),
   lineGrossAmount: z.number().finite().optional(),
   sku: z.string().optional(),
   amount: z.number().finite().optional(),
+  barcode: z.string().optional(),
 });
 
 const N11OrderSchema = z.object({
@@ -91,6 +97,12 @@ const N11OrderSchema = z.object({
   // Soft aliases if a future response uses a different name.
   orderDate: z.union([z.number(), z.string()]).optional(),
   createdDate: z.union([z.number(), z.string()]).optional(),
+  // Shipment/order status — used to skip cancelled/rejected packages so a
+  // non-sale never inflates revenue. Both names seen across N11 responses.
+  shipmentStatus: z.string().optional(),
+  status: z.string().optional(),
+  // Order-level category fallback when lines don't carry one.
+  categoryName: z.string().optional(),
   lines: z.array(N11LineItemSchema).optional(),
   orderItemList: z.array(N11LineItemSchema).optional(),
   lineItems: z.array(N11LineItemSchema).optional(),
@@ -205,6 +217,27 @@ function resolveSaleDate(order: N11Order): string {
 }
 
 /**
+ * Cancelled / rejected / refunded shipment packages are NOT sales — counting
+ * their lines would inflate revenue and margin. Matches TR + EN status labels.
+ */
+const NON_SALE_STATUS = /(cancel|iptal|reject|reddedil|refund|iade\s*edildi)/;
+
+function isNonSaleShipment(order: N11Order): boolean {
+  const status = order.shipmentStatus ?? order.status;
+  if (typeof status !== "string") return false;
+  // Fold the Turkish dotted İ / dotless I to plain "i" before matching — the
+  // regex `i` flag alone does NOT case-fold "İptal" → "iptal".
+  const folded = status.replace(/İ/g, "i").replace(/I/g, "i").toLowerCase();
+  return NON_SALE_STATUS.test(folded);
+}
+
+/** Category for a line: line-level first, then order-level, else "Diğer". */
+function resolveLineCategory(order: N11Order, line: N11LineItem): string {
+  const c = line.categoryName ?? line.category ?? order.categoryName;
+  return mapToInternalCategory(c && c.trim() ? c.trim() : "");
+}
+
+/**
  * Line revenue per N11 RestAPI Sipariş Listeleme guidance:
  * prefer sellerInvoiceAmount; else dueAmount; else (price * quantity) − discounts.
  */
@@ -237,6 +270,10 @@ export function mapN11OrdersToUserRawRows(orders: N11Order[]): UserRawRow[] {
   let totalLinesSeen = 0;
 
   for (const order of orders) {
+    // Skip cancelled/rejected packages entirely — before counting lines, so a
+    // cancelled order can never trip the "lines existed but none mapped" guard.
+    if (isNonSaleShipment(order)) continue;
+
     const saleDate = resolveSaleDate(order);
     const orderId = order.orderNumber ?? String(order.id ?? `n11-${rows.length}`);
     const lines = order.lines ?? order.orderItemList ?? order.lineItems ?? [];
@@ -254,7 +291,7 @@ export function mapN11OrdersToUserRawRows(orders: N11Order[]): UserRawRow[] {
       rows.push({
         order_id: orderId,
         sku,
-        category: "Diğer",
+        category: resolveLineCategory(order, line),
         sale_date: saleDate,
         units,
         gross_revenue: grossRevenue,
@@ -263,6 +300,8 @@ export function mapN11OrdersToUserRawRows(orders: N11Order[]): UserRawRow[] {
         return_rate: 0,
         ad_spend: 0,
         marketplace: "n11",
+        product_name: line.productName ?? undefined,
+        barcode: line.barcode?.trim() || undefined,
       });
     }
   }

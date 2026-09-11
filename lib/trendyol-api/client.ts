@@ -11,17 +11,24 @@
  * Honest scope limitation: Trendyol's Orders API returns real revenue,
  * quantities and order dates, but it has no visibility into the seller's own
  * product cost (COGS), returns, or ad spend — no marketplace API can know a
- * seller's cost basis. Those fields come back as 0 from this sync; a seller
- * who wants full true-margin accuracy still refines them via CSV/manual edit.
+ * seller's cost basis. Those fields come back as 0 from this sync and are
+ * filled later by lib/calc/enrich.ts from product_costs (seller-entered).
+ *
+ * Category: getShipmentPackages lines expose productCategoryId + businessUnit,
+ * not categoryName. filterProducts (official product API) returns categoryName.
+ * We fold those signals onto the internal commission taxonomy.
  */
 
 import type { UserRawRow } from "../adapters/csv";
+import { mapToInternalCategory } from "../domain/internal-category";
 
 const TRENDYOL_API_BASE = "https://apigw.trendyol.com/integration";
 const MAX_RATE_LIMIT_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 1000;
 /** Bound initial connect to a few pages — a full historical backfill is a later sync, not the connect step. */
 const MAX_PAGES = 5;
+const MAX_PRODUCT_PAGES = 5;
+const PRODUCT_PAGE_SIZE = 50;
 
 export interface TrendyolCredentials {
   sellerId: string;
@@ -84,6 +91,14 @@ interface TrendyolOrderLine {
   lineUnitPrice?: number;
   amount?: number;
   price?: number;
+  /** Official getShipmentPackages — integer leaf id, not a display name. */
+  productCategoryId?: number;
+  /** Official getShipmentPackages — e.g. "Sports Shoes". */
+  businessUnit?: string;
+  /** Not on the published order example; accepted if a revision sends it. */
+  categoryName?: string;
+  productCategoryName?: string;
+  category?: string;
 }
 
 interface TrendyolOrder {
@@ -194,6 +209,95 @@ export async function fetchTrendyolOrders(
   return orders;
 }
 
+interface TrendyolProduct {
+  stockCode?: string;
+  barcode?: string;
+  categoryName?: string;
+}
+
+interface TrendyolProductsResponse {
+  content?: TrendyolProduct[];
+  totalPages?: number;
+}
+
+async function fetchProductsPage(
+  creds: TrendyolCredentials,
+  page: number,
+): Promise<TrendyolProductsResponse> {
+  const url = new URL(`${TRENDYOL_API_BASE}/product/sellers/${encodeURIComponent(creds.sellerId)}/products`);
+  url.searchParams.set("page", String(page));
+  url.searchParams.set("size", String(PRODUCT_PAGE_SIZE));
+
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Authorization: basicAuthHeader(creds.apiKey, creds.apiSecret),
+        "User-Agent": `${creds.sellerId} - SelfIntegration`,
+        Accept: "application/json",
+      },
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      throw new TrendyolAuthError();
+    }
+
+    if (res.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
+      const retryAfterHeader = res.headers.get("retry-after");
+      const parsed = retryAfterHeader ? Number(retryAfterHeader) * 1000 : NaN;
+      const waitMs = Number.isFinite(parsed) && parsed >= 0 ? parsed : RETRY_BASE_DELAY_MS * (attempt + 1);
+      await delay(waitMs);
+      continue;
+    }
+
+    if (!res.ok) {
+      throw new TrendyolApiError(`Trendyol ürün API hatası (${res.status}).`, res.status);
+    }
+
+    return (await res.json()) as TrendyolProductsResponse;
+  }
+}
+
+/**
+ * Bounded filterProducts pull → stockCode/barcode → official categoryName.
+ * Soft-fails to an empty map (orders still import) if the product endpoint
+ * is unavailable. Auth errors also soft-fail here so a working Orders pull
+ * is not discarded because products were denied.
+ */
+export async function fetchTrendyolProductCategoryIndex(
+  creds: TrendyolCredentials,
+): Promise<Map<string, string>> {
+  const index = new Map<string, string>();
+  try {
+    for (let page = 0; page < MAX_PRODUCT_PAGES; page++) {
+      const body = await fetchProductsPage(creds, page);
+      const content = body.content ?? [];
+      for (const product of content) {
+        const name = (product.categoryName ?? "").trim();
+        if (!name) continue;
+        if (product.stockCode?.trim()) index.set(product.stockCode.trim(), name);
+        if (product.barcode?.trim()) index.set(product.barcode.trim(), name);
+      }
+      const totalPages = body.totalPages ?? 1;
+      if (page + 1 >= totalPages || content.length < PRODUCT_PAGE_SIZE) break;
+    }
+  } catch (err) {
+    console.warn("[trendyol] product category index skipped:", err);
+  }
+  return index;
+}
+
+export function resolveTrendyolLineCategory(
+  line: TrendyolOrderLine,
+  catalog?: Map<string, string>,
+): string {
+  const fromLine = line.categoryName ?? line.productCategoryName ?? line.category ?? line.businessUnit;
+  if (fromLine && fromLine.trim()) return fromLine.trim();
+  const sku = (line.stockCode ?? line.merchantSku ?? line.sku ?? "").trim();
+  const barcode = (line.barcode ?? "").trim();
+  return catalog?.get(sku) ?? catalog?.get(barcode) ?? "";
+}
+
 /**
  * Map real Trendyol order lines into the app's raw-row shape (see
  * lib/adapters/csv.ts UserRawRow). Revenue, units and dates are real values
@@ -205,7 +309,10 @@ export async function fetchTrendyolOrders(
  * see that class's doc comment. A single skipped line among otherwise-valid
  * ones (a genuine 0-revenue or SKU-less line) is normal and stays silent.
  */
-export function mapOrdersToUserRawRows(orders: TrendyolOrder[]): UserRawRow[] {
+export function mapOrdersToUserRawRows(
+  orders: TrendyolOrder[],
+  catalog?: Map<string, string>,
+): UserRawRow[] {
   const rows: UserRawRow[] = [];
   let totalLinesSeen = 0;
 
@@ -226,7 +333,7 @@ export function mapOrdersToUserRawRows(orders: TrendyolOrder[]): UserRawRow[] {
       rows.push({
         order_id: orderId,
         sku,
-        category: "Diğer",
+        category: mapToInternalCategory(resolveTrendyolLineCategory(line, catalog)),
         sale_date: saleDate,
         units,
         gross_revenue: grossRevenue,
@@ -235,6 +342,8 @@ export function mapOrdersToUserRawRows(orders: TrendyolOrder[]): UserRawRow[] {
         return_rate: 0,
         ad_spend: 0,
         marketplace: "trendyol",
+        product_name: line.productName ?? undefined,
+        barcode: line.barcode?.trim() || undefined,
       });
     }
   }

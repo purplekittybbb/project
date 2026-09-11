@@ -51,41 +51,68 @@
 :root {
   color-scheme: light;
 
-  /* Single accent color — change here to rebrand */
-  --brand: #1a56db;
+  /* ── TrueMargin design tokens ─────────────────────────────────────────────
+   * Six named tones — every colour decision below traces back to one of these.
+   * See cursor-design-prompt.md §1.1 for the research rationale behind each.
+   * ────────────────────────────────────────────────────────────────────────── */
 
-  --background: #f7f6f3;
-  --foreground: #111111;
+  /* Nearly black, cool lacivert undertone (saf siyah değil). */
+  --tm-ink:          #12181B;
+  /* Warm white / kağıt tonu (saf beyaz değil). */
+  --tm-paper:        #F7F6F2;
+  /* Koyu çam yeşili — neon/açık yeşil değil. Pozitif kâr için. */
+  --tm-ledger-green: #1F4D3A;
+  /* Toprak/kiremit kırmızısı — agresif alarm kırmızısı değil. Zarar için. */
+  --tm-alert-clay:   #B3442C;
+  /* Bakır/pirinç — yalnızca aksiyon butonları ve vurgu rakamlar için. */
+  --tm-copper:       #9C6B3E;
+  /* Nötr ton — çizgiler, ayırıcılar, pasif durumlar. */
+  --tm-mist:         #DCD9D2;
+
+  /* Radius hierarchy (spec §1.3):
+   *   data/financial tables: sharp (2-4 px)
+   *   secondary UI (buttons, badges): slightly rounded (6-8 px)
+   * The --tm-r-* variables are used in new components only; the existing
+   * --radius (shadcn) is left unchanged to avoid regressions. */
+  --tm-r-data:   0.1875rem; /* 3 px  — financial tables, breakdown boxes */
+  --tm-r-ui:     0.4375rem; /* 7 px  — buttons, badges                   */
+  --tm-r-capsule:0.25rem;   /* 4 px  — the encapsulated net-profit box    */
+
+  /* ── Shadcn semantic variables — mapped to the new tokens ─────────────── */
+  --brand: var(--tm-copper);   /* replaces the former blue brand */
+
+  --background: var(--tm-paper);
+  --foreground: var(--tm-ink);
   --card: #ffffff;
-  --card-foreground: #111111;
+  --card-foreground: var(--tm-ink);
   --popover: #ffffff;
-  --popover-foreground: #111111;
-  --primary: #111111;
-  --primary-foreground: #ffffff;
-  --secondary: #f5f5f5;
-  --secondary-foreground: #111111;
-  --muted: #f5f5f5;
-  --muted-foreground: #737373;
-  --accent: #f5f5f5;
-  --accent-foreground: #111111;
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: #e7e7e7;
-  --input: #e7e7e7;
-  --ring: var(--brand);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
+  --popover-foreground: var(--tm-ink);
+  --primary: var(--tm-ink);
+  --primary-foreground: var(--tm-paper);
+  --secondary: #F0EFE9;
+  --secondary-foreground: var(--tm-ink);
+  --muted: #F0EFE9;
+  --muted-foreground: #6B6560;
+  --accent: #F0EFE9;
+  --accent-foreground: var(--tm-ink);
+  --destructive: var(--tm-alert-clay);
+  --border: var(--tm-mist);
+  --input: var(--tm-mist);
+  --ring: var(--tm-copper);
+  --chart-1: var(--tm-ledger-green);
+  --chart-2: var(--tm-copper);
+  --chart-3: var(--tm-mist);
+  --chart-4: oklch(0.439 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 0.4375rem;   /* 7 px — default (buttons, badges) */
+  --sidebar: #F0EFE9;
+  --sidebar-foreground: var(--tm-ink);
+  --sidebar-primary: var(--tm-ink);
+  --sidebar-primary-foreground: var(--tm-paper);
+  --sidebar-accent: var(--tm-paper);
+  --sidebar-accent-foreground: var(--tm-ink);
+  --sidebar-border: var(--tm-mist);
+  --sidebar-ring: var(--tm-copper);
 }
 
 .dark {
@@ -167,11 +194,137 @@
   body {
     @apply bg-background text-foreground;
   }
-  /* Tabular, aligned figures everywhere numbers appear */
+
+  /* ── Tabular figures — spec §1.2: mandatory on ALL monetary / pct fields ── */
   .tnum {
     font-feature-settings: "tnum" 1, "lnum" 1;
     font-variant-numeric: tabular-nums lining-nums;
   }
+
+  /* ── Net-profit encapsulation capsule — spec §2 ─────────────────────────
+   * Applied to the final net-profit box in NetProfitLedger.
+   * Profit variant: ledger-green at 8 % opacity, green border.
+   * Loss variant:   alert-clay at 8 % opacity, clay border.             */
+  .tm-capsule-profit {
+    background-color: color-mix(in srgb, var(--tm-ledger-green) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tm-ledger-green) 35%, transparent);
+    border-radius: var(--tm-r-capsule);
+  }
+  .tm-capsule-loss {
+    background-color: color-mix(in srgb, var(--tm-alert-clay) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tm-alert-clay) 35%, transparent);
+    border-radius: var(--tm-r-capsule);
+  }
+
+  /* ── Loss alarm banner — spec §4: calm clay, no flash ───────────────── */
+  .tm-alarm-banner {
+    background-color: color-mix(in srgb, var(--tm-alert-clay) 8%, var(--tm-paper));
+    border-left: 3px solid var(--tm-alert-clay);
+    border-radius: 0 var(--tm-r-capsule) var(--tm-r-capsule) 0;
+  }
+
+  /* ── Security encapsulation for credential fields — spec §2 ────────── */
+  .tm-secure-field-group {
+    background-color: color-mix(in srgb, var(--tm-mist) 30%, var(--tm-paper));
+    border: 1px solid var(--tm-mist);
+    border-radius: var(--tm-r-data);
+  }
+
+  /* ── Smooth number transition — spec §8 ("odometre efekti") ─────────── */
+  .tm-num-transition {
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+
+  /* ── PDF §4: kâr / zarar — neon emerald/red yasak ─────────────────────── */
+  :root {
+    --fin-profit: var(--tm-ledger-green);
+    --fin-loss: var(--tm-alert-clay);
+  }
+
+  [data-financial-surface="dark"] {
+    --fin-profit: #6baa88;
+    --fin-loss: #d17a62;
+  }
+
+  .fin-profit {
+    color: var(--fin-profit);
+  }
+
+  .fin-loss {
+    color: var(--fin-loss);
+  }
+
+  .fin-dot-profit {
+    background-color: var(--fin-profit);
+  }
+
+  .fin-dot-loss {
+    background-color: var(--fin-loss);
+  }
+
+  .fin-bg-profit-subtle {
+    background-color: color-mix(in srgb, var(--fin-profit) 12%, transparent);
+  }
+
+  .fin-bg-loss-subtle {
+    background-color: color-mix(in srgb, var(--fin-loss) 10%, transparent);
+  }
+
+  .fin-border-profit-subtle {
+    border-color: color-mix(in srgb, var(--fin-profit) 28%, transparent);
+  }
+
+  .fin-border-loss-subtle {
+    border-color: color-mix(in srgb, var(--fin-loss) 25%, transparent);
+  }
+
+  /* PDF §3.3 — alan hatası */
+  .tm-field-error {
+    color: var(--tm-alert-clay);
+    font-size: 0.75rem;
+    line-height: 1.35;
+    margin-top: 0.375rem;
+  }
+
+  .tm-field-error-box {
+    border: 1px solid color-mix(in srgb, var(--tm-alert-clay) 40%, transparent);
+    background-color: color-mix(in srgb, var(--tm-alert-clay) 6%, var(--tm-paper));
+    padding: 0.625rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: var(--tm-alert-clay);
+  }
+
+  /* PDF §3 — birincil CTA */
+  .tm-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 2.75rem;
+    padding-inline: 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    background-color: var(--tm-copper);
+    color: var(--tm-paper);
+    border-radius: var(--tm-r-ui);
+    transition: opacity 0.2s ease;
+  }
+
+  .tm-btn-primary:hover {
+    opacity: 0.9;
+  }
+
+  .tm-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+/* Progress bar sweep (MarketplaceApiKeyModal connecting state — spec §8) */
+@keyframes progress-sweep {
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(50%); }
+  100% { transform: translateX(200%); }
 }
 
 /* Calm scroll reveal — subtle fade + rise */

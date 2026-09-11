@@ -47,6 +47,9 @@ import {
 } from "@/lib/supabase/user-data";
 import type { UserRawRow } from "@/lib/adapters/csv";
 import { MyDataPanel } from "@/components/MyDataPanel";
+import { NetProfitLedger } from "@/components/NetProfitLedger";
+import { LossAlarmBanner, SkuLossTag } from "@/components/LossAlarmBanner";
+import { DashboardSummaryHeader } from "@/components/DashboardSummaryHeader";
 import {
   getSellers, getSeller, getFinancing, recomputeMargin, getBacktest, getBenchmarkRows, getPortfolioMetrics,
   registerRuntimeSeller, clearRuntimeSellers, hasRuntimeSeller, getSilentLoserInsight, getSellerChannels,
@@ -57,6 +60,18 @@ import { CashFlowPanel } from "@/components/CashFlowPanel";
 import { SkuProfitabilityHeatmap } from "@/components/SkuProfitabilityHeatmap";
 import { PeerBenchmarkingSection } from "@/components/PeerBenchmarkingSection";
 import { AuthGuard } from "@/components/auth-guard";
+import { ListQualityBadge } from "@/components/ListQualityBadge";
+import { ListQualityPanel } from "@/components/ListQualityPanel";
+import { VisibilityRankBadge, VisibilityPanel } from "@/components/VisibilityRank";
+import { computeListQuality } from "@/lib/quality/list-score";
+import { DemandEstimateCard } from "@/components/DemandEstimateCard";
+import { estimateDemand } from "@/lib/demand/signals";
+import { loadDemandEstimates, type StoredDemandEstimate } from "@/lib/supabase/demand-estimates";
+import { productTitleForSku } from "@/lib/tools/sku-economics";
+import type { DemandRangeResult } from "@/lib/demand/signals";
+import { loadMyWatchedVisibility } from "@/lib/supabase/shared-visibility";
+import { pickWatchedVisibility } from "@/lib/visibility/display";
+import type { WatchedVisibility } from "@/lib/domain/visibility";
 import { getTrialDaysLeft, getConnectedMarketplaces, resetOnboarding, isOnboardingDone } from "@/lib/onboarding";
 import {
   supportedChannels, getMarketplaceOption,
@@ -102,7 +117,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // forcing getSellers/getSeller below to recompute with the latest data.
   const [dataVersion, setDataVersion] = useState(0);
   const [userRows, setUserRows] = useState<StoredRow[]>([]);
+  const [demandBySku, setDemandBySku] = useState<Map<string, DemandRangeResult>>(new Map());
   const [dataBusy, setDataBusy] = useState(false);
+  const [watchedVisibility, setWatchedVisibility] = useState<WatchedVisibility[]>([]);
+  const [openVisibilitySku, setOpenVisibilitySku] = useState<string | null>(null);
   // Real signed-in deployments (Supabase configured) default straight to the
   // user's own tenant so an empty seller never sees a seed seller's numbers.
   // Demo mode (route: /demo) always shows the seed portfolio and is the ONLY
@@ -152,6 +170,58 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (demoMode || userRows.length === 0) {
+      setDemandBySku(new Map());
+      return;
+    }
+    let active = true;
+    (async () => {
+      const stored = await loadDemandEstimates();
+      if (!active) return;
+      const map = new Map<string, DemandRangeResult>();
+      const skus = [...new Set(userRows.map((r) => r.sku))];
+      for (const sku of skus) {
+        const hit: StoredDemandEstimate | undefined = stored.find((e) => e.sku === sku);
+        if (hit) {
+          map.set(sku, hit);
+          continue;
+        }
+        const rows = userRows.filter((r) => r.sku === sku);
+        const totalUnits = rows.reduce((s, r) => s + r.units, 0);
+        const timestamps = rows.map((r) => new Date(r.sale_date).getTime());
+        const dataDays = Math.max(
+          1,
+          Math.round((Math.max(...timestamps) - Math.min(...timestamps)) / 86_400_000),
+        );
+        map.set(
+          sku,
+          estimateDemand({ stockDelta: { dailySalesRate: totalUnits / dataDays, dataDays } }),
+        );
+      }
+      setDemandBySku(map);
+    })();
+    return () => { active = false; };
+  }, [demoMode, userRows, dataVersion]);
+
+  useEffect(() => {
+    if (demoMode || !authConfigured) {
+      setWatchedVisibility([]);
+      return;
+    }
+    let active = true;
+    const marketplace = channel === "combined" ? undefined : channel;
+    (async () => {
+      const rows = await loadMyWatchedVisibility(marketplace ? { marketplace } : undefined);
+      if (active) setWatchedVisibility(rows);
+    })();
+    return () => { active = false; };
+  }, [demoMode, authConfigured, channel, dataVersion]);
+
+  useEffect(() => {
+    setOpenVisibilitySku(null);
+  }, [channel]);
 
   // Re-read from Supabase and re-register after any mutation.
   async function refreshUserData() {
@@ -605,6 +675,9 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // `view.channel`, never the raw state.
   const silentLoserInsight = getSilentLoserInsight(view.tenantId, view.channel);
 
+  // List quality panel: which SKU's quality panel is currently open (null = none)
+  const [openQualityPanelSku, setOpenQualityPanelSku] = useState<string | null>(null);
+
   // Ad spend is interactive; reset to the seller's real base whenever the seller or channel changes.
   const [adSpendVal, setAdSpendVal] = useState(w.adSpendAllocated);
   useEffect(() => {
@@ -883,7 +956,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   }
 
   return (
-    <div data-rev={dataVersion} className="h-screen w-full bg-zinc-950 text-zinc-200 font-sans selection:bg-zinc-800 flex overflow-hidden">
+    <div data-rev={dataVersion} data-financial-surface="dark" className="h-screen w-full bg-zinc-950 text-zinc-200 font-sans selection:bg-zinc-800 flex overflow-hidden">
       <style>{`
         input[type=range].cost-slider::-webkit-slider-thumb {
           -webkit-appearance: none; height: 16px; width: 2px; background: #e4e4e7;
@@ -999,7 +1072,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
             {/* Free-trial indicator */}
             {trialDaysLeft !== null && (
               <span className="inline-flex items-center gap-2 border border-zinc-800 bg-zinc-900/50 px-3 py-1 text-[11px] font-mono tabular-nums text-zinc-400">
-                <span className={`w-1.5 h-1.5 ${trialDaysLeft > 0 ? "bg-emerald-400" : "bg-red-400"}`} />
+                <span className={`w-1.5 h-1.5 ${trialDaysLeft > 0 ? "fin-dot-profit" : "fin-dot-loss"}`} />
                 {trialDaysLeft > 0
                   ? `Free trial · ${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"} left`
                   : "Trial ended"}
@@ -1024,7 +1097,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                         <div className="text-zinc-500 font-sans text-xs mb-4">
                           {MARKETPLACE_LABELS[mp.marketplace]}
                         </div>
-                        <div className={`text-2xl font-mono tabular-nums ${mp.trueMarginPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        <div className={`text-2xl font-mono tabular-nums ${mp.trueMarginPct >= 0 ? "fin-profit" : "fin-loss"}`}>
                           {pctStr(mp.trueMarginPct)}
                         </div>
                         <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">
@@ -1037,7 +1110,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     ))}
                     <div className="bg-zinc-900/40 p-4 lg:p-6 border-l border-zinc-800">
                       <div className="text-zinc-400 font-sans text-xs mb-4">Combined (TRY eq.)</div>
-                      <div className={`text-2xl font-mono tabular-nums ${view.trueMarginPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      <div className={`text-2xl font-mono tabular-nums ${view.trueMarginPct >= 0 ? "fin-profit" : "fin-loss"}`}>
                         {pctStr(view.trueMarginPct)}
                       </div>
                       <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">
@@ -1051,6 +1124,9 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 </div>
               )}
 
+              {/* 3-30-300 hero header — spec §6: 3-second overview */}
+              <DashboardSummaryHeader skus={view.skus} currency={currency} />
+
               <div className="flex flex-col lg:flex-row gap-16 lg:gap-24">
                 {/* LEFT COLUMN */}
                 <div className="w-full lg:w-7/12 flex flex-col">
@@ -1060,13 +1136,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-6">
                       Real Margin · {channelLabel(view.channel)}
                     </h2>
-                    <div className={`text-7xl lg:text-[96px] leading-none font-mono tracking-tighter tabular-nums ${marginPercent >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    <div className={`text-7xl lg:text-[96px] leading-none font-mono tracking-tighter tabular-nums ${marginPercent >= 0 ? "fin-profit" : "fin-loss"}`}>
                       {marginPercent > 0 ? "+" : ""}{marginPercent.toFixed(1)}%
                     </div>
                     <div className="text-zinc-500 mt-6 lg:mt-8 font-mono text-sm flex items-center gap-4">
                       <span>Seller believes <span className="text-zinc-200">{belief.toFixed(1)}%</span></span>
                       <span className="w-1 h-1 bg-zinc-800 rounded-none"></span>
-                      <span className="text-red-400">{ptsDiff} pts lower</span>
+                      <span className="fin-loss">{ptsDiff} pts lower</span>
                     </div>
 
                     {/* Break-even price — right below the hero margin */}
@@ -1094,7 +1170,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     {(() => {
                       const s = view.settlement;
                       const hasGap = s.hasGap;
-                      const dotColor = !s.isRealSettlementData ? "bg-zinc-600" : hasGap ? "bg-red-500/60" : "bg-emerald-500/60";
+                      const dotColor = !s.isRealSettlementData ? "bg-zinc-600" : hasGap ? "fin-dot-loss opacity-60" : "fin-dot-profit opacity-60";
                       return (
                         <div className="mt-5 flex items-start justify-between gap-4 border border-zinc-800/70 bg-zinc-900/30 px-4 py-3">
                           <div>
@@ -1119,7 +1195,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                               <span className="tabular-nums text-zinc-200">{money(s.actualPayout)}</span>
                             </div>
                             {s.isRealSettlementData ? (
-                              <div className={`mt-1.5 font-mono text-[12px] tabular-nums font-medium ${hasGap ? "text-red-400" : "text-emerald-400"}`}>
+                              <div className={`mt-1.5 font-mono text-[12px] tabular-nums font-medium ${hasGap ? "fin-loss" : "fin-profit"}`}>
                                 {hasGap
                                   ? `${s.marketplaceLabel} ${money(s.gap)} eksik ödedi (−${s.gapRatePct.toFixed(1)}%)`
                                   : `${s.marketplaceLabel} tam ödedi ✓`}
@@ -1200,60 +1276,24 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     );
                   })()}
 
-                  {/* Fee Waterfall */}
-                  <div className="flex flex-col font-mono text-sm w-full">
-                    <div className="flex w-full text-zinc-600 text-[10px] lg:text-[11px] uppercase tracking-[0.15em] pb-4 mb-4 border-b border-zinc-900">
-                      <div className="w-24 lg:w-32 shrink-0">Component</div>
-                      <div className="flex-1 px-4 lg:px-8 text-center hidden sm:block">Impact</div>
-                      <div className="w-24 lg:w-28 text-right shrink-0 ml-auto">Value</div>
-                    </div>
-
-                    <div className="flex items-center justify-between py-2 group">
-                      <div className="w-24 lg:w-32 text-zinc-300 shrink-0">Gross Rev</div>
-                      <div className="flex-1 px-4 lg:px-8 items-center hidden sm:flex">
-                        <div className="h-[2px] bg-zinc-700 w-full"></div>
-                      </div>
-                      <div className="w-24 lg:w-28 text-right tabular-nums text-zinc-100 shrink-0 ml-auto">{money(grossRev)}</div>
-                    </div>
-
-                    {renderCostRow("Commission", commission)}
-                    {renderCostRow("VAT", vat)}
-                    {renderCostRow("Shipping", shipping)}
-                    {renderCostRow("Returns", returns)}
-
-                    {/* Interactive Ad Spend Slider */}
-                    <div className="flex items-center justify-between py-3 relative group">
-                      <div className="w-24 lg:w-32 text-zinc-100 flex items-center gap-2 shrink-0">Ad spend</div>
-                      <div className="flex-1 px-4 lg:px-8 flex items-center relative hidden sm:flex">
-                        <input
-                          type="range"
-                          min={0} max={grossRev} step={100}
-                          value={adSpendVal}
-                          onChange={(e) => setAdSpendVal(Number(e.target.value))}
-                          className="w-full h-[2px] appearance-none cursor-ew-resize cost-slider outline-none"
-                          style={{ background: `linear-gradient(to right, #71717a ${(adSpendVal / grossRev) * 100}%, #27272a ${(adSpendVal / grossRev) * 100}%)` }}
-                        />
-                      </div>
-                      <div className="w-24 lg:w-28 text-right tabular-nums font-bold text-zinc-100 border border-zinc-800 bg-zinc-900 px-2 py-0.5 relative shrink-0 ml-auto flex flex-col sm:block">
-                        <div className="sm:absolute sm:-top-6 sm:-right-2 text-[8px] sm:text-[9px] text-zinc-500 uppercase tracking-widest text-nowrap pointer-events-none mb-1 sm:mb-0">Drag to compute</div>
-                        -{money(adSpendVal)}
-                      </div>
-                    </div>
-
-                    {renderCostRow("Payment", payment)}
-                    {renderCostRow("COGS", cogs)}
-
-                    {/* Net Contribution */}
-                    <div className="flex items-center justify-between pt-8 mt-6 border-t border-zinc-900">
-                      <div className="w-24 lg:w-32 text-zinc-100 font-sans font-medium text-sm shrink-0">Net Contrib.</div>
-                      <div className="flex-1 px-4 lg:px-8 items-center hidden sm:flex">
-                        <div className={`h-[2px] ${netContribution >= 0 ? "bg-emerald-500" : "bg-red-500"}`} style={{ width: `${Math.min(100, Math.abs(netContribution / grossRev) * 100)}%` }}></div>
-                      </div>
-                      <div className={`w-28 lg:w-32 text-right tabular-nums font-bold text-lg lg:text-xl tracking-tight shrink-0 ml-auto ${netContribution >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                        {netContribution < 0 ? "-" : ""}{money(netContribution)}
-                      </div>
-                    </div>
-                  </div>
+                  {/* ── Net Profit Ledger — spec §2-4 (TrueMargin design system) ── */}
+                  <NetProfitLedger
+                    grossRevenue={grossRev}
+                    commission={commission}
+                    vat={vat}
+                    shipping={shipping}
+                    returns={returns}
+                    adSpend={adSpendVal}
+                    payment={payment}
+                    cogs={cogs}
+                    packaging={w.packaging ?? 0}
+                    netContribution={netContribution}
+                    marginPct={marginPercent}
+                    currency={currency}
+                    floorPrice={view.breakEvenPrice}
+                    baseAdSpend={w.adSpendAllocated}
+                    onAdSpendChange={setAdSpendVal}
+                  />
                 </div>
 
                 {/* RIGHT COLUMN */}
@@ -1274,7 +1314,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     </div>
                     <div className="flex justify-between border-t border-zinc-800 pt-5 font-mono text-sm mb-3">
                       <span className="text-zinc-400">Monthly contribution</span>
-                      <span className={view.inputs.trailingMonthlyContribution >= 0 ? "text-zinc-100 tabular-nums" : "text-red-400 tabular-nums"}>
+                      <span className={view.inputs.trailingMonthlyContribution >= 0 ? "text-zinc-100 tabular-nums" : "fin-loss tabular-nums"}>
                         {view.inputs.trailingMonthlyContribution < 0 ? "-" : ""}{money(view.inputs.trailingMonthlyContribution)}
                       </span>
                     </div>
@@ -1290,41 +1330,185 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     </div>
                   </div>
 
-                  {/* SKU Table */}
+                  {/* ── SKU Tablosu — spec §6: 3-30-300, kademeli açıklama ── */}
                   <div className="mb-14">
-                    <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-6">SKU Unit Economics</h3>
+                    {/* 3-30-300: 30 sn'de hangi ürünler sorunlu — zarar edenler üstte */}
+                    {(() => {
+                      const lossSkus  = view.skus.filter((s) => s.trueMarginPct < 0);
+                      const totalRisk = lossSkus.reduce((sum, s) => sum + Math.abs(s.trueMarginPct), 0);
+                      return lossSkus.length > 0 ? (
+                        <div className="mb-4">
+                          <LossAlarmBanner
+                            lossSkuCount={lossSkus.length}
+                            totalRisk={totalRisk}
+                            currency={currency}
+                          />
+                        </div>
+                      ) : null;
+                    })()}
+
+                    <h3
+                      className="text-[10px] uppercase tracking-[0.2em] font-sans mb-4"
+                      style={{ color: "var(--tm-ink)", opacity: 0.5 }}
+                    >
+                      SKU Birim Ekonomisi
+                    </h3>
+
                     <div className="text-sm font-mono w-full">
-                      <div className="flex w-full border-b border-zinc-900 pb-3 mb-3 text-zinc-600 text-[10px] uppercase tracking-[0.1em]">
-                        <div className="w-4/12 lg:w-5/12">SKU</div>
-                        <div className="w-4/12 lg:w-3/12 text-right">Perceived</div>
-                        <div className="w-4/12 text-right">True</div>
+                      {/* Header row */}
+                      <div
+                        className="flex w-full pb-2 mb-1 text-[10px] uppercase tracking-[0.1em]"
+                        style={{
+                          borderBottom: "1px solid var(--tm-mist)",
+                          color: "var(--tm-ink)",
+                          opacity: 0.45,
+                        }}
+                      >
+                        <div className="w-5/12">SKU</div>
+                        <div className="w-3/12 text-right">Algılanan</div>
+                        <div className="w-4/12 text-right">Gerçek</div>
                       </div>
-                      {view.skus.map((sku) => (
-                        <div key={sku.sku} className="flex w-full items-center py-2.5 border-b border-zinc-900/50 hover:bg-zinc-900/30 transition-colors">
-                          <div className="w-4/12 lg:w-5/12 pr-2 lg:pr-4">
-                            <div className="text-zinc-300 truncate text-[12px] lg:text-[13px]">{sku.sku}</div>
-                            {sku.isReturnRisk && (
-                              <div className="mt-0.5 inline-flex items-center gap-1.5">
-                                <span className="text-[9px] bg-zinc-950 text-red-500 px-1.5 py-0.5 tracking-widest border border-red-900/60 font-mono">
-                                  YÜK. İADE
-                                </span>
-                                <span className="text-[9px] text-red-600 font-mono tabular-nums">
-                                  {sku.returnRatePct.toFixed(1)}%
+
+                      {/* Zarar edenler üstte (spec §6 — zararlılar önce) */}
+                      {[...view.skus]
+                        .sort((a, b) => a.trueMarginPct - b.trueMarginPct)
+                        .map((sku) => {
+                          const isLoss = sku.trueMarginPct < 0;
+                          const vis = pickWatchedVisibility(
+                            watchedVisibility,
+                            sku.sku,
+                            view.channel,
+                          );
+                          return (
+                            <div
+                              key={sku.sku}
+                              className="flex w-full items-start py-2.5 transition-colors"
+                              style={{
+                                borderBottom: "1px solid color-mix(in srgb, var(--tm-mist) 60%, transparent)",
+                              }}
+                            >
+                              {/* SKU adı + etiketler */}
+                              <div className="w-5/12 pr-3">
+                                <div className="flex items-center gap-1.5">
+                                  <div
+                                    className="truncate text-[12px] lg:text-[13px]"
+                                    style={{ color: "var(--tm-ink)" }}
+                                  >
+                                    {sku.sku}
+                                  </div>
+                                  {(() => {
+                                    const productTitle = productTitleForSku(userRows, sku.sku);
+                                    const qualityScore = computeListQuality({
+                                      title: productTitle,
+                                      categoryName: sku.category,
+                                      sku: sku.sku,
+                                      returnRatePct: sku.returnRatePct,
+                                      imageCount: undefined,
+                                    });
+                                    return (
+                                      <ListQualityBadge
+                                        score={qualityScore}
+                                        compact={true}
+                                        onClick={() =>
+                                          setOpenQualityPanelSku(
+                                            openQualityPanelSku === sku.sku ? null : sku.sku
+                                          )
+                                        }
+                                      />
+                                    );
+                                  })()}
+                                  {vis && (
+                                      <VisibilityRankBadge
+                                        row={vis}
+                                        onClick={() =>
+                                          setOpenVisibilitySku(
+                                            openVisibilitySku === sku.sku ? null : sku.sku
+                                          )
+                                        }
+                                      />
+                                  )}
+                                </div>
+                                {/* Quality panel — shown when badge is clicked */}
+                                {openQualityPanelSku === sku.sku && (() => {
+                                  const productTitle = productTitleForSku(userRows, sku.sku);
+                                  const qualityScore = computeListQuality({
+                                    title: productTitle,
+                                    categoryName: sku.category,
+                                    sku: sku.sku,
+                                    returnRatePct: sku.returnRatePct,
+                                    imageCount: undefined,
+                                  });
+                                  return (
+                                    <div className="mt-2">
+                                      <ListQualityPanel
+                                        sku={productTitle}
+                                        score={qualityScore}
+                                        onClose={() => setOpenQualityPanelSku(null)}
+                                      />
+                                    </div>
+                                  );
+                                })()}
+                                {demandBySku.get(sku.sku) && (
+                                  <div className="mt-2 max-w-sm">
+                                    <DemandEstimateCard
+                                      sku={productTitleForSku(userRows, sku.sku)}
+                                      estimate={demandBySku.get(sku.sku)!}
+                                    />
+                                  </div>
+                                )}
+                                {openVisibilitySku === sku.sku && vis && (
+                                    <div className="mt-2">
+                                      <VisibilityPanel
+                                        row={vis}
+                                        onClose={() => setOpenVisibilitySku(null)}
+                                      />
+                                    </div>
+                                )}
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {sku.isSilentLoser && (
+                                    <SkuLossTag level="silent-loss" />
+                                  )}
+                                  {isLoss && !sku.isSilentLoser && (
+                                    <SkuLossTag level="loss" />
+                                  )}
+                                  {sku.isReturnRisk && (
+                                    <>
+                                      <SkuLossTag level="return-risk" />
+                                      <span
+                                        className="text-[9px] font-mono tnum"
+                                        style={{ color: "var(--tm-alert-clay)" }}
+                                      >
+                                        {sku.returnRatePct.toFixed(1)}%
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Algılanan marj */}
+                              <div
+                                className="w-3/12 text-right tnum text-[12px]"
+                                style={{ color: "var(--tm-ink)", opacity: 0.5 }}
+                              >
+                                {pctStr(sku.perceivedMarginPct)}
+                              </div>
+
+                              {/* Gerçek marj — renk kodlu */}
+                              <div className="w-4/12 text-right">
+                                <span
+                                  className="tnum text-[13px] font-semibold"
+                                  style={{
+                                    color: isLoss
+                                      ? "var(--tm-alert-clay)"
+                                      : "var(--tm-ledger-green)",
+                                  }}
+                                >
+                                  {pctStr(sku.trueMarginPct)}
                                 </span>
                               </div>
-                            )}
-                          </div>
-                          <div className="w-4/12 lg:w-3/12 text-right text-zinc-500 tabular-nums">{pctStr(sku.perceivedMarginPct)}</div>
-                          <div className="w-4/12 text-right flex items-center justify-end gap-2 lg:gap-3">
-                            {sku.isSilentLoser && (
-                              <span className="hidden sm:inline-block text-[9px] bg-zinc-950 text-zinc-500 px-1.5 py-0.5 tracking-widest border border-zinc-800 font-mono">SILENT LOSS</span>
-                            )}
-                            <span className={`tabular-nums ${sku.trueMarginPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                              {pctStr(sku.trueMarginPct)}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                            </div>
+                          );
+                        })}
                     </div>
                   </div>
 
@@ -1335,7 +1519,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       <p className="text-[13px] text-zinc-300 leading-relaxed">
                         <span className="text-zinc-100 font-medium">{silentLoserInsight.sku}</span> sessiz zarar ediyor.
                         Bu ürünü çıkarırsan tahmini limit etkisi:{" "}
-                        <span className="text-emerald-400 font-mono tabular-nums">
+                        <span className="fin-profit font-mono tabular-nums">
                           +{money(silentLoserInsight.limitDelta, silentLoserInsight.currency)}
                         </span>
                       </p>
@@ -1371,7 +1555,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                         charge-off oranı için en az {LOW_SAMPLE_HISTORY_MONTHS} aylık gerçek sipariş geçmişi gerekir.
                       </div>
                     ) : (
-                      <div className="mt-4 text-xs text-emerald-400/80 font-mono tracking-wide flex items-center gap-3">
+                      <div className="mt-4 text-xs fin-profit/80 font-mono tracking-wide flex items-center gap-3">
                         <span className="text-emerald-500">↓</span> {lossRed}% loss reduction
                         {fin.isSelfBacktest && <span className="text-zinc-600">· your own data, {fin.historyMonths} mo. history</span>}
                       </div>
@@ -1454,7 +1638,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   >
                     <div className="w-4/12 text-zinc-300 text-[13px]">{s.label} <span className="text-zinc-600 ml-2 text-[11px]">{s.category}</span></div>
                     <div className="w-4/12 text-right text-zinc-500 tabular-nums">{pctStr(s.perceivedMarginPct)}</div>
-                    <div className={`w-4/12 text-right tabular-nums ${s.trueMarginPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>{pctStr(s.trueMarginPct)}</div>
+                    <div className={`w-4/12 text-right tabular-nums ${s.trueMarginPct >= 0 ? "fin-profit" : "fin-loss"}`}>{pctStr(s.trueMarginPct)}</div>
                   </button>
                 ))}
               </div>
@@ -1475,7 +1659,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">
                     {approved ? t("financing.approvedLimit") : t("financing.underwritingDecision")}
                   </h3>
-                  <div className={`font-mono text-6xl tracking-tight tabular-nums ${approved ? "text-zinc-100" : "text-red-400"}`}>
+                  <div className={`font-mono text-6xl tracking-tight tabular-nums ${approved ? "text-zinc-100" : "fin-loss"}`}>
                     {approved ? money(fin.decision.approvedLimit) : t("financing.declined")}
                   </div>
                   <p className="mt-4 max-w-md text-sm leading-relaxed text-zinc-500">
@@ -1516,7 +1700,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       <dl className="space-y-1.5 text-sm font-mono">
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.limit")}</dt><dd className="tabular-nums text-zinc-200">{money(fin.decision.approvedLimit)}</dd></div>
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.takeRate")}</dt><dd className="tabular-nums text-zinc-200">{approved ? `${takeRate}%` : "—"}</dd></div>
-                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.outcome")}</dt><dd className={fin.ourOutcome.impaired ? "text-red-400" : "text-emerald-400"}>{fin.ourOutcome.isLoan ? (fin.ourOutcome.impaired ? t("financing.impaired") : t("financing.performing")) : t("financing.declined")}</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.outcome")}</dt><dd className={fin.ourOutcome.impaired ? "fin-loss" : "fin-profit"}>{fin.ourOutcome.isLoan ? (fin.ourOutcome.impaired ? t("financing.impaired") : t("financing.performing")) : t("financing.declined")}</dd></div>
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.simLoss")}</dt><dd className="tabular-nums text-zinc-200">{money(fin.ourOutcome.loss)}</dd></div>
                       </dl>
                     </div>
@@ -1525,7 +1709,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       <dl className="space-y-1.5 text-sm font-mono">
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.limit")}</dt><dd className="tabular-nums text-zinc-400">{money(fin.incumbentDecision.approvedLimit)}</dd></div>
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.takeRate")}</dt><dd className="tabular-nums text-zinc-400">{(fin.incumbentDecision.takeRate * 100).toFixed(1)}%</dd></div>
-                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.outcome")}</dt><dd className={fin.incumbentOutcome.impaired ? "text-red-400" : "text-zinc-400"}>{fin.incumbentOutcome.isLoan ? (fin.incumbentOutcome.impaired ? t("financing.impaired") : t("financing.performing")) : t("financing.declined")}</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.outcome")}</dt><dd className={fin.incumbentOutcome.impaired ? "fin-loss" : "text-zinc-400"}>{fin.incumbentOutcome.isLoan ? (fin.incumbentOutcome.impaired ? t("financing.impaired") : t("financing.performing")) : t("financing.declined")}</dd></div>
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.simLoss")}</dt><dd className="tabular-nums text-zinc-400">{money(fin.incumbentOutcome.loss)}</dd></div>
                       </dl>
                     </div>
@@ -1535,7 +1719,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       {t("financing.limitedData", { months: fin.historyMonths })}
                     </div>
                   ) : (
-                    <div className="mt-4 text-xs text-emerald-400/80 font-mono tracking-wide flex items-center gap-3">
+                    <div className="mt-4 text-xs fin-profit/80 font-mono tracking-wide flex items-center gap-3">
                       <span className="text-emerald-500">↓</span>{" "}
                       {t("financing.lossReduction", {
                         pct: lossRed,
@@ -1589,7 +1773,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       <div className="w-5/12 text-zinc-300 text-[13px]">{translateBenchmarkLabel(b.label, language)}</div>
                       <div className="w-3/12 text-right text-zinc-100 tabular-nums">{b.ours}</div>
                       <div className="w-3/12 text-right text-zinc-600 tabular-nums">{b.target}</div>
-                      <div className={`w-1/12 text-right ${b.meetsTarget ? "text-emerald-400" : "text-amber-400"}`}>
+                      <div className={`w-1/12 text-right ${b.meetsTarget ? "fin-profit" : "text-amber-400"}`}>
                         {b.meetsTarget ? "✓" : "•"}
                       </div>
                     </div>
@@ -1608,7 +1792,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
             <div className="max-w-[900px] px-8 py-12 md:py-20">
               <div className="flex items-center gap-4 mb-2">
                 <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] border-l border-zinc-800 pl-4">{t("history.title")}</h2>
-                <span className="bg-zinc-900 text-emerald-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800">{t("history.immutable")}</span>
+                <span className="bg-zinc-900 fin-profit/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800">{t("history.immutable")}</span>
               </div>
               <p className="text-zinc-600 text-[11px] font-mono mb-10 pl-4 max-w-xl">
                 {authConfigured ? t("history.descAuth") : t("history.descDemo")}
@@ -1703,7 +1887,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 {!authConfigured ? (
                   <p className="text-zinc-600 font-mono text-[12px]">{t("settings.signInToView")}</p>
                 ) : billingStatusError ? (
-                  <p className="text-red-400 font-mono text-[12px]">{billingStatusError}</p>
+                  <p className="fin-loss font-mono text-[12px]">{billingStatusError}</p>
                 ) : !billingStatus ? (
                   <p className="text-zinc-600 font-mono text-[12px]">{t("common.loading")}</p>
                 ) : (
@@ -1714,7 +1898,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     </div>
                     <div className="flex justify-between gap-4">
                       <span className="text-zinc-600">{t("settings.stripe")}</span>
-                      <span className={billingStatus.stripeConfigured ? "text-emerald-400" : "text-amber-400"}>
+                      <span className={billingStatus.stripeConfigured ? "fin-profit" : "text-amber-400"}>
                         {billingStatus.stripeConfigured ? t("settings.stripeConfigured") : t("settings.stripeNotConfigured")}
                       </span>
                     </div>
@@ -1760,7 +1944,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                               <span className="text-zinc-200 text-sm truncate">{opt?.label ?? c.marketplaceId}</span>
                               <span
                                 className={`shrink-0 text-[9px] px-1.5 py-0.5 font-mono uppercase tracking-widest border ${
-                                  isLive ? "border-emerald-800/60 text-emerald-400/80" : "border-zinc-800 text-zinc-500"
+                                  isLive ? "border-emerald-800/60 fin-profit/80" : "border-zinc-800 text-zinc-500"
                                 }`}
                               >
                                 {isLive ? t("settings.live") : t("settings.demo")}
@@ -1772,7 +1956,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                                 : t("settings.credentialsOnFile")}
                             </div>
                             {status && (
-                              <div className={`text-[11px] font-mono mt-1 ${status.ok ? "text-emerald-400" : "text-red-400"}`}>
+                              <div className={`text-[11px] font-mono mt-1 ${status.ok ? "fin-profit" : "fin-loss"}`}>
                                 {status.message}
                               </div>
                             )}
@@ -1780,7 +1964,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                           <button
                             type="button"
                             onClick={() => setDisconnectTarget(c.marketplaceId)}
-                            className="shrink-0 inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-400 font-mono text-[12px] hover:border-red-400/40 hover:text-red-400 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
+                            className="shrink-0 inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-400 font-mono text-[12px] hover:border-red-400/40 hover:fin-loss transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
                           >
                             {t("settings.disconnect")}
                           </button>
@@ -1820,7 +2004,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                                 )}
                               </div>
                               {status && (
-                                <div className={`text-[11px] font-mono mt-0.5 ${status.ok ? "text-emerald-400" : "text-red-400"}`}>
+                                <div className={`text-[11px] font-mono mt-0.5 ${status.ok ? "fin-profit" : "fin-loss"}`}>
                                   {status.message}
                                 </div>
                               )}
@@ -1905,7 +2089,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                         type="button"
                         onClick={() => confirmDisconnect(true)}
                         disabled={disconnectBusy}
-                        className="inline-flex items-center justify-center h-10 px-4 border border-red-900/60 text-red-400 font-mono text-[12px] hover:bg-red-950/30 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+                        className="inline-flex items-center justify-center h-10 px-4 border border-red-900/60 fin-loss font-mono text-[12px] hover:bg-red-950/30 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
                       >
                         {disconnectBusy ? t("common.working") : t("settings.disconnectAndDelete")}
                       </button>
@@ -2003,7 +2187,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                                 </span>
                               )}
                               {(m.mode === "model-claude" || m.mode === "model-gemini") && (
-                                <span className="bg-zinc-900 text-emerald-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase">
+                                <span className="bg-zinc-900 fin-profit/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase">
                                   {m.mode === "model-claude" ? "Claude" : "Gemini"}
                                 </span>
                               )}

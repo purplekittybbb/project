@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
-  fetchTrendyolOrders, mapOrdersToUserRawRows, TrendyolAuthError, TrendyolApiError, TrendyolMappingError,
+  fetchTrendyolOrders, fetchTrendyolProductCategoryIndex, mapOrdersToUserRawRows,
+  TrendyolAuthError, TrendyolApiError, TrendyolMappingError,
 } from "@/lib/trendyol-api/client";
 import { validateUserRawRows } from "@/lib/domain/schemas";
 import { encryptSecret } from "@/lib/security/crypto";
@@ -78,8 +79,10 @@ export async function POST(req: Request) {
   let orders;
   let rawRows;
   try {
-    orders = await fetchTrendyolOrders({ sellerId, apiKey, apiSecret });
-    rawRows = mapOrdersToUserRawRows(orders);
+    const creds = { sellerId, apiKey, apiSecret };
+    orders = await fetchTrendyolOrders(creds);
+    const catalog = await fetchTrendyolProductCategoryIndex(creds);
+    rawRows = mapOrdersToUserRawRows(orders, catalog);
   } catch (err) {
     if (err instanceof TrendyolAuthError) {
       console.warn(`[trendyol/connect] Trendyol rejected credentials for seller ${sellerId}: ${err.message}`);

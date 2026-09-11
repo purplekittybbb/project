@@ -20,11 +20,18 @@
  *
  * Honest scope limitation: same as Trendyol — Hepsiburada's order API has no
  * visibility into the seller's own product cost (COGS), returns, or ad
- * spend. Those fields come back as 0 from this sync.
+ * spend. Those fields come back as 0 from this sync and are filled later by
+ * lib/calc/enrich.ts from product_costs.
+ *
+ * Category: OMS order lines do not reliably include a path. Optional
+ * categoryName / Category / productCategory are accepted when present and
+ * folded onto the internal taxonomy; otherwise "Diğer". No unverified
+ * catalog HTTP call is made.
  */
 
 import { z } from "zod";
 import type { UserRawRow } from "../adapters/csv";
+import { mapToInternalCategory } from "../domain/internal-category";
 
 const HEPSIBURADA_API_BASE = "https://oms-external.hepsiburada.com";
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -103,6 +110,12 @@ export const HepsiburadaLineItemSchema = z.object({
   TotalPrice: HepsiburadaMoneySchema.optional(),
   vatRate: z.number().finite().optional(),
   VatRate: z.number().finite().optional(),
+  categoryName: z.string().optional(),
+  CategoryName: z.string().optional(),
+  category: z.string().optional(),
+  Category: z.string().optional(),
+  productCategory: z.string().optional(),
+  ProductCategory: z.string().optional(),
 });
 
 export const HepsiburadaOrderSchema = z.object({
@@ -263,10 +276,19 @@ export function mapHepsiburadaOrdersToUserRawRows(orders: HepsiburadaOrder[]): U
       const grossRevenue = Number(totalAmount ?? (unitAmount != null ? unitAmount * units : 0)) || 0;
       if (grossRevenue <= 0) continue;
 
+      const rawCategory =
+        line.categoryName ??
+        line.CategoryName ??
+        line.category ??
+        line.Category ??
+        line.productCategory ??
+        line.ProductCategory ??
+        "";
+
       rows.push({
         order_id: orderId,
         sku,
-        category: "Diğer",
+        category: mapToInternalCategory(rawCategory),
         sale_date: saleDate,
         units,
         gross_revenue: grossRevenue,

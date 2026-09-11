@@ -63,7 +63,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     return (
       <div className="h-screen w-full bg-zinc-950 flex items-center justify-center">
         <div className="flex items-center gap-2 text-zinc-600 font-mono text-[11px] uppercase tracking-[0.2em]">
-          <span className="inline-block w-1.5 h-1.5 bg-zinc-600 animate-pulse" />
+          <span className="inline-block w-1.5 h-1.5 bg-zinc-600 rounded-full" />
           Verifying session
         </div>
       </div>

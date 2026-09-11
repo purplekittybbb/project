@@ -287,10 +287,12 @@ const MARKETPLACE_ALIASES: Record<string, Channel> = {
   "n11": "n11",
   "shopify": "shopify",
   "amazon": "amazon_us",
+  "amazon tr": "amazon_tr",
+  "amazon.tr": "amazon_tr",
 };
 const CHANNEL_DISPLAY_NAME: Record<string, string> = {
   trendyol: "Trendyol", hepsiburada: "Hepsiburada", n11: "N11", shopify: "Shopify",
-  amazon_us: "Amazon US", combined: "Combined",
+  amazon_us: "Amazon US", amazon_tr: "Amazon TR", combined: "Combined",
 };
 
 type Snapshot = NonNullable<ReturnType<typeof buildDataSnapshot>>;

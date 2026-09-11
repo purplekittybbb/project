@@ -33,6 +33,7 @@ export interface RawShopifyRow {
   shipping: number; // seller-borne
   returnRate: number; // 0..1 for this SKU
   adSpend: number; // already allocated to this SKU/order
+  packaging?: number; // packaging cost for the line (box/filler/label)
 }
 
 /** Representative Shopify Payments fee configuration. Verify before use. */
@@ -45,6 +46,9 @@ export const REPRESENTATIVE_SHOPIFY_FEES: FeeConfig = {
   // depends on plan tier and card type; excludes the fixed per-transaction
   // cents component the Orders API doesn't expose).
   paymentFeeRate: 0.029,
+  // No marketplace commission for a self-owned store, so the basis is inert;
+  // "vat-included" simply keeps commission/VAT at 0 without touching gross.
+  commissionBasis: "vat-included",
 };
 
 export class ShopifyAdapter implements MarketplaceAdapter<RawShopifyRow> {
@@ -84,6 +88,7 @@ export class ShopifyAdapter implements MarketplaceAdapter<RawShopifyRow> {
           returnsAllocated,
           adSpendAllocated: r.adSpend,
           paymentFees,
+          packaging: r.packaging ?? 0,
         },
       };
     });

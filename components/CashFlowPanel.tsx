@@ -22,7 +22,7 @@ function money(v: number, currency: string) {
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 const STATUS_CLS = {
-  received: "text-emerald-400 border-emerald-900/50 bg-emerald-950/20",
+  received: "fin-profit border-emerald-900/50 bg-emerald-950/20",
   pending: "text-zinc-400   border-zinc-700       bg-zinc-900/30",
   overdue: "text-amber-400  border-amber-800/50   bg-amber-950/20",
 } as const;
@@ -93,7 +93,7 @@ function Summary({ entries, currency }: SummaryProps) {
       {cards.map(({ label, val, sub, dim, err }) => (
         <div key={label} className="bg-zinc-950 p-4 lg:p-5">
           <div className="text-zinc-600 text-[10px] uppercase tracking-[0.15em] font-sans mb-2">{label}</div>
-          <div className={`font-mono tabular-nums text-lg font-semibold ${err ? "text-red-400" : dim ? "text-zinc-500" : "text-zinc-100"}`}>
+          <div className={`font-mono tabular-nums text-lg font-semibold ${err ? "fin-loss" : dim ? "text-zinc-500" : "text-zinc-100"}`}>
             {val}
           </div>
           <div className="text-zinc-700 text-[10px] font-mono mt-1">{sub}</div>
@@ -135,7 +135,7 @@ function Row({ e }: { e: CashFlowEntry }) {
       <div className="w-[110px] text-right shrink-0">
         {e.actualPayout !== null ? (
           <span
-            className={`tabular-nums ${!isReal ? "text-zinc-400" : hasGap ? "text-red-400" : "text-emerald-400"}`}
+            className={`tabular-nums ${!isReal ? "text-zinc-400" : hasGap ? "fin-loss" : "fin-profit"}`}
             title={isReal ? undefined : t("cashFlow.noRealSettlementTitle") ?? undefined}
           >
             {money(e.actualPayout, e.currency)}

@@ -49,6 +49,21 @@ describe("margin engine", () => {
     expect(r.marginPct).toBeCloseTo(3.5, 5);
   });
 
+  it("true margin subtracts packaging cost when present (and treats it as 0 when absent)", () => {
+    const base = computeTrueMargin(tx({}));
+    const withPack = computeTrueMargin(
+      tx({
+        fees: {
+          commission: 15000, vat: 20000, shipping: 5000, returnsAllocated: 3000,
+          adSpendAllocated: 12000, paymentFees: 1500, packaging: 2500,
+        },
+      }),
+    );
+    // Packaging is an added deduction: fees rise by exactly 2500, net drops by 2500.
+    expect(withPack.totalFees).toBe(base.totalFees + 2500);
+    expect(withPack.netContribution).toBe(base.netContribution - 2500);
+  });
+
   it("the reveal: a SKU can look profitable perceived but be a silent loser true", () => {
     const heavyAd = tx({ fees: { commission: 15000, vat: 20000, shipping: 5000, returnsAllocated: 8000, adSpendAllocated: 25000, paymentFees: 1500 } });
     const perceived = computePerceivedMargin(heavyAd).marginPct;

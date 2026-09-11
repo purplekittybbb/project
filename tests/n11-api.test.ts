@@ -108,6 +108,23 @@ describe("mapN11OrdersToUserRawRows — real order data mapping", () => {
     expect(rows[0].gross_revenue).toBe(190);
   });
 
+  it("populates barcode and product_name when N11 sends them", () => {
+    const rows = mapN11OrdersToUserRawRows([
+      {
+        orderNumber: "N11-BC",
+        lines: [{
+          stockCode: "SKU-BC",
+          quantity: 1,
+          sellerInvoiceAmount: 100,
+          productName: "Bluetooth Kulaklık",
+          barcode: "8683772071724",
+        }],
+      },
+    ]);
+    expect(rows[0].barcode).toBe("8683772071724");
+    expect(rows[0].product_name).toBe("Bluetooth Kulaklık");
+  });
+
   it("uses price × quantity when only unit price is present (never treats price as line total)", () => {
     const rows = mapN11OrdersToUserRawRows([
       {
@@ -168,5 +185,55 @@ describe("mapN11OrdersToUserRawRows — real order data mapping", () => {
   it("does NOT throw for a genuinely empty result (no orders — legitimate, not a bug)", () => {
     expect(mapN11OrdersToUserRawRows([])).toEqual([]);
     expect(mapN11OrdersToUserRawRows([{ orderNumber: "ORD-EMPTY", lines: [] }])).toEqual([]);
+  });
+
+  it("extracts a real category (line-level, then order-level) instead of always 'Diğer'", () => {
+    const rows = mapN11OrdersToUserRawRows([
+      {
+        orderNumber: "N11-CAT-1",
+        categoryName: "Ev & Yaşam", // order-level fallback
+        lines: [
+          { stockCode: "L-CAT", quantity: 1, dueAmount: 100, categoryName: "Elektronik" },
+          { stockCode: "O-CAT", quantity: 1, dueAmount: 120 }, // inherits order category
+        ],
+      },
+    ]);
+    expect(rows.find((r) => r.sku === "L-CAT")?.category).toBe("Elektronik");
+    expect(rows.find((r) => r.sku === "O-CAT")?.category).toBe("Ev & Yaşam");
+  });
+
+  it("defaults to 'Diğer' when no category is present anywhere", () => {
+    const rows = mapN11OrdersToUserRawRows([
+      { orderNumber: "N11-NOCAT", lines: [{ stockCode: "X", quantity: 1, dueAmount: 50 }] },
+    ]);
+    expect(rows[0].category).toBe("Diğer");
+  });
+
+  it("folds a leaf path onto the internal taxonomy", () => {
+    const rows = mapN11OrdersToUserRawRows([
+      {
+        orderNumber: "N11-LEAF",
+        lines: [{ stockCode: "LEAF", quantity: 1, dueAmount: 80, categoryName: "Elektronik/Kulaklık" }],
+      },
+    ]);
+    expect(rows[0].category).toBe("Elektronik");
+  });
+
+  it("skips cancelled/rejected shipment packages so a non-sale never inflates revenue", () => {
+    const rows = mapN11OrdersToUserRawRows([
+      { orderNumber: "N11-CANCEL", shipmentStatus: "Cancelled", lines: [{ stockCode: "C-1", quantity: 1, dueAmount: 999 }] },
+      { orderNumber: "N11-IPTAL", status: "İptal Edildi", lines: [{ stockCode: "C-2", quantity: 1, dueAmount: 999 }] },
+      { orderNumber: "N11-RED", status: "Reddedildi", lines: [{ stockCode: "C-3", quantity: 1, dueAmount: 999 }] },
+      { orderNumber: "N11-OK", shipmentStatus: "Delivered", lines: [{ stockCode: "OK", quantity: 1, dueAmount: 200 }] },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].sku).toBe("OK");
+  });
+
+  it("a cancelled package with an unmappable schema does NOT trigger N11MappingError", () => {
+    const orders = [
+      { orderNumber: "N11-CANCEL-UNMAPPED", shipmentStatus: "Rejected", lines: [{ itemCode: "??", qty: 1, totalCost: 5 }] },
+    ] as unknown as Parameters<typeof mapN11OrdersToUserRawRows>[0];
+    expect(mapN11OrdersToUserRawRows(orders)).toEqual([]);
   });
 });

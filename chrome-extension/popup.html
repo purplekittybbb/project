@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrueMargin Asistan</title>
+  <style>
+    /* TrueMargin design tokens — inline for extension compatibility */
+    :root {
+      --tm-ink:          #12181B;
+      --tm-paper:        #F7F6F2;
+      --tm-ledger-green: #1F4D3A;
+      --tm-alert-clay:   #B3442C;
+      --tm-copper:       #9C6B3E;
+      --tm-mist:         #DCD9D2;
+      --tm-r-ui:         7px;
+      --tm-r-data:       3px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", ui-sans-serif, system-ui, sans-serif;
+      background: var(--tm-paper);
+      color: var(--tm-ink);
+      width: 320px;
+      min-height: 380px;
+      padding: 0;
+    }
+
+    .header {
+      background: var(--tm-ink);
+      color: var(--tm-paper);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .header-sub {
+      font-size: 10px;
+      opacity: 0.55;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .body {
+      padding: 14px 16px;
+    }
+
+    .section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--tm-ink);
+      opacity: 0.45;
+      margin-bottom: 10px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .form-group label {
+      font-size: 10px;
+      opacity: 0.55;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .form-group input {
+      background: white;
+      border: 1px solid var(--tm-mist);
+      border-radius: var(--tm-r-data);
+      padding: 6px 8px;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--tm-ink);
+      width: 100%;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .form-group input:focus {
+      border-color: var(--tm-copper);
+    }
+
+    .compute-btn {
+      width: 100%;
+      background: var(--tm-ink);
+      color: var(--tm-paper);
+      border: none;
+      border-radius: var(--tm-r-ui);
+      padding: 9px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.03em;
+      margin-bottom: 14px;
+      transition: opacity 0.15s;
+    }
+
+    .compute-btn:hover {
+      opacity: 0.85;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--tm-mist);
+      margin: 12px 0;
+    }
+
+    .result-box {
+      display: none;
+    }
+
+    .result-box.visible {
+      display: block;
+    }
+
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 6px 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--tm-mist) 50%, transparent);
+    }
+
+    .result-row:last-child {
+      border-bottom: none;
+    }
+
+    .result-label {
+      font-size: 11px;
+      opacity: 0.6;
+    }
+
+    .result-value {
+      font-size: 14px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.01em;
+    }
+
+    .result-value.profit  { color: var(--tm-ledger-green); }
+    .result-value.loss    { color: var(--tm-alert-clay); }
+    .result-value.neutral { color: var(--tm-copper); }
+
+    .error-msg {
+      font-size: 12px;
+      color: var(--tm-alert-clay);
+      padding: 8px 0;
+      display: none;
+    }
+
+    .error-msg.visible {
+      display: block;
+    }
+
+    .footer-note {
+      font-size: 10px;
+      opacity: 0.4;
+      text-align: center;
+      padding: 10px 16px;
+      border-top: 1px solid var(--tm-mist);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="header-title">TrueMargin</div>
+      <div class="header-sub">Gerçek Kâr Hesabı</div>
+    </div>
+  </div>
+
+  <div class="body">
+    <div class="section-label">Ürün Maliyetleri</div>
+
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="cogs">Maliyet (₺)</label>
+        <input type="number" id="cogs" placeholder="0.00" min="0" step="0.01" />
+      </div>
+      <div class="form-group">
+        <label for="shipping">Kargo (₺)</label>
+        <input type="number" id="shipping" placeholder="0.00" min="0" step="0.01" />
+      </div>
+      <div class="form-group">
+        <label for="commissionRate">Komisyon (%)</label>
+        <input type="number" id="commissionRate" placeholder="15" min="0" max="100" step="0.1" />
+      </div>
+      <div class="form-group">
+        <label for="vatRate">KDV (%)</label>
+        <input type="number" id="vatRate" placeholder="20" min="0" max="100" step="1" />
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 10px;">
+      <label for="salePrice">Mevcut Satış Fiyatı (₺)</label>
+      <input type="number" id="salePrice" placeholder="partner sayfasından okunur" min="0" step="0.01" />
+    </div>
+
+    <div class="form-group" style="margin-bottom: 14px;">
+      <label for="targetMargin">Hedef Marj (%)</label>
+      <input type="number" id="targetMargin" placeholder="15" min="0" max="100" step="0.5" />
+    </div>
+
+    <button class="compute-btn" id="computeBtn">Hesapla</button>
+
+    <div class="error-msg" id="errorMsg"></div>
+
+    <div class="result-box" id="resultBox">
+      <div class="section-label">Sonuçlar</div>
+      <div class="result-row">
+        <span class="result-label">Taban Fiyat (break-even)</span>
+        <span class="result-value neutral" id="floorPrice">—</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Hedef Satış Fiyatı</span>
+        <span class="result-value neutral" id="targetPrice">—</span>
+      </div>
+      <div class="divider"></div>
+      <div class="result-row">
+        <span class="result-label">Net Kâr (mevcut fiyat)</span>
+        <span class="result-value" id="netProfit">—</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Gerçek Marj</span>
+        <span class="result-value" id="marginPct">—</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-note">v1 — yalnızca kendi ürün analizi</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

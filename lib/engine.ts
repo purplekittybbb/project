@@ -209,6 +209,8 @@ export interface FeeWaterfall {
   returnsAllocated: number;
   adSpendAllocated: number;
   paymentFees: number;
+  /** Packaging cost (box/filler/label), aggregated. Optional — 0 when absent. */
+  packaging?: number;
   cogs: number;
   netContribution: number;
 }
@@ -345,6 +347,7 @@ function aggregateWaterfall(txs: Transaction[]): FeeWaterfall {
     returnsAllocated: 0,
     adSpendAllocated: 0,
     paymentFees: 0,
+    packaging: 0,
     cogs: 0,
     netContribution: 0,
   };
@@ -356,10 +359,11 @@ function aggregateWaterfall(txs: Transaction[]): FeeWaterfall {
     w.returnsAllocated += tx.fees.returnsAllocated;
     w.adSpendAllocated += tx.fees.adSpendAllocated;
     w.paymentFees += tx.fees.paymentFees;
+    w.packaging = (w.packaging ?? 0) + (tx.fees.packaging ?? 0);
     w.cogs += tx.cogs;
   }
   w.netContribution =
-    w.grossRevenue - w.commission - w.vat - w.shipping - w.returnsAllocated - w.adSpendAllocated - w.paymentFees - w.cogs;
+    w.grossRevenue - w.commission - w.vat - w.shipping - w.returnsAllocated - w.adSpendAllocated - w.paymentFees - (w.packaging ?? 0) - w.cogs;
   return w;
 }
 
@@ -381,6 +385,7 @@ export function normalizeTransactionsToTry(txs: Transaction[]): Transaction[] {
       returnsAllocated: convertAmount(t.fees.returnsAllocated, t.currency),
       adSpendAllocated: convertAmount(t.fees.adSpendAllocated, t.currency),
       paymentFees: convertAmount(t.fees.paymentFees, t.currency),
+      packaging: convertAmount(t.fees.packaging ?? 0, t.currency),
     },
   }));
 }
@@ -408,11 +413,12 @@ export interface PerMarketplaceMargins {
   };
 }
 
-const MARKETPLACES: Marketplace[] = ["trendyol", "amazon_us", "hepsiburada", "n11", "shopify"];
+const MARKETPLACES: Marketplace[] = ["trendyol", "amazon_us", "amazon_tr", "hepsiburada", "n11", "shopify"];
 
 export const MARKETPLACE_LABELS: Record<Marketplace, string> = {
   trendyol: "Trendyol (TRY)",
   amazon_us: "Amazon US (USD)",
+  amazon_tr: "Amazon TR (TRY)",
   hepsiburada: "Hepsiburada (TRY)",
   n11: "N11 (TRY)",
   shopify: "Shopify (USD)",
@@ -867,6 +873,7 @@ export function getBenchmarkRows(): BenchmarkRow[] {
 const SETTLEMENT_DELAY_DAYS: Record<Marketplace, number> = {
   trendyol:   17, // ~3d delivery + 14d Trendyol cycle
   amazon_us:  21, // ~5d FBA processing + 16d Amazon disbursement
+  amazon_tr:  14, // Amazon TR weekly disbursement — representative, verify on first live account
   hepsiburada: 15, // ~2d delivery + 13d Hepsiburada cycle
   n11:        16, // representative mid-point, not independently verified — see lib/adapters/n11.ts
   shopify:     2, // Shopify Payments payout cycle (no marketplace settlement delay — it's the seller's own store)

@@ -14,6 +14,7 @@
 import { getSupabaseClient } from "./client";
 import { TrendyolAdapter, type RawTrendyolRow } from "../adapters/trendyol";
 import { AmazonUsAdapter, type RawAmazonUsRow } from "../adapters/amazon-us";
+import { AmazonTrAdapter, type RawAmazonTrRow } from "../adapters/amazon-tr";
 import { HepsiburadaAdapter, type RawHepsiburadaRow } from "../adapters/hepsiburada";
 import { N11Adapter, type RawN11Row } from "../adapters/n11";
 import { ShopifyAdapter, type RawShopifyRow } from "../adapters/shopify";
@@ -21,6 +22,9 @@ import { aggregatePerceivedMargin, type SeededSeller } from "../engine";
 import type { Transaction } from "../domain/canonical";
 import { validateTransactions } from "../domain/schemas";
 import type { UserRawRow } from "../adapters/csv";
+import { localeForMarketplace } from "../domain/locale";
+import { enrichRowWithProductCost } from "../calc/enrich";
+import { loadProductCosts } from "./product-costs";
 
 const TABLE = "user_transactions";
 
@@ -29,6 +33,7 @@ export const USER_TENANT_ID = "user-data";
 
 const trendyol = new TrendyolAdapter();
 const amazonUs = new AmazonUsAdapter();
+const amazonTr = new AmazonTrAdapter();
 const hepsiburada = new HepsiburadaAdapter();
 const n11 = new N11Adapter();
 const shopify = new ShopifyAdapter();
@@ -37,7 +42,7 @@ export interface StoredRow extends UserRawRow {
   id: string;
 }
 
-/** DB column shape → UserRawRow. */
+/** DB column shape → UserRawRow. Includes columns added in migration 0012. */
 type DbRow = {
   id: string;
   order_id: string;
@@ -51,6 +56,10 @@ type DbRow = {
   return_rate: number;
   ad_spend: number;
   marketplace: string;
+  // 0012 columns (default 0 / 'TRY' / 'TR' on existing rows):
+  packaging?: number;
+  product_name?: string | null;
+  barcode?: string | null;
 };
 
 function toStored(r: DbRow): StoredRow {
@@ -66,7 +75,10 @@ function toStored(r: DbRow): StoredRow {
     shipping: Number(r.shipping),
     return_rate: Number(r.return_rate),
     ad_spend: Number(r.ad_spend),
+    packaging: Number(r.packaging ?? 0),
     marketplace: r.marketplace ?? "trendyol",
+    product_name: r.product_name ?? undefined,
+    barcode: r.barcode ?? undefined,
   };
 }
 
@@ -77,7 +89,13 @@ async function currentUserId(): Promise<string | null> {
   return data.user?.id ?? null;
 }
 
-/** Load the signed-in user's rows (RLS scopes to their own). */
+/** Load the signed-in user's rows (RLS scopes to their own).
+ *
+ * Rows are enriched with the seller's per-SKU cost profile (see
+ * lib/calc/enrich.ts + product_costs, migration 0015): a live marketplace sync
+ * stores COGS/shipping/return/ad/packaging as 0, and this fills those gaps from
+ * the stored profile WITHOUT overwriting values a CSV/manual entry provided.
+ * Enrichment soft-fails to a no-op until the 0015 migration is applied. */
 export async function loadUserRows(): Promise<StoredRow[]> {
   const supabase = getSupabaseClient();
   if (!supabase) return [];
@@ -86,7 +104,11 @@ export async function loadUserRows(): Promise<StoredRow[]> {
     .select("*")
     .order("sale_date", { ascending: true });
   if (error || !data) return [];
-  return (data as DbRow[]).map(toStored);
+
+  const stored = (data as DbRow[]).map(toStored);
+  const costs = await loadProductCosts(); // empty map (no-op) until 0015 lands
+  if (costs.size === 0) return stored;
+  return stored.map((r) => ({ ...enrichRowWithProductCost(r, costs.get(r.sku)), id: r.id }));
 }
 
 /** Insert new rows for the signed-in user. Returns an error message or null. */
@@ -108,7 +130,14 @@ export async function saveUserRows(rows: UserRawRow[]): Promise<{ error: string 
     shipping: r.shipping,
     return_rate: r.return_rate,
     ad_spend: r.ad_spend,
+    packaging: r.packaging ?? 0,
+    // 0012: locale columns — derived from marketplace (adapters set these at
+    // run-time; storing them here lets future per-row queries filter by currency).
+    currency: localeForMarketplace(r.marketplace).currency,
+    country_code: localeForMarketplace(r.marketplace).countryCode,
     marketplace: r.marketplace,
+    product_name: r.product_name ?? null,  // 0022: human-readable title for search
+    barcode: r.barcode ?? null,            // 0020: EAN/GTIN for cross-marketplace match
   }));
 
   const { error } = await supabase.from(TABLE).insert(payload);
@@ -141,8 +170,12 @@ export async function clearUserRows(): Promise<{ error: string | null }> {
  * marketplace without a dedicated adapter yet (no live engineChannel — see
  * lib/marketplaces.ts) is computed with the Trendyol fee model as a reasonable
  * estimate; it never crashes, it's just not marketplace-specific yet.
+ *
+ * Exported so server-side callers (e.g. resyncMarketplace post-sync insight
+ * recording) can convert raw rows to canonical Transactions without loading
+ * them from the DB.
  */
-function toCanonicalForMarketplace(tenantId: string, marketplaceId: string, rows: UserRawRow[]): Transaction[] {
+export function toCanonicalForMarketplace(tenantId: string, marketplaceId: string, rows: UserRawRow[]): Transaction[] {
   if (marketplaceId === "amazon_us") {
     const raw: RawAmazonUsRow[] = rows.map((r) => ({
       orderId: r.order_id,
@@ -155,8 +188,26 @@ function toCanonicalForMarketplace(tenantId: string, marketplaceId: string, rows
       fbaFee: r.shipping,
       returnRate: r.return_rate,
       adSpend: r.ad_spend,
+      packaging: r.packaging,
     }));
     return amazonUs.toCanonical(tenantId, raw);
+  }
+
+  if (marketplaceId === "amazon_tr") {
+    const raw: RawAmazonTrRow[] = rows.map((r) => ({
+      orderId: r.order_id,
+      sku: r.sku,
+      category: r.category,
+      saleDate: r.sale_date,
+      units: r.units,
+      grossRevenue: r.gross_revenue,
+      unitCost: r.unit_cost,
+      fbaFee: r.shipping,
+      returnRate: r.return_rate,
+      adSpend: r.ad_spend,
+      packaging: r.packaging,
+    }));
+    return amazonTr.toCanonical(tenantId, raw);
   }
 
   if (marketplaceId === "hepsiburada") {
@@ -171,6 +222,7 @@ function toCanonicalForMarketplace(tenantId: string, marketplaceId: string, rows
       shipping: r.shipping,
       returnRate: r.return_rate,
       adSpend: r.ad_spend,
+      packaging: r.packaging,
     }));
     return hepsiburada.toCanonical(tenantId, raw);
   }
@@ -187,6 +239,7 @@ function toCanonicalForMarketplace(tenantId: string, marketplaceId: string, rows
       shipping: r.shipping,
       returnRate: r.return_rate,
       adSpend: r.ad_spend,
+      packaging: r.packaging,
     }));
     return n11.toCanonical(tenantId, raw);
   }
@@ -203,6 +256,7 @@ function toCanonicalForMarketplace(tenantId: string, marketplaceId: string, rows
       shipping: r.shipping,
       returnRate: r.return_rate,
       adSpend: r.ad_spend,
+      packaging: r.packaging,
     }));
     return shopify.toCanonical(tenantId, raw);
   }
@@ -219,6 +273,7 @@ function toCanonicalForMarketplace(tenantId: string, marketplaceId: string, rows
     shipping: r.shipping,
     returnRate: r.return_rate,
     adSpend: r.ad_spend,
+    packaging: r.packaging,
   }));
   return trendyol.toCanonical(tenantId, raw);
 }

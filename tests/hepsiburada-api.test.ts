@@ -142,6 +142,7 @@ describe("mapHepsiburadaOrdersToUserRawRows — real order data mapping", () => 
       ad_spend: 0,
       marketplace: "hepsiburada",
       sale_date: "2026-06-15",
+      category: "Diğer",
     });
     expect(rows[1].sku).toBe("SKU-B");
     expect(rows[1].gross_revenue).toBe(100); // unitPrice.amount * units(1)
@@ -189,5 +190,26 @@ describe("mapHepsiburadaOrdersToUserRawRows — real order data mapping", () => 
   it("does NOT throw for a genuinely empty result (no orders — legitimate, not a bug)", () => {
     expect(mapHepsiburadaOrdersToUserRawRows([])).toEqual([]);
     expect(mapHepsiburadaOrdersToUserRawRows([{ orderNumber: "ORD-EMPTY", lineItems: [] }])).toEqual([]);
+  });
+
+  it("maps line categoryName onto the internal taxonomy", () => {
+    const rows = mapHepsiburadaOrdersToUserRawRows([
+      {
+        orderNumber: "HB-CAT",
+        lineItems: [
+          { sku: "E-1", quantity: 1, totalPrice: { amount: 100 }, categoryName: "Elektronik/Kulaklık" },
+          { sku: "M-1", quantity: 1, totalPrice: { amount: 80 }, CategoryName: "Giyim" },
+        ],
+      },
+    ]);
+    expect(rows.find((r) => r.sku === "E-1")?.category).toBe("Elektronik");
+    expect(rows.find((r) => r.sku === "M-1")?.category).toBe("Moda");
+  });
+
+  it("defaults to Diğer when the order line has no category field", () => {
+    const rows = mapHepsiburadaOrdersToUserRawRows([
+      { orderNumber: "HB-NOCAT", lineItems: [{ sku: "X", quantity: 1, totalPrice: { amount: 50 } }] },
+    ]);
+    expect(rows[0].category).toBe("Diğer");
   });
 });

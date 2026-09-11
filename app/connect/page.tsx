@@ -29,6 +29,8 @@ import {
 import { isStripeLiveEnabled } from "@/lib/billing/is-stripe-live-enabled";
 import { StripePaymentForm } from "@/components/StripePaymentForm";
 import { launchPlanDisplay } from "@/lib/product-market";
+import { LockIcon } from "@/components/trust/LockIcon";
+import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
 
 /**
  * Silently re-syncs every marketplace this signed-in user has stored (but
@@ -69,32 +71,37 @@ async function tryAutoReconnect(): Promise<boolean> {
   return true;
 }
 
-function LockIcon({ size = 12 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0">
-      <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 type Step = "connect" | "plan" | "card";
 
 function StepRail({ step }: { step: Step }) {
   const order: Step[] = ["connect", "plan", "card"];
   const idx = order.indexOf(step);
-  const labels = { connect: "Connect", plan: "Trial", card: "Payment" };
+  const labels = { connect: "Bağlantı", plan: "Deneme", card: "Ödeme" };
   return (
-    <div className="flex items-center gap-2 mb-10">
+    <div className="flex items-center gap-2 mb-10" aria-label="Onboarding adımları">
       {order.map((s, i) => (
         <div key={s} className="flex items-center gap-2">
           <div className="flex items-center gap-2">
-            <span className={`w-5 h-5 flex items-center justify-center font-mono text-[10px] tabular-nums border ${i <= idx ? "border-zinc-100 text-zinc-100" : "border-zinc-800 text-zinc-600"}`}>
+            <span
+              className={`w-5 h-5 flex items-center justify-center font-mono text-[10px] tnum border rounded-[var(--tm-r-data)] ${
+                i <= idx
+                  ? "border-[var(--tm-copper)] text-[var(--tm-copper)] bg-[color-mix(in_srgb,var(--tm-copper)_8%,var(--tm-paper))]"
+                  : "border-[var(--tm-mist)] text-muted-foreground"
+              }`}
+            >
               {i + 1}
             </span>
-            <span className={`text-[11px] uppercase tracking-[0.15em] font-sans ${i <= idx ? "text-zinc-300" : "text-zinc-600"}`}>{labels[s]}</span>
+            <span
+              className={`text-[11px] uppercase tracking-[0.15em] ${
+                i <= idx ? "text-foreground" : "text-muted-foreground"
+              }`}
+            >
+              {labels[s]}
+            </span>
           </div>
-          {i < order.length - 1 && <span className={`w-6 h-px ${i < idx ? "bg-zinc-500" : "bg-zinc-800"}`} />}
+          {i < order.length - 1 && (
+            <span className={`w-6 h-px ${i < idx ? "bg-[var(--tm-copper)]" : "bg-[var(--tm-mist)]"}`} />
+          )}
         </div>
       ))}
     </div>
@@ -225,8 +232,8 @@ function ConnectFlow() {
 
   if (!ready) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <span className="text-zinc-600 font-mono text-[11px] uppercase tracking-[0.2em]">Loading…</span>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <span className="text-muted-foreground text-sm">Hesabınız hazırlanıyor…</span>
       </div>
     );
   }
@@ -234,11 +241,9 @@ function ConnectFlow() {
   const plan = launchPlanDisplay();
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-200 font-sans flex flex-col items-center px-4 py-14">
-      <style>{`.ob-input:focus-visible { outline: 2px solid #52525b; outline-offset: 2px; }`}</style>
-
+    <div className="min-h-screen bg-background text-foreground font-sans flex flex-col items-center px-4 py-14">
       <div className="mb-10">
-        <span className="text-zinc-100 font-mono tracking-tight text-lg font-medium">TrueMargin</span>
+        <span className="font-heading text-lg font-bold tracking-tight">TrueMargin</span>
       </div>
 
       <div className={`w-full ${step === "connect" ? "max-w-[600px]" : "max-w-[440px]"}`}>
@@ -250,85 +255,112 @@ function ConnectFlow() {
 
         {step === "plan" && (
           <section>
-            <h1 className="text-[22px] font-semibold tracking-tight text-zinc-100 mb-2">Start your free trial</h1>
-            <div className="inline-flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 mb-6">
-              <span className="w-1.5 h-1.5 bg-emerald-400" />
-              <span className="text-emerald-300 text-[12px] font-medium tracking-wide">1 month free — no charge today</span>
+            <h1 className="font-heading text-[22px] font-semibold tracking-tight mb-2">Ücretsiz denemeyi başlatın</h1>
+            <div className="inline-flex items-center gap-2 fin-border-profit-subtle fin-bg-profit-subtle border px-3 py-1 mb-6 rounded-[var(--tm-r-data)]">
+              <span className="w-1.5 h-1.5 fin-dot-profit rounded-full" />
+              <span className="text-[12px] font-medium fin-profit">1 ay ücretsiz — bugün ücret yok</span>
             </div>
-            <div className="border border-zinc-800 bg-zinc-900/30 p-5">
+            <div className="border border-[var(--tm-mist)] bg-card rounded-[var(--tm-r-ui)] p-5">
               <div className="flex items-baseline justify-between mb-4">
                 <div>
-                  <div className="text-zinc-100 text-sm font-medium">Growth</div>
-                  <div className="text-zinc-600 text-[11px]">Full engine · all marketplaces</div>
+                  <div className="text-sm font-medium">Growth</div>
+                  <div className="text-[11px] text-muted-foreground">Tüm pazaryerleri · tam motor</div>
                 </div>
                 <div className="text-right">
-                  <div className="font-mono text-zinc-100 text-lg tabular-nums">{plan.symbol}0<span className="text-zinc-500 text-sm">/mo</span></div>
-                  <div className="text-zinc-600 text-[11px] font-mono tabular-nums">then {plan.formattedAfterTrial}</div>
+                  <div className="font-mono text-lg tnum">{plan.symbol}0<span className="text-muted-foreground text-sm">/ay</span></div>
+                  <div className="text-[11px] text-muted-foreground tnum">sonra {plan.formattedAfterTrial}</div>
                 </div>
               </div>
-              <ul className="space-y-2 border-t border-zinc-800 pt-4">
-                {["True per-SKU margin across every marketplace", "Underwriting + backtest vs incumbent", "Campaign & cash-flow simulators", "Analyst Copilot"].map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-[13px] text-zinc-400">
-                    <span className="text-zinc-500 mt-0.5">—</span><span>{f}</span>
+              <ul className="space-y-2 border-t border-[var(--tm-mist)] pt-4 text-[13px] text-muted-foreground">
+                {[
+                  "SKU bazlı gerçek net kâr",
+                  "Zarar alarmı ve güvenli fiyat",
+                  "Görünürlük ve talep sinyalleri",
+                  "Yapay zeka asistan (açıklamalı öneriler)",
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2">
+                    <span className="mt-0.5 fin-profit">—</span>
+                    <span>{f}</span>
                   </li>
                 ))}
               </ul>
             </div>
-            <p className="mt-4 text-[12px] text-zinc-500 leading-relaxed">
-              You won&apos;t be charged during your {TRIAL_DAYS}-day trial. Cancel anytime.
+            <p className="mt-4 text-[12px] text-muted-foreground leading-relaxed">
+              {TRIAL_DAYS} günlük deneme süresince ücret alınmaz. İstediğiniz zaman iptal edebilirsiniz.
             </p>
-            <button type="button" onClick={() => setStep("card")} className="ob-input mt-5 w-full h-11 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors">
-              Start free trial
+            <button type="button" onClick={() => setStep("card")} className="tm-btn-primary mt-5 w-full">
+              Denemeyi başlat
             </button>
           </section>
         )}
 
         {step === "card" && (
           <section>
-            <h1 className="text-[22px] font-semibold tracking-tight text-zinc-100 mb-2">Add a payment method</h1>
-            <p className="text-sm text-zinc-500 mb-6 leading-relaxed">
-              Required to start the trial. <span className="text-zinc-300">No charge today — your first month is free.</span>
+            <h1 className="font-heading text-[22px] font-semibold tracking-tight mb-2">Ödeme yöntemi ekleyin</h1>
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+              Denemeyi başlatmak için gerekli. <span className="text-foreground">Bugün ücret yok — ilk ay ücretsiz.</span>
             </p>
             {!stripeLive && (
-              <p className="mb-4 text-[11px] font-mono text-amber-400/90 border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-                Demo card form — Stripe not configured (no real charge or saved payment method).
+              <p className="mb-4 text-[11px] border border-[var(--tm-mist)] bg-secondary px-3 py-2 rounded-[var(--tm-r-data)] text-muted-foreground">
+                Demo kart formu — Stripe yapılandırılmadı (gerçek ödeme alınmaz).
               </p>
             )}
-            <div className="border border-zinc-800 bg-zinc-900/30 p-5">
-              <div className="flex items-center gap-1.5 text-zinc-500 text-[11px] mb-4 pb-3 border-b border-zinc-800">
-                <LockIcon /><span>No charge today. First month free.</span>
-              </div>
+            <SecurePaymentCapsule
+              hint="Bugün ücret alınmaz. Kart bilgileri kapsüllenmiş alanda işlenir."
+              footerHint={stripeLive ? "Stripe ile şifrelenmiş ödeme" : "Demo — gerçek ödeme yok"}
+            >
               {isAuthConfigured() && stripeLive ? (
                 <StripePaymentForm onSuccess={finish} />
               ) : (
                 <form onSubmit={(e) => { e.preventDefault(); void finish(); }} className="space-y-4">
                   <div>
-                    <label htmlFor="cardno" className="block text-[12px] font-medium text-zinc-400 mb-1.5">Card number</label>
-                    <input id="cardno" inputMode="numeric" autoComplete="off" value={cardNo} onChange={(e) => onCardNo(e.target.value)} placeholder="4242 4242 4242 4242" className="ob-input w-full border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-700 font-mono tabular-nums" />
+                    <label htmlFor="cardno" className="block text-[12px] font-medium mb-1.5">Kart numarası</label>
+                    <input
+                      id="cardno"
+                      inputMode="numeric"
+                      autoComplete="cc-number"
+                      value={cardNo}
+                      onChange={(e) => onCardNo(e.target.value)}
+                      placeholder="4242 4242 4242 4242"
+                      className="w-full border border-input bg-card px-3 py-2.5 text-sm tnum rounded-[var(--tm-r-data)] focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label htmlFor="exp" className="block text-[12px] font-medium text-zinc-400 mb-1.5">Expiry</label>
-                      <input id="exp" inputMode="numeric" autoComplete="off" value={exp} onChange={(e) => onExp(e.target.value)} placeholder="MM/YY" className="ob-input w-full border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm font-mono tabular-nums" />
+                      <label htmlFor="exp" className="block text-[12px] font-medium mb-1.5">Son kullanma</label>
+                      <input
+                        id="exp"
+                        inputMode="numeric"
+                        autoComplete="cc-exp"
+                        value={exp}
+                        onChange={(e) => onExp(e.target.value)}
+                        placeholder="AA/YY"
+                        className="w-full border border-input bg-card px-3 py-2.5 text-sm tnum rounded-[var(--tm-r-data)] focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
                     </div>
                     <div>
-                      <label htmlFor="cvc" className="block text-[12px] font-medium text-zinc-400 mb-1.5">CVC</label>
-                      <input id="cvc" inputMode="numeric" autoComplete="off" value={cvc} onChange={(e) => setCvc(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="123" className="ob-input w-full border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm font-mono tabular-nums" />
+                      <label htmlFor="cvc" className="block text-[12px] font-medium mb-1.5">CVC</label>
+                      <input
+                        id="cvc"
+                        inputMode="numeric"
+                        autoComplete="cc-csc"
+                        value={cvc}
+                        onChange={(e) => setCvc(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                        placeholder="123"
+                        className="w-full border border-input bg-card px-3 py-2.5 text-sm tnum rounded-[var(--tm-r-data)] focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
                     </div>
                   </div>
-                  <button type="submit" disabled={cardBusy} className="ob-input w-full h-11 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 disabled:opacity-50 transition-colors">
-                    {cardBusy ? "Starting trial…" : "Start free month"}
+                  <button type="submit" disabled={cardBusy} className="tm-btn-primary w-full">
+                    {cardBusy ? "Deneme başlatılıyor…" : "Ücretsiz ayı başlat"}
                   </button>
-                  {cardError && (
-                    <p className="text-red-400 text-[11px] font-mono">{cardError}</p>
-                  )}
-                  <div className="flex items-center justify-center gap-1.5 text-zinc-500 text-[11px]">
-                    <LockIcon /><span>Encrypted &amp; secure · demo — no real payment</span>
-                  </div>
+                  {cardError && <p role="alert" className="tm-field-error">{cardError}</p>}
                 </form>
               )}
-            </div>
-            <button type="button" onClick={() => setStep("plan")} className="mt-4 text-[11px] font-mono text-zinc-600 hover:text-zinc-400 uppercase tracking-widest">← Back</button>
+            </SecurePaymentCapsule>
+            <button type="button" onClick={() => setStep("plan")} className="mt-4 text-[11px] text-muted-foreground hover:text-foreground uppercase tracking-widest">
+              ← Geri
+            </button>
           </section>
         )}
       </div>
@@ -340,8 +372,8 @@ export default function ConnectPage() {
   return (
     <AuthGuard>
       <Suspense fallback={
-        <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-          <span className="text-zinc-600 font-mono text-[11px] uppercase tracking-[0.2em]">Loading…</span>
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <span className="text-muted-foreground text-sm">Yükleniyor…</span>
         </div>
       }>
         <ConnectFlow />
