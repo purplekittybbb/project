@@ -40,8 +40,8 @@ import type { SkuMargin } from "@/lib/domain/margin-engine";
  *
  * ── vercel.json cron ─────────────────────────────────────────────────────
  * Not listed in vercel.json crons intentionally — first run needs manual
- * trigger + user approval. To enable scheduled scans, add to vercel.json:
- *   { "path": "/api/cron/scan-visibility", "schedule": "0 */6 * * *" }
+ * trigger + user approval. To enable scheduled scans every 6 hours, add a
+ * crons entry for path /api/cron/scan-visibility (standard 6-hour cron expr).
  */
 
 export const runtime = "nodejs";
