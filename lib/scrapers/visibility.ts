@@ -34,6 +34,12 @@ export interface SearchResult {
   pageNumber: number;
 }
 
+export type ScrapeFailureCode =
+  | "empty_extraction"
+  | "confirmed_block"
+  | "navigation_failed"
+  | "no_browser";
+
 export interface VisibilityCheckResult {
   found: boolean;
   /** Global position: (page-1) * resultsPerPage + position */
@@ -46,6 +52,8 @@ export interface VisibilityCheckResult {
   results: SearchResult[];
   /** Set when the scrape failed gracefully. */
   error?: string;
+  /** Machine-readable failure reason when `error` is set. */
+  errorCode?: ScrapeFailureCode;
 }
 
 // ── Index check types ─────────────────────────────────────────────────────────
@@ -72,11 +80,25 @@ export const RESULTS_PER_PAGE: Record<VisibilityCheckInput["marketplace"], numbe
   n11: 24,
 };
 
-/** Selectors that indicate product cards have loaded, per marketplace. */
-const CARD_READY_SELECTOR: Record<VisibilityCheckInput["marketplace"], string> = {
-  trendyol:    '[data-testid="product-card"]',
-  hepsiburada: '[data-test-id="product-card-name"]',
-  n11:         ".pro-title",
+/** Primary + fallback card selectors (order matters). */
+export const CARD_SELECTOR_FALLBACKS: Record<
+  VisibilityCheckInput["marketplace"],
+  readonly string[]
+> = {
+  trendyol: [
+    '[data-testid="product-card"]',
+    ".p-card-wrppr",
+    "[class*='product-card']",
+    "[class*='productCard']",
+    "article",
+  ],
+  hepsiburada: [
+    '[data-test-id="product-card-name"]',
+    "[data-test-id='product-card']",
+    "[class*='product-card']",
+    "article",
+  ],
+  n11: [".pro-title", "[class*='productName']", "article"],
 };
 
 /**
@@ -287,6 +309,9 @@ export const BLOCK_SIGNALS = [
 /**
  * Check if a scrape result indicates the marketplace is blocking this IP.
  *
+ * Used by top100 and legacy paths. Visibility uses {@link detectConfirmedBlock}
+ * for confirmed blocks and treats empty extraction separately.
+ *
  * @param itemCount   - Number of items extracted from the page (0 = block signal).
  * @param errorText   - Optional error string from navigation/evaluation.
  * @returns true when scraping should stop (circuit breaker should increment).
@@ -303,19 +328,84 @@ export function checkBlockSignal(itemCount: number, errorText?: string): boolean
   return false;
 }
 
-// Internal alias used by the loop below
-function isBlockSignal(results: SearchResult[], error?: string): boolean {
-  return checkBlockSignal(results.length, error);
+/** HTTP status codes that indicate an active marketplace block. */
+const BLOCK_HTTP_STATUSES = new Set([403, 429, 503]);
+
+/**
+ * True when HTTP status or page copy indicates a bot/challenge page — not merely
+ * empty DOM extraction.
+ */
+export function detectConfirmedBlock(
+  httpStatus: number | undefined,
+  pageText: string,
+): boolean {
+  if (httpStatus !== undefined && BLOCK_HTTP_STATUSES.has(httpStatus)) return true;
+  const lower = pageText.toLowerCase();
+  return BLOCK_SIGNALS.some((s) => lower.includes(s));
+}
+
+function readGotoHttpStatus(gotoResult: unknown): number | undefined {
+  if (gotoResult && typeof gotoResult === "object" && "status" in gotoResult) {
+    const statusFn = (gotoResult as { status?: () => number }).status;
+    if (typeof statusFn === "function") return statusFn();
+  }
+  return undefined;
+}
+
+function bodySnippet(html: string, maxLen = 200): string {
+  return html.replace(/\s+/g, " ").trim().slice(0, maxLen);
+}
+
+function logScrapePageDiagnostics(params: {
+  pageNum: number;
+  marketplace: string;
+  keyword: string;
+  httpStatus?: number;
+  pageTitle?: string;
+  cardCount: number;
+  matchedSelector?: string | null;
+  outcome: "ok" | "empty_extraction" | "confirmed_block";
+  bodySnippet: string;
+}): void {
+  console.info(
+    "[visibility] page=%d marketplace=%s keyword=%s status=%s title=%s cards=%d selector=%s outcome=%s snippet=%s",
+    params.pageNum,
+    params.marketplace,
+    params.keyword,
+    params.httpStatus ?? "unknown",
+    JSON.stringify(params.pageTitle ?? ""),
+    params.cardCount,
+    params.matchedSelector ?? "none",
+    params.outcome,
+    JSON.stringify(params.bodySnippet),
+  );
+}
+
+async function waitForProductCards(
+  page: ScraperPage,
+  marketplace: VisibilityCheckInput["marketplace"],
+): Promise<string | null> {
+  if (!page.waitForSelector) return CARD_SELECTOR_FALLBACKS[marketplace][0];
+
+  for (const selector of CARD_SELECTOR_FALLBACKS[marketplace]) {
+    try {
+      await page.waitForSelector(selector, { timeout: 8_000 });
+      return selector;
+    } catch {
+      // try next fallback
+    }
+  }
+  return null;
 }
 
 /**
- * Circuit breaker state — tracks consecutive block signals per scrape session.
- * Purely in-process; resets per invocation of searchProductRank.
+ * Circuit breaker state — tracks consecutive failures per scrape session.
+ * Empty extraction and confirmed blocks are counted separately.
  */
 interface CircuitState {
-  consecutiveBlocks: number;
-  /** Max consecutive blocks before aborting the full scan. */
-  maxBlocks: number;
+  consecutiveEmpty: number;
+  consecutiveConfirmed: number;
+  maxConsecutive: number;
 }
 
 
@@ -329,9 +419,8 @@ interface CircuitState {
  * ANTI-BOT:
  *   - Random 2–5 s delay between pages (configurable via SCRAPE_DELAY_MIN_MS /
  *     SCRAPE_DELAY_MAX_MS env vars, both in milliseconds).
- *   - Circuit breaker: if 2 consecutive pages return block signals (0 results,
- *     403, captcha copy), scraping stops immediately and returns a "blocked"
- *     error. This prevents blind retries that worsen IP reputation.
+ *   - Circuit breaker: empty extraction (0 cards) and confirmed blocks (403,
+ *     captcha copy) are tracked separately with distinct error codes.
  *
  * NEVER throws — returns a safe error result on any failure.
  */
@@ -343,13 +432,17 @@ export async function searchProductRank(
   const maxPages = Math.min(input.maxPages ?? 3, 10); // hard max: 10
   const resultsPerPage = RESULTS_PER_PAGE[marketplace];
   const lowerTarget = targetTitle.toLowerCase();
+  const cardSelectors = CARD_SELECTOR_FALLBACKS[marketplace];
 
   // Anti-bot: read delay config from env (tests can override to 0)
   const delayMin = parseInt(process.env.SCRAPE_DELAY_MIN_MS ?? "2000", 10);
   const delayMax = parseInt(process.env.SCRAPE_DELAY_MAX_MS ?? "5000", 10);
 
-  // Circuit breaker state for this scrape session
-  const circuit: CircuitState = { consecutiveBlocks: 0, maxBlocks: 2 };
+  const circuit: CircuitState = {
+    consecutiveEmpty: 0,
+    consecutiveConfirmed: 0,
+    maxConsecutive: 2,
+  };
 
   if (!page) {
     return {
@@ -358,6 +451,7 @@ export async function searchProductRank(
       isOnFirstPage: false,
       results: [],
       error: "No browser page provided — call with a ScraperPage instance.",
+      errorCode: "no_browser",
     };
   }
 
@@ -366,9 +460,14 @@ export async function searchProductRank(
   try {
     for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
       const url = buildSearchUrl(marketplace, keyword, pageNum);
+      let httpStatus: number | undefined;
 
       try {
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+        const gotoResult = await page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout: 20_000,
+        });
+        httpStatus = readGotoHttpStatus(gotoResult);
       } catch (navErr) {
         return {
           found: false,
@@ -376,51 +475,57 @@ export async function searchProductRank(
           isOnFirstPage: false,
           results: allResults,
           error: `Navigation failed on page ${pageNum}: ${String(navErr)}`,
+          errorCode: "navigation_failed",
         };
       }
 
-      // ── Live DOM path (Playwright): wait for cards then evaluate ─────────
-      // ── Mock/test path (no evaluate): fall back to content() + regex ─────
+      let matchedSelector: string | null = null;
       let pageResults: SearchResult[];
 
       if (page.evaluate) {
-        // Wait for product cards to appear (SPA hydration)
-        if (page.waitForSelector) {
-          await page.waitForSelector(CARD_READY_SELECTOR[marketplace], { timeout: 10_000 })
-            .catch(() => { /* timeout is soft — still try to extract */ });
-        }
+        matchedSelector = await waitForProductCards(page, marketplace);
 
-        pageResults = await page.evaluate(
-          ({ marketplace: mp, pageNum: pn, resultsPerPage: rpp }) => {
-            const CARD_SELECTORS: Record<string, string> = {
-              trendyol:    '[data-testid="product-card"]',
-              hepsiburada: '[data-test-id="product-card-name"]',
-              n11:         ".pro-title",
-            };
-            const cards = document.querySelectorAll(CARD_SELECTORS[mp] ?? '[data-testid="product-card"]');
-            const out: Array<{ title: string; price: number; position: number; pageNumber: number }> = [];
+        pageResults = (await page.evaluate(
+          ({ selectors, pageNum: pn }) => {
+            let cards: NodeListOf<Element> | null = null;
+            for (const sel of selectors) {
+              const found = document.querySelectorAll(sel);
+              if (found.length > 0) {
+                cards = found;
+                break;
+              }
+            }
+            if (!cards) {
+              cards = document.querySelectorAll(
+                selectors[0] ?? '[data-testid="product-card"]',
+              );
+            }
+
+            const out: Array<{
+              title: string;
+              price: number;
+              position: number;
+              pageNumber: number;
+            }> = [];
 
             cards.forEach((card, idx) => {
-              // Title: prefer data-testid="product-name", then h3, then first meaningful text
               const titleEl =
                 card.querySelector('[data-testid="product-name"]') ??
+                card.querySelector('[data-testid="product-title"]') ??
                 card.querySelector('[class*="product-name"]') ??
-                card.querySelector('h3') ??
-                card.querySelector('h2');
+                card.querySelector('[class*="title"]') ??
+                card.querySelector("h3") ??
+                card.querySelector("h2");
               const title = (titleEl as HTMLElement)?.innerText?.trim() ?? "";
 
-              // Price: find the element whose text most cleanly looks like a TL price
-              // Walk all descendants; pick the LAST one matching "digits TL" (avoids
-              // crossed-out original prices and promotional text before the real price).
               let bestPrice = 0;
               card.querySelectorAll("*").forEach((el) => {
                 const txt = (el as HTMLElement).innerText ?? "";
-                // Match patterns like "259,80 TL" or "1.299 TL" (no child elements in text)
                 if (el.children.length === 0 && /\d/.test(txt) && txt.includes("TL")) {
                   const clean = txt.replace(/\./g, "").replace(",", ".").match(/[\d.]+/);
                   if (clean) {
                     const val = parseFloat(clean[0]);
-                    if (val > 0) bestPrice = val; // last valid price wins
+                    if (val > 0) bestPrice = val;
                   }
                 }
               });
@@ -430,43 +535,91 @@ export async function searchProductRank(
               }
             });
 
-            // Apply resultsPerPage offset for global rank calculation consistency
-            void rpp;
             return out;
           },
-          { marketplace, pageNum, resultsPerPage },
-        ) as SearchResult[];
+          { selectors: cardSelectors, pageNum },
+        )) as SearchResult[];
       } else {
-        // Test / mock path: content() returns pre-built HTML fixture
         const html = await page.content();
         pageResults = parseResults(marketplace, html, pageNum);
       }
 
+      const html = await page.content();
+      const snippet = bodySnippet(html);
+      const pageTitle = page.title ? await page.title() : undefined;
+      const pageText = `${pageTitle ?? ""} ${snippet}`;
+
       allResults.push(...pageResults);
 
-      // ── Circuit breaker: stop if blocked ──────────────────────────────────
-      if (isBlockSignal(pageResults)) {
-        circuit.consecutiveBlocks++;
-        console.warn("[visibility] Block signal on page %d (consecutive: %d). marketplace=%s keyword=%s",
-          pageNum, circuit.consecutiveBlocks, marketplace, keyword);
+      if (pageResults.length === 0) {
+        const confirmed = detectConfirmedBlock(httpStatus, pageText);
+        const outcome = confirmed ? "confirmed_block" : "empty_extraction";
 
-        if (circuit.consecutiveBlocks >= circuit.maxBlocks) {
-          console.error("[visibility] Circuit breaker OPEN — aborting scan. marketplace=%s keyword=%s",
-            marketplace, keyword);
-          return {
-            found: false,
-            isIndexed: false,
-            isOnFirstPage: false,
-            results: allResults,
-            error: `Marketplace blocked further scraping after ${circuit.consecutiveBlocks} consecutive block signals. Aborting to protect IP reputation.`,
-          };
+        logScrapePageDiagnostics({
+          pageNum,
+          marketplace,
+          keyword,
+          httpStatus,
+          pageTitle,
+          cardCount: 0,
+          matchedSelector,
+          outcome,
+          bodySnippet: snippet,
+        });
+
+        if (confirmed) {
+          circuit.consecutiveConfirmed++;
+          circuit.consecutiveEmpty = 0;
+          if (circuit.consecutiveConfirmed >= circuit.maxConsecutive) {
+            console.error(
+              "[visibility] Circuit breaker OPEN (confirmed_block). marketplace=%s keyword=%s",
+              marketplace,
+              keyword,
+            );
+            return {
+              found: false,
+              isIndexed: false,
+              isOnFirstPage: false,
+              results: allResults,
+              errorCode: "confirmed_block",
+              error: `Marketplace blocked scraping (${httpStatus ?? "bot challenge"} detected on ${circuit.consecutiveConfirmed} consecutive pages). Aborting to protect IP reputation.`,
+            };
+          }
+        } else {
+          circuit.consecutiveEmpty++;
+          circuit.consecutiveConfirmed = 0;
+          if (circuit.consecutiveEmpty >= circuit.maxConsecutive) {
+            console.error(
+              "[visibility] Circuit breaker OPEN (empty_extraction). marketplace=%s keyword=%s",
+              marketplace,
+              keyword,
+            );
+            return {
+              found: false,
+              isIndexed: false,
+              isOnFirstPage: false,
+              results: allResults,
+              errorCode: "empty_extraction",
+              error: `Could not extract product cards from ${circuit.consecutiveEmpty} consecutive pages (selector/timing issue or empty SERP).`,
+            };
+          }
         }
       } else {
-        // Reset on a clean page
-        circuit.consecutiveBlocks = 0;
+        circuit.consecutiveEmpty = 0;
+        circuit.consecutiveConfirmed = 0;
+        logScrapePageDiagnostics({
+          pageNum,
+          marketplace,
+          keyword,
+          httpStatus,
+          pageTitle,
+          cardCount: pageResults.length,
+          matchedSelector,
+          outcome: "ok",
+          bodySnippet: snippet,
+        });
       }
 
-      // Check if any result matches the target
       for (const result of pageResults) {
         if (result.title.toLowerCase().includes(lowerTarget)) {
           const globalRank = (pageNum - 1) * resultsPerPage + result.position;
@@ -481,14 +634,11 @@ export async function searchProductRank(
         }
       }
 
-      // ── Anti-bot: random delay before next page ────────────────────────────
-      // Skip delay after the last page (no next request follows)
       if (pageNum < maxPages && delayMax > 0) {
         await randomDelay(delayMin, delayMax);
       }
     }
 
-    // Not found within maxPages
     return {
       found: false,
       isIndexed: false,

@@ -11,6 +11,7 @@ import {
   buildSearchUrl,
   searchProductRank,
   checkIndex,
+  detectConfirmedBlock,
   type VisibilityCheckInput,
   type IndexCheckInput,
 } from "../../lib/scrapers/visibility";
@@ -81,6 +82,22 @@ const N11_FIXTURE_HTML = `
 </body>
 </html>
 `;
+
+// ── detectConfirmedBlock ──────────────────────────────────────────────────────
+
+describe("detectConfirmedBlock", () => {
+  it("detects HTTP 403 as confirmed block", () => {
+    expect(detectConfirmedBlock(403, "normal page")).toBe(true);
+  });
+
+  it("detects captcha copy in page text", () => {
+    expect(detectConfirmedBlock(200, "Please complete the captcha challenge")).toBe(true);
+  });
+
+  it("does not treat empty SERP HTML as confirmed block", () => {
+    expect(detectConfirmedBlock(200, "<html><body></body></html>")).toBe(false);
+  });
+});
 
 // ── buildSearchUrl ─────────────────────────────────────────────────────────────
 

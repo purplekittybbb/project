@@ -60,13 +60,15 @@ export async function GET(req: Request) {
     }));
 
     return NextResponse.json({
-      ok: true,
+      ok: !result.errorCode,
       mode: "live",
       runtime: session.runtime,
       serverless: isServerlessRuntime(),
       found: result.found,
       rank: result.rank,
       resultsCount: result.results.length,
+      error: result.error,
+      errorCode: result.errorCode,
       sample,
       elapsedMs: Date.now() - started,
     });

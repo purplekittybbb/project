@@ -19,12 +19,24 @@ if (process.env.VERCEL && !process.env.AWS_LAMBDA_JS_RUNTIME) {
   process.env.AWS_LAMBDA_JS_RUNTIME = "nodejs22.x";
 }
 
+/** Realistic desktop Chrome profile — matches scripts/selector-probe.ts. */
+export const SCRAPER_BROWSER_CONTEXT = {
+  userAgent:
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+  locale: "tr-TR",
+  viewport: { width: 1280, height: 720 },
+} as const;
+
 /**
  * Minimal interface mirroring the Playwright `Page` surface used by our scrapers.
  */
 export interface ScraperPage {
-  goto(url: string, options?: { waitUntil?: string; timeout?: number }): Promise<unknown>;
+  goto(
+    url: string,
+    options?: { waitUntil?: string; timeout?: number },
+  ): Promise<unknown>;
   content(): Promise<string>;
+  title?(): Promise<string>;
   waitForSelector?(selector: string, options?: { timeout?: number }): Promise<unknown>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   evaluate?<T>(fn: (arg: any) => T, arg?: unknown): Promise<T>;
@@ -44,6 +56,13 @@ export function isServerlessRuntime(): boolean {
       process.env.AWS_LAMBDA_FUNCTION_NAME ||
       process.env.AWS_EXECUTION_ENV,
   );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function openScraperPage(browser: any): Promise<ScraperPage> {
+  const context = await browser.newContext(SCRAPER_BROWSER_CONTEXT);
+  const page = await context.newPage();
+  return page as ScraperPage;
 }
 
 async function launchServerlessBrowser(): Promise<BrowserSession> {
@@ -66,13 +85,13 @@ async function launchServerlessBrowser(): Promise<BrowserSession> {
     executablePath,
     headless: true,
   });
-  const page = await browser.newPage();
+  const page = await openScraperPage(browser);
 
   return {
-    page: page as unknown as ScraperPage,
+    page,
     runtime: "serverless",
     close: async () => {
-      await page.close();
+      await page.close?.();
       await browser.close();
     },
   };
@@ -86,12 +105,12 @@ async function launchLocalBrowser(): Promise<BrowserSession> {
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
-    const page = await browser.newPage();
+    const page = await openScraperPage(browser);
     return {
-      page: page as ScraperPage,
+      page,
       runtime: "local",
       close: async () => {
-        await page.close();
+        await page.close?.();
         await browser.close();
       },
     };
@@ -101,7 +120,7 @@ async function launchLocalBrowser(): Promise<BrowserSession> {
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
-    const page = await browser.newPage();
+    const page = await openScraperPage(browser);
     return {
       page: page as unknown as ScraperPage,
       runtime: "local",
