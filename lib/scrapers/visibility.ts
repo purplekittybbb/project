@@ -344,10 +344,13 @@ export function detectConfirmedBlock(
   return BLOCK_SIGNALS.some((s) => lower.includes(s));
 }
 
-function readGotoHttpStatus(gotoResult: unknown): number | undefined {
+export function readGotoHttpStatus(gotoResult: unknown): number | undefined {
   if (gotoResult && typeof gotoResult === "object" && "status" in gotoResult) {
-    const statusFn = (gotoResult as { status?: () => number }).status;
-    if (typeof statusFn === "function") return statusFn();
+    const response = gotoResult as { status?: () => number };
+    // Must bind — detached .status() call loses `this` and throws on _initializer.
+    if (typeof response.status === "function") {
+      return response.status.call(gotoResult);
+    }
   }
   return undefined;
 }

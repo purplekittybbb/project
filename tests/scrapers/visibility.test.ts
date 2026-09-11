@@ -12,6 +12,7 @@ import {
   searchProductRank,
   checkIndex,
   detectConfirmedBlock,
+  readGotoHttpStatus,
   type VisibilityCheckInput,
   type IndexCheckInput,
 } from "../../lib/scrapers/visibility";
@@ -84,6 +85,17 @@ const N11_FIXTURE_HTML = `
 `;
 
 // ── detectConfirmedBlock ──────────────────────────────────────────────────────
+
+describe("readGotoHttpStatus", () => {
+  it("reads status without detaching the Response method", () => {
+    const response = { status: () => 200 };
+    expect(readGotoHttpStatus(response)).toBe(200);
+  });
+
+  it("returns undefined for null goto result", () => {
+    expect(readGotoHttpStatus(null)).toBeUndefined();
+  });
+});
 
 describe("detectConfirmedBlock", () => {
   it("detects HTTP 403 as confirmed block", () => {
