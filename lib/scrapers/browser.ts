@@ -88,6 +88,14 @@ async function openScraperPage(browser: any, runtime: "serverless" | "local"): P
   if (runtime === "serverless") {
     const page = await browser.newPage();
     await page.setViewportSize(SCRAPER_VIEWPORT);
+    // browser.newContext({ locale: "tr-TR" }) breaks frame init in Lambda
+    // (_initializer TypeError — see module comment), so locale can't be set
+    // via context here. Without it, Accept-Language defaults to the
+    // Chromium build's locale (not tr-TR), and Trendyol geo/lang-redirects
+    // the request to /en/select-country — an empty page with zero product
+    // cards. setExtraHTTPHeaders on the page (not the context) sidesteps
+    // the newContext bug and fixes that redirect.
+    await page.setExtraHTTPHeaders({ "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.3" });
     return {
       page: page as ScraperPage,
       dispose: async () => {
