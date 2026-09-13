@@ -1,22 +1,48 @@
 /**
- * Execute a standalone tool — shared-cache hit, then live scrape when browser
- * available, else preview.
+ * Execute a standalone tool — shared-cache hit, then live scrape when a
+ * concurrency slot + browser are available, else queued/preview.
  *
- * CONCURRENCY NOTE: visibility/index-check consult shared_visibility_scans
- * (keyword+marketplace, sku="" sentinel for guest queries) before touching a
- * browser. A fresh cache hit (< SHARED_SCAN_TTL_MS) is served straight from
- * Postgres — any number of concurrent visitors can be served this way with
- * zero scraping load. Only a cache MISS triggers a real scrape, and a
- * successful live scrape is written back so the next visitor asking the same
- * question gets the cached path. This is what keeps "everyone at once"
- * affordable without hammering the marketplace or the scraper host.
+ * CONCURRENCY NOTE (two layers, both required for "everyone at once"):
+ *
+ * 1. Cache layer — ALL FOUR scraper tools now consult a shared cache before
+ *    touching a browser:
+ *      - visibility / index-check → shared_visibility_scans (0027)
+ *      - price-track              → shared_price_track_scans (0031)
+ *      - top100                   → shared_top100_scans (0031)
+ *    A fresh cache hit is served straight from Postgres — any number of
+ *    concurrent visitors can be served this way with zero scraping load.
+ *
+ * 2. Concurrency guard — a cache MISS does NOT get an unconditional browser.
+ *    It must first acquire a cross-instance lease (migration 0029,
+ *    lib/supabase/scan-concurrency.ts) capped at SCRAPE_MAX_CONCURRENT per
+ *    marketplace. This is what stops a burst of simultaneous *different*
+ *    keywords (worst case: everyone searching something new at once) from
+ *    opening dozens of headless browsers against the marketplace at the
+ *    same instant — the exact bulk-request pattern that risks an IP ban.
+ *    A visitor who can't get a slot gets mode: "queued" immediately (no
+ *    hanging request) with a retry hint, instead of the request either
+ *    crashing the scraper host or silently piling on load.
+ *
+ * A successful live scrape is written back to the relevant shared cache so
+ * the next visitor asking the same question gets the free cached path, and
+ * every ask (hit or miss) is recorded in keyword_search_stats (0030) so the
+ * background pre-crawl worker (app/api/cron/precrawl-visibility) knows what
+ * to refresh proactively, before anyone even asks.
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { analyzeTop100 } from "@/lib/demand/top100";
+import { analyzeTop100, type Top100AnalysisResult } from "@/lib/demand/top100";
 import { createBrowserSession } from "@/lib/scrapers/browser";
-import { trackCompetitorPrices } from "@/lib/scrapers/price-tracker";
+import { trackCompetitorPrices, type PriceTrackResult } from "@/lib/scrapers/price-tracker";
 import { checkIndex, searchProductRank } from "@/lib/scrapers/visibility";
+import { recordKeywordSearch } from "@/lib/supabase/keyword-stats";
+import { acquireScrapeSlot, releaseScrapeSlot } from "@/lib/supabase/scan-concurrency";
+import {
+  loadSharedPriceTrackScan,
+  loadSharedTop100Scan,
+  upsertSharedPriceTrackScan,
+  upsertSharedTop100Scan,
+} from "@/lib/supabase/shared-scraper-cache";
 import { loadSharedVisibilityScan, upsertSharedVisibilityScan } from "@/lib/supabase/shared-visibility";
 import { buildPreviewResult } from "./demo-results";
 import type { ParsedToolQuery } from "./parse-query";
@@ -26,11 +52,29 @@ type ScraperToolId = Exclude<StandaloneToolId, "profit-calc">;
 
 export interface ToolRunEnvelope {
   toolId: ScraperToolId;
-  mode: "live" | "cached" | "preview";
+  mode: "live" | "cached" | "queued" | "preview";
   data: unknown;
 }
 
-const SHARED_SCAN_TTL_MS = 6 * 60 * 60 * 1000; // 6h — matches the cron's intended cadence.
+/** Shown to a guest who hit the concurrency cap — honest, not a fake spinner. */
+function buildQueuedEnvelope(toolId: ScraperToolId, retryAfterSeconds: number): ToolRunEnvelope {
+  return {
+    toolId,
+    mode: "queued",
+    data: {
+      message: "Şu anda yoğunluk var, tarayıcılar dolu. Birkaç saniye sonra otomatik tekrar deneyin.",
+      retryAfterSeconds,
+    },
+  };
+}
+
+// Different data ages differently. Visibility rank is fairly stable across a
+// day; prices move faster; a category's top-100 composition sits in between.
+// All three are refreshed proactively by the pre-crawl cron well before
+// these expire, so in steady state a visitor rarely sees anything this stale.
+const VISIBILITY_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+const PRICE_TRACK_TTL_MS = 3 * 60 * 60 * 1000; // 3h — prices move faster than rank.
+const TOP100_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 function anonSupabaseClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -80,15 +124,42 @@ async function cacheVisibilityResult(
   }
 }
 
+async function cachePriceTrackResult(input: ParsedToolQuery, result: PriceTrackResult): Promise<void> {
+  const svc = serviceRoleSupabaseClient();
+  if (!svc) return;
+  try {
+    await upsertSharedPriceTrackScan(svc, input.marketplace, input.keyword, result);
+  } catch {
+    // Best-effort — swallow.
+  }
+}
+
+async function cacheTop100Result(input: ParsedToolQuery, result: Top100AnalysisResult): Promise<void> {
+  const svc = serviceRoleSupabaseClient();
+  if (!svc) return;
+  try {
+    await upsertSharedTop100Scan(svc, input.marketplace, input.keyword, result);
+  } catch {
+    // Best-effort — swallow.
+  }
+}
+
 export async function runStandaloneTool(
   toolId: ScraperToolId,
   input: ParsedToolQuery,
 ): Promise<ToolRunEnvelope> {
+  const anon = anonSupabaseClient();
+
   if (toolId === "visibility" || toolId === "index-check") {
-    const anon = anonSupabaseClient();
+    // Demand signal for the pre-crawl worker — record every ask, hit or
+    // miss, so popularity is measured by real traffic, not by scrape count.
+    // visibility + index-check share ONE bucket: they read/write the same
+    // shared_visibility_scans row, so one refresh serves both tools.
+    void recordKeywordSearch(serviceRoleSupabaseClient(), "visibility", input.marketplace, input.keyword);
+
     if (anon) {
       const cached = await loadSharedVisibilityScan(anon, input.marketplace, input.keyword, undefined);
-      if (cached && isFresh(cached.scrapedAt, SHARED_SCAN_TTL_MS)) {
+      if (cached && isFresh(cached.scrapedAt, VISIBILITY_TTL_MS)) {
         if (toolId === "visibility") {
           return {
             toolId,
@@ -118,6 +189,34 @@ export async function runStandaloneTool(
         };
       }
     }
+  }
+
+  if (toolId === "price-track") {
+    void recordKeywordSearch(serviceRoleSupabaseClient(), "price-track", input.marketplace, input.keyword);
+    if (anon) {
+      const cached = await loadSharedPriceTrackScan(anon, input.marketplace, input.keyword);
+      if (cached && isFresh(cached.scrapedAt, PRICE_TRACK_TTL_MS)) {
+        return { toolId, mode: "cached", data: cached.result };
+      }
+    }
+  }
+
+  if (toolId === "top100") {
+    void recordKeywordSearch(serviceRoleSupabaseClient(), "top100", input.marketplace, input.keyword);
+    if (anon) {
+      const cached = await loadSharedTop100Scan(anon, input.marketplace, input.keyword);
+      if (cached && isFresh(cached.scrapedAt, TOP100_TTL_MS)) {
+        return { toolId, mode: "cached", data: cached.result };
+      }
+    }
+  }
+
+  // Cache missed (or doesn't apply to this tool) — this request wants a real
+  // scrape. Gate it behind the cross-instance concurrency lease first.
+  const anonForSlot = anon ?? anonSupabaseClient();
+  const slot = await acquireScrapeSlot(anonForSlot, input.marketplace);
+  if (!slot.acquired) {
+    return buildQueuedEnvelope(toolId, 8);
   }
 
   const session = await createBrowserSession();
@@ -179,6 +278,7 @@ export async function runStandaloneTool(
           },
           page,
         );
+        if (!data.error) await cachePriceTrackResult(input, data);
         return { toolId, mode: "live", data };
       }
       case "top100": {
@@ -190,6 +290,7 @@ export async function runStandaloneTool(
           },
           page,
         );
+        if (!data.error) await cacheTop100Result(input, data);
         return { toolId, mode: "live", data };
       }
       default: {
@@ -203,5 +304,6 @@ export async function runStandaloneTool(
     }
   } finally {
     await session?.close();
+    await releaseScrapeSlot(anonForSlot, slot.leaseId);
   }
 }
