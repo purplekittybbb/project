@@ -1,6 +1,6 @@
 "use client";
 
-import { fmtInt } from "@/lib/tools/format-tr";
+import { fmtInt, fmtRelativeTr } from "@/lib/tools/format-tr";
 
 const STATUS_TR: Record<string, string> = {
   first_page: "İlk sayfada indeksli",
@@ -17,12 +17,19 @@ export function IndexCheckResultPanel({ data, mode }: Props) {
   const status = String(data.status ?? "not_indexed");
   const isPreview = mode === "preview" || data.mode === "preview";
   const isStale = mode === "stale";
+  const scrapedAt = data.scrapedAt as string | undefined;
+  const scrapeError = data.error as string | undefined;
 
   return (
     <div className="space-y-4">
       {isPreview && (
         <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           Önizleme modu — canlı tarama için sunucuda tarayıcı oturumu gerekir.
+        </p>
+      )}
+      {scrapeError && (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+          Tarama tamamlanamadı — aşağıdaki durum gerçek olmayabilir. Lütfen birazdan tekrar deneyin.
         </p>
       )}
       {isStale && (
@@ -42,6 +49,9 @@ export function IndexCheckResultPanel({ data, mode }: Props) {
         <div><dt className="text-muted-foreground">Anahtar kelime</dt><dd>{String(data.keyword ?? "—")}</dd></div>
         <div className="sm:col-span-2"><dt className="text-muted-foreground">Ürün</dt><dd>{String(data.targetTitle ?? "—")}</dd></div>
       </dl>
+      {scrapedAt && (
+        <p className="text-xs text-muted-foreground">Veri {fmtRelativeTr(scrapedAt)} alındı.</p>
+      )}
     </div>
   );
 }

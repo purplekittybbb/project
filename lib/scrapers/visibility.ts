@@ -70,6 +70,11 @@ export interface IndexCheckResult {
   isOnFirstPage: boolean;
   rank?: number;
   status: "not_indexed" | "first_page" | "deep_page";
+  /** Set when the underlying scrape failed — a "not_indexed" status born
+   *  from a scrape error must never be confused with a genuine "product
+   *  really isn't indexed" finding. */
+  error?: string;
+  errorCode?: ScrapeFailureCode;
 }
 
 // ── URL builders ──────────────────────────────────────────────────────────────
@@ -684,6 +689,8 @@ export async function checkIndex(
       isIndexed: false,
       isOnFirstPage: false,
       status: "not_indexed",
+      error: result.error,
+      errorCode: result.errorCode,
     };
   }
 
@@ -692,5 +699,7 @@ export async function checkIndex(
     isOnFirstPage: result.isOnFirstPage,
     rank: result.rank,
     status: result.isOnFirstPage ? "first_page" : "deep_page",
+    error: result.error,
+    errorCode: result.errorCode,
   };
 }

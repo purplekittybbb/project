@@ -224,6 +224,10 @@ export async function GET(req: Request) {
           },
           page,
         );
+        // Same rule as the price-track/top100 buckets below: a failed
+        // scrape must never overwrite a good cache row with a bogus
+        // "not found" result that then gets served to every visitor.
+        if (result.error) return { ok: false, error: result.error };
         const shared = await upsertSharedVisibilityScan(supabase, {
           marketplace: candidate.marketplace,
           keyword: candidate.keyword,

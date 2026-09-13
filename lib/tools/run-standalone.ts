@@ -137,13 +137,15 @@ async function refreshStaleInBackground(toolId: ScraperToolId, input: ParsedTool
           { marketplace: input.marketplace, keyword: input.keyword, targetTitle: input.targetTitle, maxPages: 3 },
           page,
         );
-        await cacheVisibilityResult(input, {
-          rank: data.rank,
-          page: data.page,
-          isIndexed: data.isIndexed,
-          isOnFirstPage: data.isOnFirstPage,
-          searchResultCount: data.results.length,
-        });
+        if (!data.error) {
+          await cacheVisibilityResult(input, {
+            rank: data.rank,
+            page: data.page,
+            isIndexed: data.isIndexed,
+            isOnFirstPage: data.isOnFirstPage,
+            searchResultCount: data.results.length,
+          });
+        }
         break;
       }
       case "index-check": {
@@ -151,12 +153,14 @@ async function refreshStaleInBackground(toolId: ScraperToolId, input: ParsedTool
           { marketplace: input.marketplace, keyword: input.keyword, targetTitle: input.targetTitle, maxPages: 3 },
           page,
         );
-        await cacheVisibilityResult(input, {
-          rank: data.rank,
-          page: null,
-          isIndexed: data.isIndexed,
-          isOnFirstPage: data.isOnFirstPage,
-        });
+        if (!data.error) {
+          await cacheVisibilityResult(input, {
+            rank: data.rank,
+            page: null,
+            isIndexed: data.isIndexed,
+            isOnFirstPage: data.isOnFirstPage,
+          });
+        }
         break;
       }
       case "price-track": {
@@ -344,14 +348,22 @@ export async function runStandaloneTool(
           },
           page,
         );
-        await cacheVisibilityResult(input, {
-          rank: data.rank,
-          page: data.page,
-          isIndexed: data.isIndexed,
-          isOnFirstPage: data.isOnFirstPage,
-          searchResultCount: data.results.length,
-        });
-        return { toolId, mode: "live", data };
+        // Never cache a failed scrape as if it were a real result — that
+        // would serve a wrong "not found" answer to every visitor of this
+        // keyword until the TTL expires. Only a clean scrape is cached.
+        if (!data.error) {
+          await cacheVisibilityResult(input, {
+            rank: data.rank,
+            page: data.page,
+            isIndexed: data.isIndexed,
+            isOnFirstPage: data.isOnFirstPage,
+            searchResultCount: data.results.length,
+          });
+        }
+        // visibility/index-check scraper results carry no timestamp of their
+        // own — stamp one so every mode (live/cached/stale) always gives the
+        // frontend a scrapedAt to show, not just the cache-hit paths.
+        return { toolId, mode: "live", data: { ...data, scrapedAt: new Date().toISOString() } };
       }
       case "index-check": {
         const data = await checkIndex(
@@ -363,13 +375,15 @@ export async function runStandaloneTool(
           },
           page,
         );
-        await cacheVisibilityResult(input, {
-          rank: data.rank,
-          page: null,
-          isIndexed: data.isIndexed,
-          isOnFirstPage: data.isOnFirstPage,
-        });
-        return { toolId, mode: "live", data };
+        if (!data.error) {
+          await cacheVisibilityResult(input, {
+            rank: data.rank,
+            page: null,
+            isIndexed: data.isIndexed,
+            isOnFirstPage: data.isOnFirstPage,
+          });
+        }
+        return { toolId, mode: "live", data: { ...data, scrapedAt: new Date().toISOString() } };
       }
       case "price-track": {
         const data = await trackCompetitorPrices(
