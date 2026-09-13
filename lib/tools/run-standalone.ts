@@ -28,14 +28,30 @@
  * every ask (hit or miss) is recorded in keyword_search_stats (0030) so the
  * background pre-crawl worker (app/api/cron/precrawl-visibility) knows what
  * to refresh proactively, before anyone even asks.
+ *
+ * STALE-WHILE-REVALIDATE (free improvement, zero infra cost): a row past
+ * its TTL but still within cache-ttl.ts's STALE_GRACE_MULTIPLIER window is
+ * served INSTANTLY — honestly labelled mode: "stale", never disguised as
+ * fresh — instead of making that one visitor wait through a live scrape.
+ * A background refresh is scheduled via next/server's after() (runs after
+ * the response is sent, same invocation, no added latency for this
+ * visitor) so the next visitor gets a fresh row. This only matters for
+ * long-tail keywords the pre-crawl worker hasn't reached yet; in steady
+ * state most rows never even reach their base TTL.
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { after } from "next/server";
 import { analyzeTop100, type Top100AnalysisResult } from "@/lib/demand/top100";
 import { createBrowserSession } from "@/lib/scrapers/browser";
 import { trackCompetitorPrices, type PriceTrackResult } from "@/lib/scrapers/price-tracker";
 import { checkIndex, searchProductRank } from "@/lib/scrapers/visibility";
-import { PRICE_TRACK_TTL_MS, TOP100_TTL_MS, VISIBILITY_TTL_MS } from "@/lib/tools/cache-ttl";
+import {
+  PRICE_TRACK_TTL_MS,
+  STALE_GRACE_MULTIPLIER,
+  TOP100_TTL_MS,
+  VISIBILITY_TTL_MS,
+} from "@/lib/tools/cache-ttl";
 import { recordKeywordSearch } from "@/lib/supabase/keyword-stats";
 import { acquireScrapeSlot, releaseScrapeSlot } from "@/lib/supabase/scan-concurrency";
 import {
@@ -53,7 +69,7 @@ type ScraperToolId = Exclude<StandaloneToolId, "profit-calc">;
 
 export interface ToolRunEnvelope {
   toolId: ScraperToolId;
-  mode: "live" | "cached" | "queued" | "preview";
+  mode: "live" | "cached" | "stale" | "queued" | "preview";
   data: unknown;
 }
 
@@ -91,6 +107,78 @@ function serviceRoleSupabaseClient(): SupabaseClient | null {
 function isFresh(scrapedAtIso: string, maxAgeMs: number): boolean {
   const t = new Date(scrapedAtIso).getTime();
   return !Number.isNaN(t) && Date.now() - t < maxAgeMs;
+}
+
+/** Past TTL but still worth serving instantly while a refresh runs in the background. */
+function isWithinStaleGrace(scrapedAtIso: string, ttlMs: number): boolean {
+  return isFresh(scrapedAtIso, ttlMs * STALE_GRACE_MULTIPLIER);
+}
+
+/**
+ * Best-effort background refresh for a stale-but-in-grace row, scheduled via
+ * after() so it costs the triggering visitor nothing. Opportunistic: if no
+ * concurrency slot is free right now it just skips — the pre-crawl worker
+ * or a future visitor's own stale-trigger will get it eventually. Never
+ * throws, never blocks anything else.
+ */
+async function refreshStaleInBackground(toolId: ScraperToolId, input: ParsedToolQuery): Promise<void> {
+  const anon = anonSupabaseClient();
+  const slot = await acquireScrapeSlot(anon, input.marketplace);
+  if (!slot.acquired) return; // busy right now — don't compete with live guest traffic, just skip this cycle
+
+  const session = await createBrowserSession();
+  try {
+    const page = session?.page;
+    if (!page) return;
+
+    switch (toolId) {
+      case "visibility": {
+        const data = await searchProductRank(
+          { marketplace: input.marketplace, keyword: input.keyword, targetTitle: input.targetTitle, maxPages: 3 },
+          page,
+        );
+        await cacheVisibilityResult(input, {
+          rank: data.rank,
+          page: data.page,
+          isIndexed: data.isIndexed,
+          isOnFirstPage: data.isOnFirstPage,
+          searchResultCount: data.results.length,
+        });
+        break;
+      }
+      case "index-check": {
+        const data = await checkIndex(
+          { marketplace: input.marketplace, keyword: input.keyword, targetTitle: input.targetTitle, maxPages: 3 },
+          page,
+        );
+        await cacheVisibilityResult(input, {
+          rank: data.rank,
+          page: null,
+          isIndexed: data.isIndexed,
+          isOnFirstPage: data.isOnFirstPage,
+        });
+        break;
+      }
+      case "price-track": {
+        const data = await trackCompetitorPrices(
+          { marketplace: input.marketplace, keyword: input.keyword, maxResults: 20 },
+          page,
+        );
+        if (!data.error) await cachePriceTrackResult(input, data);
+        break;
+      }
+      case "top100": {
+        const data = await analyzeTop100({ marketplace: input.marketplace, keyword: input.keyword, maxItems: 100 }, page);
+        if (!data.error) await cacheTop100Result(input, data);
+        break;
+      }
+    }
+  } catch {
+    // Best-effort — the pre-crawl worker's next run (or the next stale hit) retries anyway.
+  } finally {
+    await session?.close().catch(() => { /* ignore close errors */ });
+    await releaseScrapeSlot(anon, slot.leaseId);
+  }
 }
 
 /** Best-effort cache write — never blocks or fails the response to the visitor. */
@@ -157,34 +245,40 @@ export async function runStandaloneTool(
 
     if (anon) {
       const cached = await loadSharedVisibilityScan(anon, input.marketplace, input.keyword, undefined);
-      if (cached && isFresh(cached.scrapedAt, VISIBILITY_TTL_MS)) {
-        if (toolId === "visibility") {
+      if (cached) {
+        const fresh = isFresh(cached.scrapedAt, VISIBILITY_TTL_MS);
+        const staleOk = !fresh && isWithinStaleGrace(cached.scrapedAt, VISIBILITY_TTL_MS);
+        if (fresh || staleOk) {
+          if (staleOk) after(() => void refreshStaleInBackground(toolId, input));
+          const mode = fresh ? "cached" : "stale";
+          if (toolId === "visibility") {
+            return {
+              toolId,
+              mode,
+              data: {
+                found: cached.rank != null,
+                rank: cached.rank ?? undefined,
+                page: cached.page ?? undefined,
+                isIndexed: cached.isIndexed,
+                isOnFirstPage: cached.isOnFirstPage,
+                searchResultCount: cached.searchResultCount,
+                results: [],
+                scrapedAt: cached.scrapedAt,
+              },
+            };
+          }
           return {
             toolId,
-            mode: "cached",
+            mode,
             data: {
-              found: cached.rank != null,
-              rank: cached.rank ?? undefined,
-              page: cached.page ?? undefined,
               isIndexed: cached.isIndexed,
               isOnFirstPage: cached.isOnFirstPage,
-              searchResultCount: cached.searchResultCount,
-              results: [],
+              rank: cached.rank ?? undefined,
+              status: !cached.isIndexed ? "not_indexed" : cached.isOnFirstPage ? "first_page" : "deep_page",
               scrapedAt: cached.scrapedAt,
             },
           };
         }
-        return {
-          toolId,
-          mode: "cached",
-          data: {
-            isIndexed: cached.isIndexed,
-            isOnFirstPage: cached.isOnFirstPage,
-            rank: cached.rank ?? undefined,
-            status: !cached.isIndexed ? "not_indexed" : cached.isOnFirstPage ? "first_page" : "deep_page",
-            scrapedAt: cached.scrapedAt,
-          },
-        };
       }
     }
   }
@@ -193,8 +287,13 @@ export async function runStandaloneTool(
     void recordKeywordSearch(serviceRoleSupabaseClient(), "price-track", input.marketplace, input.keyword);
     if (anon) {
       const cached = await loadSharedPriceTrackScan(anon, input.marketplace, input.keyword);
-      if (cached && isFresh(cached.scrapedAt, PRICE_TRACK_TTL_MS)) {
-        return { toolId, mode: "cached", data: cached.result };
+      if (cached) {
+        const fresh = isFresh(cached.scrapedAt, PRICE_TRACK_TTL_MS);
+        const staleOk = !fresh && isWithinStaleGrace(cached.scrapedAt, PRICE_TRACK_TTL_MS);
+        if (fresh || staleOk) {
+          if (staleOk) after(() => void refreshStaleInBackground(toolId, input));
+          return { toolId, mode: fresh ? "cached" : "stale", data: cached.result };
+        }
       }
     }
   }
@@ -203,8 +302,13 @@ export async function runStandaloneTool(
     void recordKeywordSearch(serviceRoleSupabaseClient(), "top100", input.marketplace, input.keyword);
     if (anon) {
       const cached = await loadSharedTop100Scan(anon, input.marketplace, input.keyword);
-      if (cached && isFresh(cached.scrapedAt, TOP100_TTL_MS)) {
-        return { toolId, mode: "cached", data: cached.result };
+      if (cached) {
+        const fresh = isFresh(cached.scrapedAt, TOP100_TTL_MS);
+        const staleOk = !fresh && isWithinStaleGrace(cached.scrapedAt, TOP100_TTL_MS);
+        if (fresh || staleOk) {
+          if (staleOk) after(() => void refreshStaleInBackground(toolId, input));
+          return { toolId, mode: fresh ? "cached" : "stale", data: cached.result };
+        }
       }
     }
   }

@@ -16,12 +16,18 @@ interface Props {
 export function IndexCheckResultPanel({ data, mode }: Props) {
   const status = String(data.status ?? "not_indexed");
   const isPreview = mode === "preview" || data.mode === "preview";
+  const isStale = mode === "stale";
 
   return (
     <div className="space-y-4">
       {isPreview && (
         <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           Önizleme modu — canlı tarama için sunucuda tarayıcı oturumu gerekir.
+        </p>
+      )}
+      {isStale && (
+        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+          Bu sonuç yakın zamanda alındı, şu anda arka planda güncelleniyor — birkaç dakika sonra tekrar sorgularsanız en güncel veriyi görürsünüz.
         </p>
       )}
       <div className="rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-card p-5">
