@@ -45,13 +45,12 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
   const [resultData, setResultData] = useState<Record<string, unknown> | null>(null);
   const [resultMode, setResultMode] = useState<string | undefined>();
   const [quota, setQuota] = useState<{ limit: number; remaining: number; used: number } | null>(null);
+  const [queueStatus, setQueueStatus] = useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setResultData(null);
+  /** Concurrency cap hit ("queued") — quietly retry a few times before giving up. */
+  const MAX_QUEUE_RETRIES = 5;
 
+  async function runQuery(attempt: number) {
     try {
       const res = await fetch(`/api/tools/${toolId}`, {
         method: "POST",
@@ -65,21 +64,45 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
         quota?: { limit: number; remaining: number; used: number };
       };
 
-      if (!res.ok) {
+      if (!res.ok && res.status !== 202) {
         setError(json.error ?? "Sorgu başarısız.");
         if (json.quota) setQuota(json.quota);
+        setLoading(false);
         return;
       }
 
+      if (json.mode === "queued") {
+        if (attempt >= MAX_QUEUE_RETRIES) {
+          setQueueStatus(null);
+          setError("Şu anda yoğunluk çok yüksek. Lütfen birazdan tekrar deneyin.");
+          setLoading(false);
+          return;
+        }
+        const wait = (json.data?.retryAfterSeconds as number | undefined) ?? 8;
+        setQueueStatus((json.data?.message as string | undefined) ?? "Şu anda yoğunluk var, sırada bekleniyor…");
+        setTimeout(() => runQuery(attempt + 1), wait * 1000);
+        return;
+      }
+
+      setQueueStatus(null);
       const payload = (json.data ?? json) as Record<string, unknown>;
       setResultData(payload);
       setResultMode(json.mode ?? (payload.mode as string | undefined));
       if (json.quota) setQuota(json.quota);
+      setLoading(false);
     } catch {
       setError("Bağlantı hatası. Lütfen tekrar deneyin.");
-    } finally {
       setLoading(false);
     }
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setResultData(null);
+    setQueueStatus(null);
+    await runQuery(0);
   }
 
   return (
@@ -129,7 +152,7 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
           disabled={loading}
           className="tm-btn-primary inline-flex h-10 items-center justify-center px-5 text-sm font-medium disabled:opacity-60"
         >
-          {loading ? "Sorgulanıyor…" : "Sorgula"}
+          {loading ? (queueStatus ? "Sırada bekleniyor…" : "Sorgulanıyor…") : "Sorgula"}
         </button>
         {quota && (
           <p className="text-xs text-muted-foreground">
@@ -137,6 +160,12 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
           </p>
         )}
       </form>
+
+      {queueStatus && !error && (
+        <div className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">
+          {queueStatus} Otomatik olarak tekrar denenecek.
+        </div>
+      )}
 
       {error && (
         <div className="mt-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">

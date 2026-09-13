@@ -80,13 +80,21 @@ export async function POST(req: Request, context: RouteContext) {
   const parsed = parseToolQuery(query, body.marketplace);
   const result = await runStandaloneTool(toolId, parsed);
 
-  return NextResponse.json({
-    ...result,
-    quota: {
-      limit: quota.limit,
-      remaining: quota.remaining,
-      used: quota.used,
-      enforced: quota.enforced,
+  // 202: the request is valid and will succeed on retry — this is not an
+  // error, just "no scrape capacity this instant." Lets the frontend tell
+  // a queued state apart from a real failure without parsing the body.
+  const status = result.mode === "queued" ? 202 : 200;
+
+  return NextResponse.json(
+    {
+      ...result,
+      quota: {
+        limit: quota.limit,
+        remaining: quota.remaining,
+        used: quota.used,
+        enforced: quota.enforced,
+      },
     },
-  });
+    { status },
+  );
 }
