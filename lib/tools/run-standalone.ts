@@ -35,6 +35,7 @@ import { analyzeTop100, type Top100AnalysisResult } from "@/lib/demand/top100";
 import { createBrowserSession } from "@/lib/scrapers/browser";
 import { trackCompetitorPrices, type PriceTrackResult } from "@/lib/scrapers/price-tracker";
 import { checkIndex, searchProductRank } from "@/lib/scrapers/visibility";
+import { PRICE_TRACK_TTL_MS, TOP100_TTL_MS, VISIBILITY_TTL_MS } from "@/lib/tools/cache-ttl";
 import { recordKeywordSearch } from "@/lib/supabase/keyword-stats";
 import { acquireScrapeSlot, releaseScrapeSlot } from "@/lib/supabase/scan-concurrency";
 import {
@@ -68,13 +69,10 @@ function buildQueuedEnvelope(toolId: ScraperToolId, retryAfterSeconds: number): 
   };
 }
 
-// Different data ages differently. Visibility rank is fairly stable across a
-// day; prices move faster; a category's top-100 composition sits in between.
-// All three are refreshed proactively by the pre-crawl cron well before
-// these expire, so in steady state a visitor rarely sees anything this stale.
-const VISIBILITY_TTL_MS = 6 * 60 * 60 * 1000; // 6h
-const PRICE_TRACK_TTL_MS = 3 * 60 * 60 * 1000; // 3h — prices move faster than rank.
-const TOP100_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+// TTLs live in lib/tools/cache-ttl.ts (shared with the pre-crawl cron and
+// the admin scraper-health endpoint, so all three always agree). All three
+// are refreshed proactively by the pre-crawl cron well before they expire,
+// so in steady state a visitor rarely sees anything this stale.
 
 function anonSupabaseClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

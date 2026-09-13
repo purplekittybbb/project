@@ -13,7 +13,7 @@
     },
     {
       "path": "/api/cron/precrawl-visibility",
-      "schedule": "*/20 * * * *"
+      "schedule": "*/15 * * * *"
     }
   ]
 }

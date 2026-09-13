@@ -5,9 +5,11 @@ import { createBrowserSession, type ScraperPage } from "@/lib/scrapers/browser";
 import { trackCompetitorPrices } from "@/lib/scrapers/price-tracker";
 import { searchProductRank } from "@/lib/scrapers/visibility";
 import { loadPrecrawlCandidates, type PrecrawlCandidate, type PrecrawlToolId } from "@/lib/supabase/keyword-stats";
+import { insertPrecrawlRun } from "@/lib/supabase/precrawl-log";
 import { acquireScrapeSlot, maxConcurrentScrapes, releaseScrapeSlot } from "@/lib/supabase/scan-concurrency";
 import { upsertSharedPriceTrackScan, upsertSharedTop100Scan } from "@/lib/supabase/shared-scraper-cache";
 import { upsertSharedVisibilityScan } from "@/lib/supabase/shared-visibility";
+import { PRICE_TRACK_TTL_MS, TOP100_TTL_MS, VISIBILITY_TTL_MS } from "@/lib/tools/cache-ttl";
 
 /**
  * GET /api/cron/precrawl-visibility
@@ -33,14 +35,19 @@ import { upsertSharedVisibilityScan } from "@/lib/supabase/shared-visibility";
  * route on schedule (see vercel.json).
  *
  * ── Rate limit guard ────────────────────────────────────────────────────
- * At most PRECRAWL_BATCH_SIZE (default 2, max 4) keywords PER TOOL bucket
- * per invocation (so ≤12 scans total across all 3 tools), one at a time
- * (never Promise.all), with a delay between each scan. Every scan also goes
- * through the SAME cross-instance concurrency lease
+ * At most PRECRAWL_BATCH_SIZE (default 3, max 6, env-tunable) keywords PER
+ * TOOL bucket per invocation (so ≤18 scans total across all 3 tools), one
+ * at a time (never Promise.all), with a delay between each scan. Every scan
+ * also goes through the SAME cross-instance concurrency lease
  * (lib/supabase/scan-concurrency.ts, migration 0029) that guest live
  * requests use — this worker shares the marketplace-wide cap, it does not
  * get a separate budget. If live guest traffic is already using every slot,
- * this run simply skips that keyword's turn rather than adding load.
+ * this run simply skips that keyword's turn rather than adding load. This
+ * is WHY the batch size and the "*\/15" schedule below can be turned up
+ * safely: no matter how large PRECRAWL_BATCH_SIZE is set, or how often this
+ * fires, the concurrency lease is the actual hard ceiling on marketplace
+ * load — a bigger batch just means more candidates COMPETE for the same
+ * capped slots, it can never add slots.
  *
  * ── Graceful degradation ────────────────────────────────────────────────
  * Same as every other scraper cron in this codebase: if a browser session
@@ -48,25 +55,32 @@ import { upsertSharedVisibilityScan } from "@/lib/supabase/shared-visibility";
  * applied yet, this returns a normal 200 with zero scanned rather than
  * failing the cron (soft-fail, not an alert-worthy error).
  *
+ * ── Observability (migration 0032) ─────────────────────────────────────
+ * Every invocation — including a no-op "browser unavailable" one — writes
+ * one row to precrawl_runs (scanned/refreshed/skipped-busy/errors + a
+ * per-tool breakdown). GET /api/admin/scraper-health reads the last few
+ * runs plus current queue/cache state, so this worker's health is a single
+ * authenticated request away instead of raw Vercel logs.
+ *
  * ── vercel.json cron ────────────────────────────────────────────────────
- * Runs every 20 minutes: "*\/20 * * * *". Not active until this file is
- * deployed AND migrations 0029, 0030, 0031 are applied in Supabase.
+ * Runs every 15 minutes: "*\/15 * * * *". Not active until this file is
+ * deployed AND migrations 0029, 0030, 0031, 0032 are applied in Supabase.
  */
 
 export const runtime = "nodejs";
 export const maxDuration = 280;
 
 const SCAN_DELAY_MS = 4_000;
-const DEFAULT_BATCH_SIZE_PER_TOOL = 2;
-const MAX_BATCH_SIZE_PER_TOOL = 4;
+const DEFAULT_BATCH_SIZE_PER_TOOL = 3;
+const MAX_BATCH_SIZE_PER_TOOL = 6;
 const CANDIDATE_POOL_SIZE = 40;
 
-/** Mirrors the read-side TTLs in lib/tools/run-standalone.ts — refresh
- *  BEFORE the cache actually goes stale for a visitor, not after. */
+/** Refresh BEFORE the cache actually goes stale for a visitor (half of each
+ *  read-side TTL from lib/tools/cache-ttl.ts), not after. */
 const STALE_AFTER_MS: Record<PrecrawlToolId, number> = {
-  visibility: 3 * 60 * 60 * 1000, // half of the 6h visibility TTL
-  "price-track": 1.5 * 60 * 60 * 1000, // half of the 3h price-track TTL
-  top100: 3 * 60 * 60 * 1000, // half of the 6h top100 TTL
+  visibility: VISIBILITY_TTL_MS / 2,
+  "price-track": PRICE_TRACK_TTL_MS / 2,
+  top100: TOP100_TTL_MS / 2,
 };
 
 function delay(ms: number): Promise<void> {
@@ -179,10 +193,18 @@ export async function GET(req: Request) {
   const session = await createBrowserSession();
   if (!session) {
     console.warn("[cron/precrawl-visibility] Browser session unavailable — Playwright not installed or failed to start.");
+    await insertPrecrawlRun(supabase, {
+      scanned: 0,
+      refreshed: 0,
+      skippedBusy: 0,
+      errorCount: 1,
+      details: { reason: "Browser session unavailable" },
+    });
     return NextResponse.json({ scanned: 0, refreshed: 0, skippedBusy: 0, errors: ["Browser session unavailable"] });
   }
 
   let total: RunSummary = { scanned: 0, refreshed: 0, skippedBusy: 0, errors: [] };
+  const perTool: Record<string, RunSummary> = {};
 
   try {
     const visibilitySummary = await precrawlTool(
@@ -216,6 +238,7 @@ export async function GET(req: Request) {
       },
     );
     total = mergeSummaries(total, visibilitySummary);
+    perTool.visibility = visibilitySummary;
 
     const priceTrackSummary = await precrawlTool(
       "price-track",
@@ -235,6 +258,7 @@ export async function GET(req: Request) {
       },
     );
     total = mergeSummaries(total, priceTrackSummary);
+    perTool["price-track"] = priceTrackSummary;
 
     const top100Summary = await precrawlTool(
       "top100",
@@ -254,6 +278,7 @@ export async function GET(req: Request) {
       },
     );
     total = mergeSummaries(total, top100Summary);
+    perTool.top100 = top100Summary;
   } finally {
     await session.close().catch(() => { /* ignore close errors */ });
   }
@@ -261,5 +286,23 @@ export async function GET(req: Request) {
   console.log(
     `[cron/precrawl-visibility] Done: scanned=${total.scanned}, refreshed=${total.refreshed}, skipped-busy=${total.skippedBusy}, errors=${total.errors.length}`,
   );
+
+  await insertPrecrawlRun(supabase, {
+    scanned: total.scanned,
+    refreshed: total.refreshed,
+    skippedBusy: total.skippedBusy,
+    errorCount: total.errors.length,
+    details: {
+      batchSize,
+      perTool: Object.fromEntries(
+        Object.entries(perTool).map(([tool, s]) => [
+          tool,
+          { scanned: s.scanned, refreshed: s.refreshed, skippedBusy: s.skippedBusy, errors: s.errors.slice(0, 5) },
+        ]),
+      ),
+      // Cap stored errors so one runaway tool can't bloat the log row.
+      errors: total.errors.slice(0, 20),
+    },
+  });
   return NextResponse.json(total);
 }
