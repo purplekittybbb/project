@@ -23,17 +23,17 @@ export function IndexCheckResultPanel({ data, mode }: Props) {
   return (
     <div className="space-y-4">
       {isPreview && (
-        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <p className="rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
           Önizleme modu — canlı tarama için sunucuda tarayıcı oturumu gerekir.
         </p>
       )}
       {scrapeError && (
-        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+        <p className="tm-field-error-box rounded-[var(--tm-r-ui)]">
           Tarama tamamlanamadı — aşağıdaki durum gerçek olmayabilir. Lütfen birazdan tekrar deneyin.
         </p>
       )}
       {isStale && (
-        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+        <p className="rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
           Bu sonuç yakın zamanda alındı, şu anda arka planda güncelleniyor — birkaç dakika sonra tekrar sorgularsanız en güncel veriyi görürsünüz.
         </p>
       )}

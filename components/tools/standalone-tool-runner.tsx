@@ -107,7 +107,7 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
 
   return (
     <div className="mx-auto max-w-3xl">
-      <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-emerald-800">
+      <span className="inline-flex rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-secondary px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         Ücretsiz Dene
       </span>
       <h1 className="mt-4 font-heading text-3xl font-bold tracking-tight text-foreground">{title}</h1>
@@ -162,13 +162,13 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
       </form>
 
       {queueStatus && !error && (
-        <div className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">
+        <div className="mt-6 rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-secondary/50 px-4 py-3 text-sm text-muted-foreground" role="status">
           {queueStatus} Otomatik olarak tekrar denenecek.
         </div>
       )}
 
       {error && (
-        <div className="mt-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+        <div className="mt-6 tm-field-error-box rounded-[var(--tm-r-ui)]" role="alert">
           {error}
         </div>
       )}

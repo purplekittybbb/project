@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { ToolDefinition } from "@/lib/tools/registry";
 import { useStoreToolData } from "./use-store-tool-data";
 
@@ -16,12 +18,29 @@ export function StoreToolShell({
   ) => ReactNode;
 }) {
   const state = useStoreToolData(tool.href);
+  const router = useRouter();
+
+  // This tool's real data is already live inside the unified /dashboard shell
+  // (fixed sidebar, no full page reload between sections) — a connected user
+  // landing here from a search link or an old bookmark should end up there
+  // rather than in this separate, thinner marketing-chrome page. Tools that
+  // are NOT actually embedded in the dashboard (dashboardHref === tool.href,
+  // e.g. Güvenli Fiyat, Barkod Analizi) never redirect — see registry.ts.
+  const redirectsToDashboard =
+    state.status === "ready" && !!tool.dashboardHref && tool.dashboardHref !== tool.href;
+
+  useEffect(() => {
+    if (redirectsToDashboard) {
+      router.replace(tool.dashboardHref as string);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [redirectsToDashboard]);
 
   async function refresh() {
     if (typeof window !== "undefined") window.location.reload();
   }
 
-  if (state.status === "loading" || state.status === "anonymous") {
+  if (state.status === "loading" || state.status === "anonymous" || redirectsToDashboard) {
     return <div className="py-16 text-center text-sm text-muted-foreground">Yükleniyor…</div>;
   }
 

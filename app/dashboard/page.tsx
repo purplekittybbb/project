@@ -30,7 +30,7 @@
  *  - Analyst Copilot → its own sidebar tab, streaming from /api/chat (grounded in lib/engine)
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/i18n/useLanguage";
@@ -39,6 +39,7 @@ import { translateRationale, translateBenchmarkLabel } from "@/lib/i18n/translat
 import {
   ChevronDown, Sparkles, ArrowUpRight,
   LayoutDashboard, Users, Briefcase, History as HistoryIcon, Settings, Package, Tag, Landmark, Database,
+  ShieldCheck, Barcode as BarcodeIcon,
 } from "lucide-react";
 import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
 import {
@@ -67,7 +68,11 @@ import { computeListQuality } from "@/lib/quality/list-score";
 import { DemandEstimateCard } from "@/components/DemandEstimateCard";
 import { estimateDemand } from "@/lib/demand/signals";
 import { loadDemandEstimates, type StoredDemandEstimate } from "@/lib/supabase/demand-estimates";
-import { productTitleForSku } from "@/lib/tools/sku-economics";
+import { UpgradePlanPanel } from "@/components/billing/UpgradePlanPanel";
+import { productTitleForSku, buildSkuEconomicsMap } from "@/lib/tools/sku-economics";
+import { SafePriceStorePage } from "@/components/tools/store/safe-price-page";
+import { BarcodeStorePage } from "@/components/tools/store/barcode-page";
+import type { StoreToolState } from "@/components/tools/store/use-store-tool-data";
 import type { DemandRangeResult } from "@/lib/demand/signals";
 import { loadMyWatchedVisibility } from "@/lib/supabase/shared-visibility";
 import { pickWatchedVisibility } from "@/lib/visibility/display";
@@ -484,6 +489,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       isDemo?: boolean;
       updatedAt: string;
     } | null;
+    // Real paid plan (iyzico) — separate from the Stripe/demo-trial row above.
+    paidPlan: {
+      planId: "starter" | "pro";
+      status: string;
+      currentPeriodEnd: string | null;
+      cancelledAt: string | null;
+    } | null;
   }
   const [billingStatus, setBillingStatus] = useState<BillingStatusView | null>(null);
   const [billingStatusError, setBillingStatusError] = useState<string | null>(null);
@@ -674,6 +686,23 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // showing the real combined data. Always derive from `view.tenantId`/
   // `view.channel`, never the raw state.
   const silentLoserInsight = getSilentLoserInsight(view.tenantId, view.channel);
+
+  // Reuses the exact same "Ready" shape components/tools/store/*-page.tsx
+  // already render from (built via lib/tools/sku-economics, same as the
+  // standalone /araclar/guvenli-fiyat + /araclar/barkod-analizi pages) — so
+  // Güvenli Fiyat / Barkod Analizi can live as real tabs INSIDE this shell
+  // without forking their logic. demandEstimates is left empty: neither
+  // SafePriceStorePage nor BarcodeStorePage reads that field.
+  const storeToolData: Extract<StoreToolState, { status: "ready" }> = useMemo(
+    () => ({
+      status: "ready",
+      view,
+      rows: userRows,
+      skuEconomics: buildSkuEconomicsMap(userRows),
+      demandEstimates: [],
+    }),
+    [view, userRows]
+  );
 
   // List quality panel: which SKU's quality panel is currently open (null = none)
   const [openQualityPanelSku, setOpenQualityPanelSku] = useState<string | null>(null);
@@ -886,6 +915,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const navItems = [
     { id: "Dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
     { id: "Verilerim", labelKey: "nav.myData", icon: Database },
+    { id: "GuvenliFiyat", labelKey: "nav.safePrice", icon: ShieldCheck },
+    { id: "Barkod", labelKey: "nav.barcode", icon: BarcodeIcon },
     { id: "Sellers", labelKey: "nav.sellers", icon: Users },
     { id: "Financing", labelKey: "nav.financing", icon: Briefcase },
     { id: "Campaign", labelKey: "nav.campaign", icon: Tag },
@@ -1586,6 +1617,35 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
             </div>
           )}
 
+          {/* VIEW: GÜVENLİ FİYAT — same component as the standalone /araclar/guvenli-fiyat
+              page, now living inside the shell instead of a separate marketing-chrome
+              page. Reuses storeToolData (built above from the same real userRows this
+              whole dashboard already renders from) rather than forking the logic. */}
+          {currentTab === "GuvenliFiyat" && (
+            <div className="max-w-[1100px] mx-auto px-8 py-12 md:py-16">
+              {storeToolData.skuEconomics.size === 0 ? (
+                <p className="text-zinc-600 font-mono text-[12px]">
+                  Henüz veri yok — Verilerim sekmesinden yükleyin veya mağaza bağlayın.
+                </p>
+              ) : (
+                <SafePriceStorePage data={storeToolData} />
+              )}
+            </div>
+          )}
+
+          {/* VIEW: BARKOD ANALİZİ — same as /araclar/barkod-analizi, moved into the shell. */}
+          {currentTab === "Barkod" && (
+            <div className="max-w-[1100px] mx-auto px-8 py-12 md:py-16">
+              {storeToolData.skuEconomics.size === 0 ? (
+                <p className="text-zinc-600 font-mono text-[12px]">
+                  Henüz veri yok — Verilerim sekmesinden yükleyin veya mağaza bağlayın.
+                </p>
+              ) : (
+                <BarcodeStorePage data={storeToolData} onRefresh={async () => { if (typeof window !== "undefined") window.location.reload(); }} />
+              )}
+            </div>
+          )}
+
           {/* VIEW: CAMPAIGN — campaign discount simulator, live recompute via engine */}
           {currentTab === "Campaign" && view && (
             <div className="max-w-[1100px] mx-auto px-8 py-12 md:py-20">
@@ -1922,6 +1982,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   </div>
                 )}
               </div>
+
+              {authConfigured && billingStatus && (
+                <UpgradePlanPanel paidPlan={billingStatus.paidPlan} onChanged={loadBillingStatus} />
+              )}
 
               {/* Connected marketplaces — every link that actually exists (server-verified
                   live credentials + demo-only local links), each with a real Disconnect. */}

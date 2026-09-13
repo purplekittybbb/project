@@ -41,6 +41,34 @@ export async function GET(req: Request) {
 
   const plan = launchPlanDisplay();
 
+  // Real paid plan (iyzico) — a SEPARATE table/flow from the free-trial row
+  // above (billing_subscriptions is Stripe/demo-trial only). Read failures
+  // here must never break the trial status the rest of this endpoint
+  // already serves, so this is best-effort/fail-open.
+  let paidPlan: {
+    planId: "starter" | "pro";
+    status: string;
+    currentPeriodEnd: string | null;
+    cancelledAt: string | null;
+  } | null = null;
+  try {
+    const { data: iyzicoRow } = await supabase
+      .from("iyzico_subscriptions")
+      .select("plan_id, status, current_period_end, cancelled_at")
+      .eq("user_id", userData.user.id)
+      .maybeSingle();
+    if (iyzicoRow) {
+      paidPlan = {
+        planId: iyzicoRow.plan_id as "starter" | "pro",
+        status: iyzicoRow.status as string,
+        currentPeriodEnd: (iyzicoRow.current_period_end as string) ?? null,
+        cancelledAt: (iyzicoRow.cancelled_at as string) ?? null,
+      };
+    }
+  } catch {
+    // Migration not applied yet or table unreachable — paidPlan stays null.
+  }
+
   return NextResponse.json({
     stripeConfigured: isStripeLiveEnabled(),
     plan: {
@@ -57,5 +85,6 @@ export async function GET(req: Request) {
           updatedAt: row.updated_at as string,
         }
       : null,
+    paidPlan,
   });
 }

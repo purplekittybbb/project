@@ -107,7 +107,11 @@ export const STORE_REQUIRED_TOOLS: ToolDefinition[] = [
     category: "store",
     badge: "store",
     href: "/araclar/guvenli-fiyat",
-    dashboardHref: "/dashboard",
+    // NOT embedded in /dashboard (unlike profit/loss-alarm/demand/list-quality
+    // below) — this points at itself, honestly, rather than redirecting
+    // connected users into a dashboard that doesn't actually have this
+    // feature. See barcode-analysis below for the same honest pattern.
+    dashboardHref: "/araclar/guvenli-fiyat",
   },
   {
     id: "demand",

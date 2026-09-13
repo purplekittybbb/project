@@ -2,6 +2,8 @@
   "nav": {
     "dashboard": "Dashboard",
     "myData": "My Data",
+    "safePrice": "Safe Price",
+    "barcode": "Barcode Analysis",
     "sellers": "Sellers",
     "financing": "Financing",
     "campaign": "Campaign",
