@@ -73,6 +73,9 @@ import { productTitleForSku, buildSkuEconomicsMap } from "@/lib/tools/sku-econom
 import { SafePriceStorePage } from "@/components/tools/store/safe-price-page";
 import { BarcodeStorePage } from "@/components/tools/store/barcode-page";
 import type { StoreToolState } from "@/components/tools/store/use-store-tool-data";
+import { seedStoredRowsForTenant } from "@/lib/data/seed";
+import { computeSkuMomentum } from "@/lib/tools/opportunity-discovery";
+import { OpportunityDiscoveryCard } from "@/components/OpportunityDiscoveryCard";
 import type { DemandRangeResult } from "@/lib/demand/signals";
 import { loadMyWatchedVisibility } from "@/lib/supabase/shared-visibility";
 import { pickWatchedVisibility } from "@/lib/visibility/display";
@@ -693,16 +696,29 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // Güvenli Fiyat / Barkod Analizi can live as real tabs INSIDE this shell
   // without forking their logic. demandEstimates is left empty: neither
   // SafePriceStorePage nor BarcodeStorePage reads that field.
+  //
+  // demoMode never loads userRows from Supabase (see the `if (demoMode)
+  // return;` guard above), so without this the two panels would show an
+  // honest-but-useless "no data" state in the one place prospective
+  // customers actually evaluate the product. seedStoredRowsForTenant bridges
+  // the seed seller currently selected in the switcher into the same
+  // StoredRow shape a real synced account produces — demo-only, never used
+  // for a real signed-in user (userRows still drives everything otherwise).
+  const storeToolRows = demoMode ? seedStoredRowsForTenant(tenant) : userRows;
   const storeToolData: Extract<StoreToolState, { status: "ready" }> = useMemo(
     () => ({
       status: "ready",
       view,
-      rows: userRows,
-      skuEconomics: buildSkuEconomicsMap(userRows),
+      rows: storeToolRows,
+      skuEconomics: buildSkuEconomicsMap(storeToolRows),
       demandEstimates: [],
     }),
-    [view, userRows]
+    [view, storeToolRows]
   );
+
+  // Fırsat Keşfi — real recent-vs-prior-30-day unit momentum per SKU, from the
+  // same real rows storeToolData is built from (see lib/tools/opportunity-discovery.ts).
+  const skuMomentum = useMemo(() => computeSkuMomentum(storeToolRows), [storeToolRows]);
 
   // List quality panel: which SKU's quality panel is currently open (null = none)
   const [openQualityPanelSku, setOpenQualityPanelSku] = useState<string | null>(null);
@@ -1157,6 +1173,11 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
 
               {/* 3-30-300 hero header — spec §6: 3-second overview */}
               <DashboardSummaryHeader skus={view.skus} currency={currency} />
+
+              {/* Fırsat Keşfi — real per-SKU momentum from the seller's own sales
+                  history (see lib/tools/opportunity-discovery.ts for why this is
+                  scoped to "your own products", not a market-wide trend feed). */}
+              <OpportunityDiscoveryCard momentum={skuMomentum} />
 
               <div className="flex flex-col lg:flex-row gap-16 lg:gap-24">
                 {/* LEFT COLUMN */}

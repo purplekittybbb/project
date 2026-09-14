@@ -10,7 +10,7 @@ function ToolBadge({ badge }: { badge: ToolDefinition["badge"] }) {
 
     return (
 
-      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-emerald-800">
+      <span className="inline-flex items-center rounded-full border border-[var(--tm-ledger-green)]/30 bg-[var(--tm-ledger-green)]/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-[var(--tm-ledger-green)]">
 
         Ücretsiz Dene
 

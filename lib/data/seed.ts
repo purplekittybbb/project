@@ -17,6 +17,7 @@ import { aggregateTrueMargin } from "../domain/margin-engine";
 import { AmazonUsAdapter, type RawAmazonUsRow } from "../adapters/amazon-us";
 import { TrendyolAdapter, type RawTrendyolRow } from "../adapters/trendyol";
 import { HepsiburadaAdapter, type RawHepsiburadaRow } from "../adapters/hepsiburada";
+import type { StoredRow } from "../supabase/user-data";
 
 const trendyol = new TrendyolAdapter();
 const amazon = new AmazonUsAdapter();
@@ -181,5 +182,57 @@ export function seededBacktestSellers(): BacktestSeller[] {
     tenantId: s.tenantId,
     currency: "TRY" as const,
     inputs: deriveUnderwritingInputs(s),
+  }));
+}
+
+/**
+ * Human-readable Turkish product titles for the seed SKUs — used only by
+ * seedStoredRowsForTenant below, so the /demo walkthrough shows realistic
+ * product names instead of raw internal SKU codes.
+ */
+const SEED_PRODUCT_TITLES: Record<string, string> = {
+  "EV-TOWEL-01": "Pamuklu Banyo Havlusu Seti (4'lü)",
+  "EV-SHEET-02": "Saten Nevresim Takımı - Çift Kişilik",
+  "EL-EARBUD-09": "Kablosuz Kulak İçi Bluetooth Kulaklık",
+  "EL-CHARGER-3": "65W Hızlı Şarj Adaptörü - Type-C",
+  "KOZ-SERUM-04": "C Vitamini Yüz Serumu 30ml",
+  "KOZ-CREAM-07": "Yoğun Nemlendirici Yüz Kremi 50ml",
+};
+
+/** Raw Trendyol seed rows per tenant — same arrays SELLERS is built from. */
+const SEED_TRENDYOL_RAW_BY_TENANT: Record<string, RawTrendyolRow[]> = {
+  "seller-a": SELLER_A_RAW,
+  "seller-b": SELLER_B_RAW,
+  "seller-c": SELLER_C_RAW,
+};
+
+/**
+ * Demo-only bridge: converts one seed seller's raw Trendyol rows into the
+ * SAME `StoredRow[]` shape a real signed-in user's uploaded/synced data takes
+ * (lib/supabase/user-data.ts). Without this, /demo's dashboard shell renders
+ * with `userRows` permanently empty (demo mode never touches Supabase — see
+ * dashboard/page.tsx's `if (demoMode) return;` guard), so any panel built on
+ * top of skuEconomics — Safe Price, Barcode Analysis — shows an honest but
+ * useless "no data" state in the one place prospective customers actually
+ * evaluate the product. This exists purely to make the demo walkthrough
+ * actually demonstrate those features; it is never used for a real user.
+ */
+export function seedStoredRowsForTenant(tenantId: string): StoredRow[] {
+  const raw = SEED_TRENDYOL_RAW_BY_TENANT[tenantId] ?? SELLER_B_RAW;
+  return raw.map((r, i) => ({
+    id: `${tenantId}-${r.orderId}-${i}`,
+    order_id: r.orderId,
+    sku: r.sku,
+    category: r.category,
+    sale_date: r.saleDate,
+    units: r.units,
+    gross_revenue: r.grossRevenue,
+    unit_cost: r.unitCost,
+    shipping: r.shipping,
+    return_rate: r.returnRate,
+    ad_spend: r.adSpend,
+    packaging: 0,
+    marketplace: "trendyol",
+    product_name: SEED_PRODUCT_TITLES[r.sku] ?? r.sku,
   }));
 }

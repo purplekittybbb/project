@@ -156,7 +156,7 @@ export function ToolsGrid({ id = "kesfet", showHeading = true }: ToolsGridProps)
 
             <p className="mt-2 text-sm text-muted-foreground">
 
-              v1 — partner panelinde kendi mağaza kârını göster.
+              v1 — partner panelinde kendi mağaza kârını göster. Henüz Chrome Web Mağazası&apos;nda değil; aşağıdan indirip Geliştirici Modu ile kurabilirsiniz.
 
             </p>
 
@@ -173,6 +173,18 @@ export function ToolsGrid({ id = "kesfet", showHeading = true }: ToolsGridProps)
               ))}
 
             </ul>
+
+            <ol className="mt-4 max-w-md list-decimal space-y-1 pl-5 text-xs leading-relaxed text-muted-foreground">
+
+              <li>İndirilen .zip dosyasını bir klasöre çıkarın.</li>
+
+              <li>Chrome&apos;da <code>chrome://extensions</code> adresine gidin.</li>
+
+              <li>Sağ üstten &quot;Geliştirici modu&quot;nu açın.</li>
+
+              <li>&quot;Paketsiz uzantı yükle&quot; ile çıkardığınız klasörü seçin.</li>
+
+            </ol>
 
             <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
 
