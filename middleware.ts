@@ -31,6 +31,7 @@ const PUBLIC_PREFIXES = [
   "/",
   "/pricing",
   "/hakkimizda",
+  "/gizlilik",              // Chrome Web Store gizlilik politikası linki — herkese açık olmalı
   "/sss",
   "/blog",
   "/urunler",
@@ -46,6 +47,8 @@ const PUBLIC_PREFIXES = [
   "/icons",
   "/downloads",            // static downloads (e.g. Chrome uzantısı .zip)
   "/api/extension/lookup", // Chrome uzantısı — auth'u kendi Bearer token'ı ile yapar, cookie session yok
+  "/sitemap.xml",          // Googlebot vb. crawler'lar auth cookie'si taşımaz — public olmalı
+  "/robots.txt",           // aynı sebep; ayrıca sitemap.xml'i referans ediyor
 ];
 
 /**
