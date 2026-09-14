@@ -44,6 +44,7 @@ const PUBLIC_PREFIXES = [
   "/_next",
   "/favicon",
   "/icons",
+  "/downloads",            // static downloads (e.g. Chrome uzantısı .zip)
 ];
 
 /**
