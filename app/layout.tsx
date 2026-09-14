@@ -46,6 +46,9 @@ export const metadata: Metadata = {
     description: DEFAULT_DESCRIPTION,
   },
   generator: 'v0.app',
+  verification: {
+    google: 'qDgGLu3G8L-9e3IX3I5rS54V8CbxcGaeAbuJZHaTLSQ',
+  },
   icons: {
     icon: [
       {
