@@ -65,7 +65,7 @@ export const EXTENSION_TOOLS = [
     id: "store-profit",
     title: "Mağaza kâr gösterimi",
     description:
-      "Trendyol / Hepsiburada partner panelinde kendi ürünün için anlık net kâr ve marj.",
+      "Trendyol / Hepsiburada partner panelinde kendi ürünün için anlık net kâr ve marj. Hesabınızı bağlayın, gerçek maliyet verinizle otomatik doldursun.",
     href: "/downloads/truemargin-asistan-chrome-extension.zip",
   },
 ];

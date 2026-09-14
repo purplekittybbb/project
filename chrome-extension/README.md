@@ -5,20 +5,27 @@ Trendyol Partner ve Hepsiburada Partner sayfalarında çalışarak kendi ürünl
 
 ---
 
-## v1 Kapsamı
+## v1.1 Kapsamı
 
-**v1'de yapılanlar:**
+**Yapılanlar:**
 - Taban fiyat (break-even) hesaplama
 - Hedef marj için satış fiyatı hesaplama
 - Net kâr ve gerçek marj yüzdesi gösterimi
 - Trendyol / Hepsiburada / N11 partner sayfalarında yüzen buton
-- Form değerleri `chrome.storage.local` ile kalır
-- Partner panelindeki **kendi** satış fiyatını okur (rakip sayfası yok)
+- Partner panelindeki **kendi** satış fiyatını, ürün adını ve barkodunu okumayı
+  dener (best-effort — panel HTML'i eşleşmezse sessizce boş bırakır, hiçbir
+  zaman uydurma bir değer göstermez)
+- **Hesabı Bağla**: dashboard'da oluşturduğunuz kişisel token'ı yapıştırarak
+  uzantıyı TrueMargin hesabınıza bağlayabilirsiniz. Bağlıyken "Hesaptan Getir"
+  butonu, sayfadaki ürünü hesabınızdaki gerçek satış verinizle eşleştirip
+  maliyet/kargo alanlarını gerçek verinizden doldurur.
+- Form değerleri pazaryerine göre ayrı ayrı `chrome.storage.local`'da kalır
 
-**v1'de YAPILMAYANLAR:**
+**Hâlâ YAPILMAYANLAR:**
 - Rakip fiyat analizi yok (v2'de gelecek)
-- Canlı API / pazaryeri çağrısı yok — tüm hesaplamalar tarayıcı içi
-- Bulut senkronizasyonu yok
+- "Hesaptan Getir" dışında canlı API / pazaryeri çağrısı yok
+- Bulut senkronizasyonu yalnızca token bağlıyken ve yalnızca aradığınız ürün
+  için çalışır — arka planda otomatik senkron yok
 
 ---
 
@@ -32,11 +39,23 @@ Trendyol Partner ve Hepsiburada Partner sayfalarında çalışarak kendi ürünl
 
 ---
 
+## Hesabı Bağlama
+
+1. TrueMargin dashboard'unda **Uzantı** sekmesine gidin
+2. **"Bağlan"** butonuna tıklayıp gösterilen token'ı kopyalayın (yalnızca bir kez gösterilir)
+3. Uzantının popup'ında üstteki alana yapıştırıp **"Bağla"**'ya tıklayın
+4. Bir ürün sayfasında popup'ı açtığınızda artık **"Hesaptan Getir"** butonu görünür
+
+Token yalnızca cihazınızdaki `chrome.storage.local`'da tutulur; sunucu tarafında
+yalnızca token'ın SHA-256 özeti saklanır (ham token hiçbir zaman kaydedilmez).
+
+---
+
 ## Kullanım
 
 1. Trendyol Partner veya Hepsiburada Partner sayfasını açın
 2. Araç çubuğundaki **TrueMargin** ikonuna tıklayarak popup'ı açın
-3. Şu alanları doldurun:
+3. Bağlıysanız **"Hesaptan Getir"**'i deneyin; eşleşme yoksa veya bağlı değilseniz şu alanları elle doldurun:
    - **Maliyet (₺)** — ürünün net maliyeti (COGS)
    - **Kargo (₺)** — kargo maliyeti
    - **Komisyon (%)** — pazaryeri komisyon oranı (örn. 15 için Trendyol tekstili)
@@ -74,10 +93,9 @@ m = hedef marj     (0-1)
 ## Yol Haritası
 
 **v2 (planlanan):**
-- Trendyol ürün sayfasından otomatik fiyat okuma
-- Rakip fiyat dağılımı analizi
+- Trendyol ürün sayfasından otomatik rakip fiyat dağılımı analizi
 - Arama sıralaması görünürlük kontrolü
-- TrueMargin hesabıyla senkronizasyon
+- Hesaba bağlıyken otomatik (buton beklemeden) eşleşme
 
 ---
 
@@ -85,5 +103,6 @@ m = hedef marj     (0-1)
 
 - Build adımı yoktur — tüm kod saf JavaScript (vanilla JS)
 - Node.js bağımlılığı yoktur
-- `icons/` klasöründe gerçek PNG dosyaları olmadan da çalışır (Chrome uyarı verir)
-- Üretim için `icon16.png` ve `icon48.png` dosyalarını `icons/` klasörüne ekleyin
+- Gerçek `icon16.png` / `icon48.png` / `icon128.png` dosyaları `icons/` klasöründedir
+- "Hesaptan Getir" `app/api/extension/lookup/route.ts`'e (production: matsorular.vercel.app)
+  Bearer token ile çağrı yapar — bkz. `manifest.json`'daki `host_permissions`

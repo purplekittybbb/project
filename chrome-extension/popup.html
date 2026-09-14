@@ -27,7 +27,7 @@
       font-family: -apple-system, BlinkMacSystemFont, "Inter", ui-sans-serif, system-ui, sans-serif;
       background: var(--tm-paper);
       color: var(--tm-ink);
-      width: 320px;
+      width: 340px;
       min-height: 380px;
       padding: 0;
     }
@@ -54,6 +54,24 @@
       text-transform: uppercase;
     }
 
+    .connection-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--tm-mist);
+      display: inline-block;
+      margin-right: 5px;
+    }
+
+    .connection-dot.on { background: var(--tm-ledger-green); }
+
+    .connection-label {
+      font-size: 10px;
+      opacity: 0.7;
+      display: flex;
+      align-items: center;
+    }
+
     .body {
       padding: 14px 16px;
     }
@@ -66,6 +84,79 @@
       opacity: 0.45;
       margin-bottom: 10px;
     }
+
+    .account-box {
+      border: 1px solid var(--tm-mist);
+      border-radius: var(--tm-r-ui);
+      padding: 10px 12px;
+      margin-bottom: 14px;
+    }
+
+    .account-box.connected {
+      border-color: var(--tm-ledger-green);
+      background: color-mix(in srgb, var(--tm-ledger-green) 6%, var(--tm-paper));
+    }
+
+    .account-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    .account-row input {
+      flex: 1;
+      min-width: 0;
+      background: white;
+      border: 1px solid var(--tm-mist);
+      border-radius: var(--tm-r-data);
+      padding: 6px 8px;
+      font-size: 11px;
+      font-family: ui-monospace, monospace;
+      color: var(--tm-ink);
+    }
+
+    .small-btn {
+      background: var(--tm-ink);
+      color: var(--tm-paper);
+      border: none;
+      border-radius: var(--tm-r-data);
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .small-btn:hover { opacity: 0.85; }
+    .small-btn.ghost {
+      background: transparent;
+      color: var(--tm-ink);
+      opacity: 0.55;
+      border: 1px solid var(--tm-mist);
+    }
+
+    .account-hint {
+      font-size: 10px;
+      opacity: 0.55;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+
+    .account-hint a { color: var(--tm-copper); }
+
+    .fetch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .fetch-status {
+      font-size: 10px;
+      opacity: 0.55;
+    }
+
+    .fetch-status.ok { color: var(--tm-ledger-green); opacity: 1; }
+    .fetch-status.err { color: var(--tm-alert-clay); opacity: 1; }
 
     .form-grid {
       display: grid;
@@ -192,12 +283,32 @@
       <div class="header-title">TrueMargin</div>
       <div class="header-sub">Gerçek Kâr Hesabı</div>
     </div>
+    <div class="connection-label" id="connectionLabel">
+      <span class="connection-dot" id="connectionDot"></span>
+      <span id="connectionText">Bağlı değil</span>
+    </div>
   </div>
 
   <div class="body">
-    <div class="section-label">Ürün Maliyetleri</div>
+    <div class="section-label">Hesap</div>
+    <div class="account-box" id="accountBox">
+      <div class="account-row">
+        <input type="password" id="accountToken" placeholder="TrueMargin token'ınızı yapıştırın" />
+        <button class="small-btn" id="saveTokenBtn">Bağla</button>
+      </div>
+      <div class="account-hint">
+        Dashboard → <strong>Uzantı</strong> sekmesinden token oluşturun. Bağlıysanız
+        aşağıdaki "Hesaptan Getir" gerçek maliyet verinizi doldurur.
+      </div>
+    </div>
 
-    <div class="form-grid">
+    <div class="fetch-row">
+      <div class="section-label" style="margin-bottom: 0;">Ürün Maliyetleri</div>
+      <button class="small-btn ghost" id="fetchFromAccountBtn" style="display:none;">Hesaptan Getir</button>
+    </div>
+    <div class="fetch-status" id="fetchStatus"></div>
+
+    <div class="form-grid" style="margin-top: 8px;">
       <div class="form-group">
         <label for="cogs">Maliyet (₺)</label>
         <input type="number" id="cogs" placeholder="0.00" min="0" step="0.01" />
@@ -218,7 +329,7 @@
 
     <div class="form-group" style="margin-bottom: 10px;">
       <label for="salePrice">Mevcut Satış Fiyatı (₺)</label>
-      <input type="number" id="salePrice" placeholder="partner sayfasından okunur" min="0" step="0.01" />
+      <input type="number" id="salePrice" placeholder="sayfadan okunmaya çalışılır" min="0" step="0.01" />
     </div>
 
     <div class="form-group" style="margin-bottom: 14px;">
@@ -252,7 +363,7 @@
     </div>
   </div>
 
-  <div class="footer-note">v1 — yalnızca kendi ürün analizi</div>
+  <div class="footer-note">v1.1 — kendi ürün analizi, isteğe bağlı hesap bağlantısı</div>
 
   <script src="popup.js"></script>
 </body>

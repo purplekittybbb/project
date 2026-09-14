@@ -156,7 +156,7 @@ export function ToolsGrid({ id = "kesfet", showHeading = true }: ToolsGridProps)
 
             <p className="mt-2 text-sm text-muted-foreground">
 
-              v1 — partner panelinde kendi mağaza kârını göster. Henüz Chrome Web Mağazası&apos;nda değil; aşağıdan indirip Geliştirici Modu ile kurabilirsiniz.
+              Partner panelinde kendi mağaza kârını göster; hesabınızı bağlarsanız maliyet alanlarını gerçek verinizden otomatik doldurur. Henüz Chrome Web Mağazası&apos;nda değil; aşağıdan indirip Geliştirici Modu ile kurabilirsiniz.
 
             </p>
 

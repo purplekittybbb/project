@@ -39,9 +39,10 @@ import { translateRationale, translateBenchmarkLabel } from "@/lib/i18n/translat
 import {
   ChevronDown, Sparkles, ArrowUpRight,
   LayoutDashboard, Users, Briefcase, History as HistoryIcon, Settings, Package, Tag, Landmark, Database,
-  ShieldCheck, Barcode as BarcodeIcon,
+  ShieldCheck, Barcode as BarcodeIcon, Puzzle,
 } from "lucide-react";
 import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
+import { ExtensionTokenPanel } from "@/components/account/ExtensionTokenPanel";
 import {
   loadUserRows, saveUserRows, deleteUserRow, clearUserRows, buildUserSeller,
   USER_TENANT_ID, type StoredRow,
@@ -933,6 +934,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     { id: "Verilerim", labelKey: "nav.myData", icon: Database },
     { id: "GuvenliFiyat", labelKey: "nav.safePrice", icon: ShieldCheck },
     { id: "Barkod", labelKey: "nav.barcode", icon: BarcodeIcon },
+    { id: "Extension", labelKey: "nav.extension", icon: Puzzle },
     { id: "Sellers", labelKey: "nav.sellers", icon: Users },
     { id: "Financing", labelKey: "nav.financing", icon: Briefcase },
     { id: "Campaign", labelKey: "nav.campaign", icon: Tag },
@@ -1664,6 +1666,23 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               ) : (
                 <BarcodeStorePage data={storeToolData} onRefresh={async () => { if (typeof window !== "undefined") window.location.reload(); }} />
               )}
+            </div>
+          )}
+
+          {/* VIEW: EXTENSION — Chrome uzantısı hesap bağlantısı (personal access token) */}
+          {currentTab === "Extension" && (
+            <div className="max-w-[700px] mx-auto px-8 py-12 md:py-16">
+              <h2 className="text-zinc-200 font-sans text-lg font-medium mb-2">Chrome Uzantısı</h2>
+              <p className="text-zinc-500 font-mono text-[12px] leading-relaxed mb-6">
+                Trendyol / Hepsiburada partner panelinde çalışan uzantı, hesabınızı bağladığınızda
+                elle veri girmek yerine gerçek maliyet ve satış verinizden hesaplanan net kârı
+                gösterir.{" "}
+                <a href="/urunler#uzanti" className="text-[var(--tm-copper)] underline">
+                  Uzantıyı indirin
+                </a>
+                .
+              </p>
+              <ExtensionTokenPanel />
             </div>
           )}
 

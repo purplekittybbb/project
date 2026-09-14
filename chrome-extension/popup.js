@@ -5,10 +5,15 @@
  * Implements the same math as lib/calc/safe-price.ts and lib/calc/net-profit.ts
  * but as a closed-form, inline implementation for the extension.
  *
- * v1: kendi ürün analizi. Rakip verileri veya canlı API çağrısı yok.
+ * v1.1: kendi ürün analizi + isteğe bağlı hesap bağlantısı ("Hesaptan Getir").
+ * Rakip verileri veya canlı marketplace API çağrısı yok — API_BASE'e giden
+ * tek istek, kullanıcının KENDİ hesabındaki kendi verisini arayan
+ * /api/extension/lookup uç noktasıdır (bkz. app/api/extension/lookup/route.ts).
  */
 
 "use strict";
+
+var API_BASE = "https://matsorular.vercel.app";
 
 // ── Math helpers ──────────────────────────────────────────────────────────────
 
@@ -120,24 +125,39 @@ function setResult(id, value, className) {
   el.className = "result-value " + (className || "neutral");
 }
 
-var STORAGE_KEYS = ["cogs", "shipping", "commissionRate", "vatRate", "targetMargin", "salePrice"];
+function setFetchStatus(msg, kind) {
+  const el = document.getElementById("fetchStatus");
+  el.textContent = msg || "";
+  el.className = "fetch-status" + (kind ? " " + kind : "");
+}
+
+// ── Per-marketplace remembered inputs ───────────────────────────────────────
+// Keyed by hostname so Trendyol / Hepsiburada / N11 don't overwrite each
+// other's last-used cost figures.
+
+var CALC_FIELDS = ["cogs", "shipping", "commissionRate", "vatRate", "targetMargin", "salePrice"];
+var currentHostKey = "default";
+
+function storageKeyFor(field) {
+  return "calc:" + currentHostKey + ":" + field;
+}
 
 function persistInputs() {
   if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return;
   var payload = {};
-  STORAGE_KEYS.forEach(function (id) {
-    payload[id] = document.getElementById(id).value;
+  CALC_FIELDS.forEach(function (id) {
+    payload[storageKeyFor(id)] = document.getElementById(id).value;
   });
   chrome.storage.local.set(payload);
 }
 
 function restoreInputs() {
   if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return;
-  chrome.storage.local.get(STORAGE_KEYS, function (stored) {
-    STORAGE_KEYS.forEach(function (id) {
-      if (stored[id] != null && stored[id] !== "") {
-        document.getElementById(id).value = stored[id];
-      }
+  var keys = CALC_FIELDS.map(storageKeyFor);
+  chrome.storage.local.get(keys, function (stored) {
+    CALC_FIELDS.forEach(function (id) {
+      var v = stored[storageKeyFor(id)];
+      if (v != null && v !== "") document.getElementById(id).value = v;
     });
   });
 }
@@ -147,6 +167,89 @@ function applyDetectedPrice(price) {
   var el = document.getElementById("salePrice");
   if (!el.value) el.value = String(price);
 }
+
+// ── Account connection (token) ──────────────────────────────────────────────
+
+var lastPageSignals = { price: null, productTitle: null, barcode: null };
+
+function setConnectionUI(connected) {
+  document.getElementById("connectionDot").className = "connection-dot" + (connected ? " on" : "");
+  document.getElementById("connectionText").textContent = connected ? "Bağlı" : "Bağlı değil";
+  document.getElementById("accountBox").className = "account-box" + (connected ? " connected" : "");
+  document.getElementById("fetchFromAccountBtn").style.display = connected ? "inline-block" : "none";
+}
+
+function loadAccountToken(cb) {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return cb(null);
+  chrome.storage.local.get(["accountToken"], function (stored) {
+    cb(stored.accountToken || null);
+  });
+}
+
+function saveAccountToken(token) {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return;
+  chrome.storage.local.set({ accountToken: token });
+}
+
+document.getElementById("saveTokenBtn").addEventListener("click", function () {
+  var raw = document.getElementById("accountToken").value.trim();
+  if (!raw) return;
+  saveAccountToken(raw);
+  document.getElementById("accountToken").value = "";
+  document.getElementById("accountToken").placeholder = "Token kaydedildi ✓";
+  setConnectionUI(true);
+});
+
+document.getElementById("fetchFromAccountBtn").addEventListener("click", function () {
+  loadAccountToken(function (token) {
+    if (!token) {
+      setFetchStatus("Önce hesabınızı bağlayın.", "err");
+      return;
+    }
+    var query = lastPageSignals.productTitle;
+    var barcode = lastPageSignals.barcode;
+    if (!query && !barcode) {
+      setFetchStatus("Sayfada ürün adı algılanamadı — sayfayı yenileyip tekrar deneyin.", "err");
+      return;
+    }
+    setFetchStatus("Aranıyor…");
+    var params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (barcode) params.set("barcode", barcode);
+    fetch(API_BASE + "/api/extension/lookup?" + params.toString(), {
+      headers: { Authorization: "Bearer " + token },
+    })
+      .then(function (res) {
+        return res.json().then(function (json) {
+          return { ok: res.ok, json: json };
+        });
+      })
+      .then(function (result) {
+        if (!result.ok) {
+          setFetchStatus(result.json.error || "Getirilemedi.", "err");
+          return;
+        }
+        var matches = result.json.matches || [];
+        if (matches.length === 0) {
+          setFetchStatus(
+            result.json.note || "Hesabınızda bu ürünle eşleşen kayıt bulunamadı — elle girin.",
+            "err"
+          );
+          return;
+        }
+        var m = matches[0];
+        document.getElementById("cogs").value = m.unitCost.toFixed(2);
+        document.getElementById("shipping").value = (m.shippingPerUnit + m.packagingPerUnit).toFixed(2);
+        if (!document.getElementById("salePrice").value) {
+          document.getElementById("salePrice").value = m.avgSalePrice.toFixed(2);
+        }
+        setFetchStatus("✓ Hesap verinizden dolduruldu: " + m.productTitle, "ok");
+      })
+      .catch(function () {
+        setFetchStatus("Bağlantı hatası — internet bağlantınızı kontrol edin.", "err");
+      });
+  });
+});
 
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener(function (msg) {
@@ -159,14 +262,28 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
 if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.query) {
   chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
     if (!tabs[0] || !tabs[0].id) return;
+    try {
+      currentHostKey = new URL(tabs[0].url || "").hostname || "default";
+    } catch (e) {
+      currentHostKey = "default";
+    }
+    restoreInputs();
+
     chrome.tabs.sendMessage(tabs[0].id, { type: "REQUEST_OWN_PRICE" }, function (response) {
       if (chrome.runtime.lastError) return;
-      if (response && typeof response.price === "number") applyDetectedPrice(response.price);
+      if (response) {
+        lastPageSignals = response;
+        if (typeof response.price === "number") applyDetectedPrice(response.price);
+      }
     });
   });
+} else {
+  restoreInputs();
 }
 
-restoreInputs();
+loadAccountToken(function (token) {
+  setConnectionUI(!!token);
+});
 
 document.getElementById("computeBtn").addEventListener("click", function () {
   hideError();
@@ -175,7 +292,7 @@ document.getElementById("computeBtn").addEventListener("click", function () {
   const cogs           = getNumber("cogs");
   const shipping       = getNumber("shipping");
   const commissionRate = getNumber("commissionRate", 15);
-  const vatRate        = getNumber("vatRate", 20);
+  const vatRate         = getNumber("vatRate", 20);
   const targetMarginPct = getNumber("targetMargin", 15);
   const salePrice      = getNumber("salePrice");
 

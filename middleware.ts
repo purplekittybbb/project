@@ -45,6 +45,7 @@ const PUBLIC_PREFIXES = [
   "/favicon",
   "/icons",
   "/downloads",            // static downloads (e.g. Chrome uzantısı .zip)
+  "/api/extension/lookup", // Chrome uzantısı — auth'u kendi Bearer token'ı ile yapar, cookie session yok
 ];
 
 /**
