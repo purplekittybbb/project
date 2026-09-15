@@ -112,6 +112,15 @@ export interface SkuMargin {
   returnRatePct: number;
   /** true when returnRatePct > 8 % — high chargeback / return exposure. */
   isReturnRisk: boolean;
+  /**
+   * True contribution margin in money (currency units), i.e. grossRevenue -
+   * fees - cogs for this SKU's grouped transactions. Callers that need an
+   * absolute-money "how much is at risk" figure (e.g. LossAlarmBanner) must
+   * use this, NOT trueMarginPct — that field is a percentage, not money, and
+   * formatting it through a currency formatter silently produces a nonsense
+   * amount (e.g. a real -₺46.360 loss showing as "₺9,56").
+   */
+  netContribution: number;
 }
 
 export function perSkuMargins(txs: Transaction[]): SkuMargin[] {
@@ -124,7 +133,8 @@ export function perSkuMargins(txs: Transaction[]): SkuMargin[] {
   const out: SkuMargin[] = [];
   for (const [sku, group] of bySku) {
     const perceived = aggregatePerceivedMargin(group).marginPct;
-    const trueM = aggregateTrueMargin(group).marginPct;
+    const trueMResult = aggregateTrueMargin(group);
+    const trueM = trueMResult.marginPct;
     const totalRevenue = group.reduce((s, t) => s + t.grossRevenue, 0);
     const totalReturns = group.reduce((s, t) => s + t.fees.returnsAllocated, 0);
     const returnRatePct = totalRevenue > 0 ? (totalReturns / totalRevenue) * 100 : 0;
@@ -137,6 +147,7 @@ export function perSkuMargins(txs: Transaction[]): SkuMargin[] {
       isSilentLoser: perceived > 0 && trueM < 0,
       returnRatePct,
       isReturnRisk: returnRatePct > 8,
+      netContribution: trueMResult.netContribution,
     });
   }
   return out.sort((a, b) => b.gapPct - a.gapPct);

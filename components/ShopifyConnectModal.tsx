@@ -114,7 +114,7 @@ export function ShopifyConnectModal({ open, onClose }: Props) {
             />
           </div>
 
-          {error && <p className="text-red-400 text-[11px] font-mono">{error}</p>}
+          {error && <p className="fin-loss text-[11px] font-mono">{error}</p>}
 
           <p className="text-zinc-600 text-[11px] leading-relaxed border-t border-zinc-800 pt-3">
             We only use this connection to READ your order data. We never place orders or move money.

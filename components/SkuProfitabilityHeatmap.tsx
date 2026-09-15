@@ -40,22 +40,22 @@ function marginBucket(marginPct: number): MarginBucket {
     return {
       key: "cash-cow",
       label: "Cash Cow",
-      chipClass: "bg-emerald-100 text-emerald-800",
-      cellClass: "bg-emerald-100 text-emerald-800",
-      dotClass: "bg-emerald-500",
+      chipClass: "fin-bg-profit-subtle fin-profit",
+      cellClass: "fin-bg-profit-subtle fin-profit",
+      dotClass: "fin-dot-profit",
       actionLabel: "Fund Inventory",
-      actionClass: "bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-emerald-500",
+      actionClass: "bg-[var(--tm-ledger-green)] text-white hover:opacity-90 focus-visible:ring-[var(--tm-ledger-green)]",
       Icon: TrendingUp,
     };
   if (marginPct >= 0)
     return {
       key: "profitable",
       label: "Profitable",
-      chipClass: "bg-green-50 text-green-700",
-      cellClass: "bg-green-50 text-green-700",
-      dotClass: "bg-green-500",
+      chipClass: "fin-bg-profit-subtle fin-profit",
+      cellClass: "fin-bg-profit-subtle fin-profit",
+      dotClass: "fin-dot-profit",
       actionLabel: "Scale Ads",
-      actionClass: "border border-green-300 text-green-700 hover:bg-green-100 focus-visible:ring-green-500",
+      actionClass: "fin-border-profit-subtle border fin-profit hover:fin-bg-profit-subtle focus-visible:ring-[var(--tm-ledger-green)]",
       Icon: TrendingUp,
     };
   if (marginPct >= -5)
@@ -72,11 +72,11 @@ function marginBucket(marginPct: number): MarginBucket {
   return {
     key: "silent-loser",
     label: "Silent Loser",
-    chipClass: "bg-red-100 text-red-800",
-    cellClass: "bg-red-100 text-red-800",
-    dotClass: "bg-red-500",
+    chipClass: "fin-bg-loss-subtle fin-loss",
+    cellClass: "fin-bg-loss-subtle fin-loss",
+    dotClass: "fin-dot-loss",
     actionLabel: "Stop Ads",
-    actionClass: "border border-red-300 text-red-700 hover:bg-red-100 focus-visible:ring-red-500",
+    actionClass: "fin-border-loss-subtle border fin-loss hover:fin-bg-loss-subtle focus-visible:ring-[var(--fin-loss)]",
     Icon: TrendingDown,
   };
 }
@@ -149,7 +149,7 @@ function FundInventoryPanel({
             <button
               type="button"
               onClick={onGoToFinancing}
-              className="mt-4 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+              className="mt-4 rounded-lg bg-[var(--tm-ledger-green)] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90"
             >
               Financing sekmesine git
             </button>
@@ -204,7 +204,7 @@ function ScaleAdsPanel({
               <div className="text-[10px] uppercase tracking-wider text-slate-400">Ek reklamla</div>
               <div
                 className={`mt-1 font-mono text-sm font-semibold tabular-nums ${
-                  scenario.projectedMarginPct >= scenario.currentMarginPct ? "text-emerald-600" : "text-red-600"
+                  scenario.projectedMarginPct >= scenario.currentMarginPct ? "fin-profit" : "fin-loss"
                 }`}
               >
                 {pct(scenario.projectedMarginPct)}
@@ -270,7 +270,7 @@ function StopAdsPanel({
             <span className="text-slate-400">→</span>
             <span
               className={`font-mono text-2xl font-bold tabular-nums ${
-                scenario.projectedMarginPct >= scenario.currentMarginPct ? "text-emerald-600" : "text-red-600"
+                scenario.projectedMarginPct >= scenario.currentMarginPct ? "fin-profit" : "fin-loss"
               }`}
             >
               {pct(scenario.projectedMarginPct)}
@@ -314,7 +314,7 @@ function MarginBars({ perceivedPct, truePct }: { perceivedPct: number; truePct: 
   const maxAbs = Math.max(Math.abs(perceivedPct), Math.abs(truePct), 1);
   const percWidth = Math.max(4, (Math.abs(perceivedPct) / maxAbs) * 100);
   const trueWidth = Math.max(4, (Math.abs(truePct) / maxAbs) * 100);
-  const trueColor = truePct >= 0 ? "bg-emerald-500" : "bg-red-500";
+  const trueColor = truePct >= 0 ? "fin-dot-profit" : "fin-dot-loss";
 
   return (
     <div className="w-28 space-y-1.5" aria-hidden="true">
@@ -330,7 +330,7 @@ function MarginBars({ perceivedPct, truePct }: { perceivedPct: number; truePct: 
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
           <div className={`h-full rounded-full ${trueColor}`} style={{ width: `${trueWidth}%` }} />
         </div>
-        <span className={`w-12 text-right font-mono text-[10px] tabular-nums ${truePct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+        <span className={`w-12 text-right font-mono text-[10px] tabular-nums ${truePct >= 0 ? "fin-profit" : "fin-loss"}`}>
           {pct(truePct)}
         </span>
       </div>
@@ -356,17 +356,17 @@ function MarginTooltip({ row }: { row: SkuMargin }) {
         </div>
         <div className="flex justify-between">
           <dt className="text-slate-500">True margin</dt>
-          <dd className={`font-semibold ${row.trueMarginPct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+          <dd className={`font-semibold ${row.trueMarginPct >= 0 ? "fin-profit" : "fin-loss"}`}>
             {pct(row.trueMarginPct)}
           </dd>
         </div>
         <div className="mt-1 flex justify-between border-t border-slate-200 pt-2">
           <dt className="text-slate-600">Hidden gap</dt>
-          <dd className="font-semibold text-red-600">−{row.gapPct.toFixed(1)} pts</dd>
+          <dd className="font-semibold fin-loss">−{row.gapPct.toFixed(1)} pts</dd>
         </div>
         <div className="flex justify-between">
           <dt className="text-slate-500">Return rate</dt>
-          <dd className={row.isReturnRisk ? "text-red-600 font-semibold" : "text-slate-700"}>
+          <dd className={row.isReturnRisk ? "fin-loss font-semibold" : "text-slate-700"}>
             {row.returnRatePct.toFixed(1)}%{row.isReturnRisk ? " ⚠" : ""}
           </dd>
         </div>
@@ -444,14 +444,14 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           {silentLosers > 0 && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2.5 py-1 font-medium text-red-800">
-              <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+            <span className="fin-bg-loss-subtle inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium fin-loss">
+              <span className="fin-dot-loss h-1.5 w-1.5 rounded-full" />
               {silentLosers} Silent Loser{silentLosers > 1 ? "s" : ""}
             </span>
           )}
           {cashCows > 0 && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 font-medium text-emerald-800">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            <span className="fin-bg-profit-subtle inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium fin-profit">
+              <span className="fin-dot-profit h-1.5 w-1.5 rounded-full" />
               {cashCows} Cash Cow{cashCows > 1 ? "s" : ""}
             </span>
           )}
@@ -534,7 +534,7 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
                   </td>
 
                   {/* Gap */}
-                  <td className="border-b border-slate-100 px-4 py-3 text-right font-mono text-sm tabular-nums text-red-600">
+                  <td className="border-b border-slate-100 px-4 py-3 text-right font-mono text-sm tabular-nums fin-loss">
                     −{row.gapPct.toFixed(1)} pts
                   </td>
 
@@ -550,7 +550,7 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
                       {bucket.label}
                     </span>
                     {row.isSilentLoser && (
-                      <div className="mt-0.5 text-[10px] text-red-500 font-mono">SILENT LOSS</div>
+                      <div className="mt-0.5 text-[10px] fin-loss font-mono">SILENT LOSS</div>
                     )}
                   </td>
 

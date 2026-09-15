@@ -6,6 +6,7 @@ const footerLinks = [
   ...MARKETING_NAV,
   { label: "Demo", href: "/demo" },
   { label: "Giriş", href: "/login" },
+  { label: "Gizlilik", href: "/gizlilik" },
 ];
 
 export function SiteFooter() {

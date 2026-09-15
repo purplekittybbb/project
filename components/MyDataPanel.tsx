@@ -186,7 +186,7 @@ export function MyDataPanel({ rows, authConfigured, busy, onUpload, onDeleteRow,
           <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans">CSV Yükle</div>
           {!preview && <DropZone onFile={handleFile} />}
           {csvError && (
-            <div className="border border-[#c0392b]/40 bg-[#c0392b]/10 px-3 py-2 text-[11px] text-red-400 font-mono">
+            <div className="fin-border-loss-subtle fin-bg-loss-subtle border px-3 py-2 text-[11px] fin-loss font-mono">
               {csvError}
             </div>
           )}
@@ -271,7 +271,7 @@ export function MyDataPanel({ rows, authConfigured, busy, onUpload, onDeleteRow,
               Ekle
             </button>
           </form>
-          {formError && <div className="text-[11px] text-red-400 font-mono">{formError}</div>}
+          {formError && <div className="text-[11px] fin-loss font-mono">{formError}</div>}
         </div>
       </div>
 
@@ -285,7 +285,7 @@ export function MyDataPanel({ rows, authConfigured, busy, onUpload, onDeleteRow,
             <button
               onClick={onClear}
               disabled={busy}
-              className="text-[10px] font-mono text-zinc-600 hover:text-red-400 uppercase tracking-widest transition-colors disabled:opacity-50"
+              className="text-[10px] font-mono text-zinc-600 hover:fin-loss uppercase tracking-widest transition-colors disabled:opacity-50"
             >
               Tümünü sil
             </button>
@@ -323,7 +323,7 @@ export function MyDataPanel({ rows, authConfigured, busy, onUpload, onDeleteRow,
                       <button
                         onClick={() => onDeleteRow(r.id)}
                         disabled={busy}
-                        className="text-zinc-700 hover:text-red-400 transition-colors disabled:opacity-50"
+                        className="text-zinc-700 hover:fin-loss transition-colors disabled:opacity-50"
                         aria-label="Satırı sil"
                       >
                         <Trash2 size={13} />

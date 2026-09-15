@@ -12,7 +12,7 @@ const DEDUCTION_LABELS: Record<string, string> = {
   shipping: "Kargo",
   returnRiskCost: "İade riski",
   adSpend: "Reklam",
-  extraFees: "Platform ek ücretleri (N11)",
+  extraFees: "Platform ek ücretleri",
   packaging: "Ambalaj",
   cogs: "Ürün maliyeti",
 };
@@ -44,7 +44,7 @@ export function ProfitCalculator() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-emerald-800">
+      <span className="tm-capsule-profit inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide fin-profit">
         Ücretsiz Dene
       </span>
       <h1 className="mt-4 font-heading text-3xl font-bold tracking-tight text-foreground">
@@ -154,10 +154,8 @@ export function ProfitCalculator() {
       {result && (
         <div className="mt-8 space-y-4">
           <div
-            className={`rounded-[var(--tm-r-ui)] border p-6 ${
-              result.isLoss
-                ? "border-red-200 bg-red-50"
-                : "border-emerald-200 bg-emerald-50"
+            className={`rounded-[var(--tm-r-ui)] p-6 ${
+              result.isLoss ? "tm-capsule-loss" : "tm-capsule-profit"
             }`}
           >
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Net kâr</p>
@@ -168,7 +166,7 @@ export function ProfitCalculator() {
               Net marj: {fmtPct(result.netMarginPercent)} · Brüt ciro: {fmtTry(result.grossRevenue)}
             </p>
             {result.isLoss && (
-              <p className="mt-2 text-sm text-red-800">
+              <p className="mt-2 text-sm fin-loss">
                 Bu fiyat ve maliyetlerle satış zarar eder. Satış fiyatını yükseltin veya maliyetleri düşürün.
               </p>
             )}
@@ -183,7 +181,12 @@ export function ProfitCalculator() {
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(result.breakdown).map(([key, value]) => (
+                {Object.entries(result.breakdown)
+                  // "extraFees" is N11-specific (platform ek ücretleri) — always 0 and
+                  // not applicable for Trendyol/Hepsiburada, so hide it for them instead
+                  // of showing a confusing always-zero line item.
+                  .filter(([key]) => key !== "extraFees" || marketplace === "n11")
+                  .map(([key, value]) => (
                   <tr key={key} className="border-t border-border">
                     <td className="px-4 py-2.5">{DEDUCTION_LABELS[key] ?? key}</td>
                     <td className="px-4 py-2.5 text-right font-mono tabular-nums">−{fmtTry(value as number)}</td>

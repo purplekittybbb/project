@@ -373,7 +373,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                       <div className="text-zinc-600 text-[11px] truncate">{m.description}</div>
                     </div>
                     {linked ? (
-                      <span className="text-emerald-500/90 font-mono text-[10px] uppercase tracking-wider shrink-0">Connected ✓</span>
+                      <span className="fin-profit/90 font-mono text-[10px] uppercase tracking-wider shrink-0">Connected ✓</span>
                     ) : m.connectionMethod === "coming_soon" ? (
                       <span className="shrink-0 h-8 px-3 border border-zinc-800 text-zinc-600 text-[10px] font-mono uppercase tracking-widest flex items-center">
                         Coming soon
@@ -478,7 +478,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
               choose to delete the order data already pulled from this marketplace.
             </p>
             {disconnectError && (
-              <p className="text-red-400 text-[11px] font-mono mb-4">{disconnectError}</p>
+              <p className="fin-loss text-[11px] font-mono mb-4">{disconnectError}</p>
             )}
             <div className="flex flex-col gap-2">
               <button
@@ -493,7 +493,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                 type="button"
                 onClick={() => confirmDisconnect(true)}
                 disabled={disconnectBusy}
-                className="inline-flex items-center justify-center h-10 px-4 border border-red-900/60 text-red-400 font-mono text-[12px] hover:bg-red-950/30 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+                className="inline-flex items-center justify-center h-10 px-4 fin-border-loss-subtle border fin-loss font-mono text-[12px] hover:bg-[color-mix(in_srgb,var(--fin-loss)_16%,transparent)] transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--fin-loss)]"
               >
                 {disconnectBusy ? "Working…" : "Disconnect and delete this marketplace's data"}
               </button>

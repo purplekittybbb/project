@@ -22,7 +22,7 @@ function money(v: number, currency: string) {
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 const STATUS_CLS = {
-  received: "fin-profit border-emerald-900/50 bg-emerald-950/20",
+  received: "fin-profit fin-border-profit-subtle fin-bg-profit-subtle",
   pending: "text-zinc-400   border-zinc-700       bg-zinc-900/30",
   overdue: "text-amber-400  border-amber-800/50   bg-amber-950/20",
 } as const;
@@ -152,7 +152,7 @@ function Row({ e }: { e: CashFlowEntry }) {
           <span className="text-zinc-800">—</span>
         ) : e.gap !== null ? (
           e.gap > 0 ? (
-            <span className="text-red-500 tabular-nums">−{money(e.gap, e.currency)}</span>
+            <span className="fin-loss tabular-nums">−{money(e.gap, e.currency)}</span>
           ) : (
             <span className="text-zinc-700">—</span>
           )

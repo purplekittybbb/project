@@ -6,8 +6,9 @@
  * Real signed-in user: their own row in `user_settings` (RLS-scoped to
  * auth.uid(), same client-side-query pattern as lib/supabase/user-data.ts).
  * Demo/no-auth: browser localStorage only. Either way the default — for a
- * brand-new user with no row/localStorage value yet — is English, per this
- * being a US-focused product; Turkish is an explicit opt-in from Settings.
+ * brand-new user with no row/localStorage value yet — is Turkish, per this
+ * being a Turkish marketplace-seller product; English is an explicit opt-in
+ * from Settings.
  */
 import { useCallback, useEffect, useState } from "react";
 import i18n, { DEFAULT_LANGUAGE, isSupportedLanguage, type SupportedLanguage } from "./config";

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseClient } from "@/lib/supabase/client";
-import { FIELD_ERROR_BORDER } from "@/lib/design/financial-ui";
+import { FIELD_ERROR_BORDER, FIELD_ERROR_TEXT_ON_DARK } from "@/lib/design/financial-ui";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -80,7 +80,7 @@ export function HeroSignupForm() {
           onChange={(e) => setPassword(e.target.value)}
           className={`w-full rounded-md border bg-[var(--tm-paper)] px-3 py-2.5 text-sm text-foreground ${error ? FIELD_ERROR_BORDER : "border-input"}`}
         />
-        {error && <p className="text-xs text-red-200">{error}</p>}
+        {error && <p className={`text-xs ${FIELD_ERROR_TEXT_ON_DARK}`}>{error}</p>}
         {notice && <p className="text-xs text-[color-mix(in_srgb,var(--tm-paper)_85%,transparent)]">{notice}</p>}
         <button
           type="submit"

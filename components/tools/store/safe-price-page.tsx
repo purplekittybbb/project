@@ -5,6 +5,7 @@ import { computeSafePrice, suggestBuyboxPrice } from "@/lib/calc/safe-price";
 import { commissionRuleFor, type GuestMarketplace } from "@/lib/tools/marketplace-fees";
 import { mapToInternalCategory } from "@/lib/domain/internal-category";
 import { fmtPct, fmtTry } from "@/lib/tools/format-tr";
+import { FIELD_ERROR_TEXT } from "@/lib/design/financial-ui";
 import type { useStoreToolData } from "./use-store-tool-data";
 
 type Ready = Extract<ReturnType<typeof useStoreToolData>, { status: "ready" }>;
@@ -86,7 +87,7 @@ export function SafePriceStorePage({ data }: { data: Ready }) {
             <p className="text-xs uppercase text-muted-foreground">Taban fiyat (başabaş)</p>
             <p className="mt-2 text-2xl font-bold tabular-nums">{fmtTry(result.safe.floorPrice)}</p>
             {!result.safe.feasible && (
-              <p className="mt-2 text-sm text-red-700">{result.safe.infeasibleReason}</p>
+              <p className={`mt-2 text-sm ${FIELD_ERROR_TEXT}`}>{result.safe.infeasibleReason}</p>
             )}
           </div>
           <div className="rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-card p-5">
@@ -96,7 +97,7 @@ export function SafePriceStorePage({ data }: { data: Ready }) {
             </p>
           </div>
           {result.buybox && (
-            <div className="rounded-[var(--tm-r-ui)] border border-emerald-200 bg-emerald-50 p-5 sm:col-span-2">
+            <div className="tm-capsule-profit rounded-[var(--tm-r-ui)] p-5 sm:col-span-2">
               <p className="text-xs uppercase text-muted-foreground">Buybox önerisi</p>
               <p className="mt-2 text-lg font-semibold">
                 {result.buybox.canCompete

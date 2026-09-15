@@ -167,6 +167,7 @@ export async function POST(req: Request) {
       isSilentLoser: false,
       returnRatePct: 0,
       isReturnRisk: false,
+      netContribution: agg.netContrib,
     });
     if (agg.productName) productNames.set(sku, agg.productName);
   }

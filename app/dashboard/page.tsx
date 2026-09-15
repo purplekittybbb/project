@@ -965,7 +965,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   if (needsOnboarding) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <span className="text-zinc-600 font-mono text-[11px] uppercase tracking-[0.2em]">Redirecting to connect…</span>
+        <span className="text-zinc-600 font-mono text-[11px] uppercase tracking-[0.2em]">Bağlantı sayfasına yönlendiriliyor…</span>
       </div>
     );
   }
@@ -984,11 +984,11 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
         <div className="max-w-sm text-center space-y-4">
-          <div className="text-zinc-200 font-sans text-lg font-medium">No data yet</div>
+          <div className="text-zinc-200 font-sans text-lg font-medium">Henüz veri yok</div>
           <p className="text-zinc-500 text-sm leading-relaxed">
-            Your account is set up, but there&apos;s no real order data to show yet — connecting a marketplace
-            during onboarding links the account, but doesn&apos;t pull in past orders on its own. Upload a CSV
-            or connect a marketplace with real API access to see your numbers here.
+            Hesabınız kuruldu, ancak gösterilecek gerçek sipariş verisi henüz yok — kayıt sırasında bir
+            pazaryeri bağlamak hesabı ilişkilendirir ama geçmiş siparişleri kendiliğinden çekmez. Rakamlarınızı
+            burada görmek için bir CSV yükleyin veya gerçek API erişimiyle bir pazaryeri bağlayın.
           </p>
           <div className="flex flex-col gap-2 pt-2">
             <button
@@ -996,7 +996,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               onClick={() => router.push("/connect")}
               className="h-10 px-4 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors"
             >
-              Connect a marketplace
+              Pazaryeri bağla
             </button>
           </div>
         </div>
@@ -1102,18 +1102,18 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     : "text-zinc-600 hover:text-zinc-300"
                 }`}
               >
-                Combined
+                Toplam
               </button>
             )}
             {/* Demo (no adapter yet) — visible but not selectable */}
             {ghostOptions.map((o) => (
               <span
                 key={o.id}
-                title="Connected · settlement sync coming soon (demo)"
+                title="Bağlı · hakediş senkronizasyonu yakında (demo)"
                 className="pb-[18px] pt-[20px] text-zinc-700 cursor-default inline-flex items-center gap-1.5"
               >
                 {o.label}
-                <span className="text-[9px] uppercase tracking-widest border border-zinc-800 px-1 py-0.5 leading-none">soon</span>
+                <span className="text-[9px] uppercase tracking-widest border border-zinc-800 px-1 py-0.5 leading-none">yakında</span>
               </span>
             ))}
           </div>
@@ -1123,8 +1123,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               <span className="inline-flex items-center gap-2 border border-zinc-800 bg-zinc-900/50 px-3 py-1 text-[11px] font-mono tabular-nums text-zinc-400">
                 <span className={`w-1.5 h-1.5 ${trialDaysLeft > 0 ? "fin-dot-profit" : "fin-dot-loss"}`} />
                 {trialDaysLeft > 0
-                  ? `Free trial · ${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"} left`
-                  : "Trial ended"}
+                  ? `Ücretsiz deneme · ${trialDaysLeft} gün kaldı`
+                  : "Deneme süresi bitti"}
               </span>
             )}
           </div>
@@ -1138,7 +1138,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               {view.channel === "combined" && view.marketplaceMargins && (
                 <div className="mb-16">
                   <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-6">
-                    Per marketplace · combined total in TRY (USD→TRY @33)
+                    Pazaryeri bazında · TRY toplamı (USD→TRY @33)
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px bg-zinc-800 border border-zinc-800">
                     {view.marketplaceMargins.map((mp) => (
@@ -1150,23 +1150,23 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                           {pctStr(mp.trueMarginPct)}
                         </div>
                         <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">
-                          Perceived {pctStr(mp.perceivedMarginPct)}
+                          Algılanan {pctStr(mp.perceivedMarginPct)}
                         </div>
                         <div className="text-zinc-500 text-[11px] font-mono mt-3 tabular-nums">
-                          Rev {money(mp.grossRevenue, mp.currency)}
+                          Ciro {money(mp.grossRevenue, mp.currency)}
                         </div>
                       </div>
                     ))}
                     <div className="bg-zinc-900/40 p-4 lg:p-6 border-l border-zinc-800">
-                      <div className="text-zinc-400 font-sans text-xs mb-4">Combined (TRY eq.)</div>
+                      <div className="text-zinc-400 font-sans text-xs mb-4">Toplam (TRY karşılığı)</div>
                       <div className={`text-2xl font-mono tabular-nums ${view.trueMarginPct >= 0 ? "fin-profit" : "fin-loss"}`}>
                         {pctStr(view.trueMarginPct)}
                       </div>
                       <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">
-                        Perceived {pctStr(view.perceivedMarginPct)}
+                        Algılanan {pctStr(view.perceivedMarginPct)}
                       </div>
                       <div className="text-zinc-500 text-[11px] font-mono mt-3 tabular-nums">
-                        Rev {money(view.waterfall.grossRevenue)}
+                        Ciro {money(view.waterfall.grossRevenue)}
                       </div>
                     </div>
                   </div>
@@ -1188,15 +1188,15 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   <div className="mb-20 lg:mb-24 relative">
                     <div className="absolute -left-6 lg:-left-8 top-1 bottom-1 w-px bg-zinc-900"></div>
                     <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-6">
-                      Real Margin · {channelLabel(view.channel)}
+                      Gerçek Marj · {channelLabel(view.channel)}
                     </h2>
                     <div className={`text-7xl lg:text-[96px] leading-none font-mono tracking-tighter tabular-nums ${marginPercent >= 0 ? "fin-profit" : "fin-loss"}`}>
                       {marginPercent > 0 ? "+" : ""}{marginPercent.toFixed(1)}%
                     </div>
                     <div className="text-zinc-500 mt-6 lg:mt-8 font-mono text-sm flex items-center gap-4">
-                      <span>Seller believes <span className="text-zinc-200">{belief.toFixed(1)}%</span></span>
+                      <span>Satıcının sandığı <span className="text-zinc-200">{belief.toFixed(1)}%</span></span>
                       <span className="w-1 h-1 bg-zinc-800 rounded-none"></span>
-                      <span className="fin-loss">{ptsDiff} pts lower</span>
+                      <span className="fin-loss">{ptsDiff} puan düşük</span>
                     </div>
 
                     {/* Break-even price — right below the hero margin */}
@@ -1356,18 +1356,18 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   <div className="mb-14 border border-zinc-800 bg-zinc-900/20 p-6 lg:p-8">
                     <div className="flex justify-between items-start mb-8">
                       <div>
-                        <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">Decision</h3>
+                        <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">Karar</h3>
                         <div className={`text-3xl font-mono tracking-tight ${approved ? "text-zinc-100" : "text-zinc-100"}`}>
-                          {approved ? money(view.decision.approvedLimit) : "Declined"}
+                          {approved ? money(view.decision.approvedLimit) : "Reddedildi"}
                         </div>
                       </div>
                       <div className="text-right">
-                        <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">Take-rate</h3>
-                        <div className={`text-3xl font-mono ${approved ? "text-zinc-100" : "text-zinc-700"}`}>{approved ? `${takeRate}%` : "N/A"}</div>
+                        <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">Kesinti oranı</h3>
+                        <div className={`text-3xl font-mono ${approved ? "text-zinc-100" : "text-zinc-700"}`}>{approved ? `${takeRate}%` : "—"}</div>
                       </div>
                     </div>
                     <div className="flex justify-between border-t border-zinc-800 pt-5 font-mono text-sm mb-3">
-                      <span className="text-zinc-400">Monthly contribution</span>
+                      <span className="text-zinc-400">Aylık katkı</span>
                       <span className={view.inputs.trailingMonthlyContribution >= 0 ? "text-zinc-100 tabular-nums" : "fin-loss tabular-nums"}>
                         {view.inputs.trailingMonthlyContribution < 0 ? "-" : ""}{money(view.inputs.trailingMonthlyContribution)}
                       </span>
@@ -1380,7 +1380,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       Bu fiyatın altında satmak zarar.
                     </div>
                     <div className="text-[11px] text-zinc-500 font-mono tracking-wide border-l border-zinc-700 pl-3">
-                      Priced on real margin, not revenue.
+                      Fiyatlandırma cirodan değil gerçek marjdan yapılır.
                     </div>
                   </div>
 
@@ -1389,7 +1389,12 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     {/* 3-30-300: 30 sn'de hangi ürünler sorunlu — zarar edenler üstte */}
                     {(() => {
                       const lossSkus  = view.skus.filter((s) => s.trueMarginPct < 0);
-                      const totalRisk = lossSkus.reduce((sum, s) => sum + Math.abs(s.trueMarginPct), 0);
+                      // LossAlarmBanner's totalRisk is money (sum of |netContribution| for
+                      // loss SKUs) — summing trueMarginPct here was a real bug: it silently
+                      // rendered a percentage-points number through a ₺-formatter, showing
+                      // e.g. "Toplam risk: ₺9,56" for a seller whose actual loss was tens of
+                      // thousands of TRY.
+                      const totalRisk = lossSkus.reduce((sum, s) => sum + Math.abs(s.netContribution), 0);
                       return lossSkus.length > 0 ? (
                         <div className="mb-4">
                           <LossAlarmBanner
@@ -1569,7 +1574,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   {/* Insight — highest-impact silent-loser SKU, at most one card */}
                   {silentLoserInsight && (
                     <div className="mb-14 border border-zinc-800 bg-zinc-900/20 px-5 py-4">
-                      <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-2">Insight</div>
+                      <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-2">İçgörü</div>
                       <p className="text-[13px] text-zinc-300 leading-relaxed">
                         <span className="text-zinc-100 font-medium">{silentLoserInsight.sku}</span> sessiz zarar ediyor.
                         Bu ürünü çıkarırsan tahmini limit etkisi:{" "}
@@ -1586,32 +1591,32 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       instead of a face-value charge-off percentage. */}
                   <div>
                     <div className="flex items-center gap-4 mb-6">
-                      <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans">Backtest Comparison</h3>
+                      <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans">Geçmiş Test Karşılaştırması</h3>
                       <span className="bg-zinc-900 text-zinc-500 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800">
-                        {fin.isSelfBacktest ? `N=1 · ${fin.historyMonths} mo. history` : "N=3"}
+                        {fin.isSelfBacktest ? `N=1 · ${fin.historyMonths} aylık geçmiş` : "N=3"}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-px bg-zinc-800 border border-zinc-800">
                       <div className="bg-zinc-950 p-4 lg:p-6">
                         <div className="text-zinc-500 font-sans text-xs mb-4">TrueMargin</div>
                         <div className="text-xl lg:text-2xl font-mono text-zinc-100 mb-1 tabular-nums">{coOurs}%</div>
-                        <div className="text-zinc-600 text-[10px] lg:text-[11px] font-mono tracking-wide uppercase">charge-off</div>
+                        <div className="text-zinc-600 text-[10px] lg:text-[11px] font-mono tracking-wide uppercase">zarar oranı</div>
                       </div>
                       <div className="bg-zinc-950 p-4 lg:p-6">
-                        <div className="text-zinc-500 font-sans text-xs mb-4">Incumbent</div>
+                        <div className="text-zinc-500 font-sans text-xs mb-4">Mevcut Yöntem</div>
                         <div className="text-xl lg:text-2xl font-mono text-zinc-600 mb-1 tabular-nums">{coInc}%</div>
-                        <div className="text-zinc-700 text-[10px] lg:text-[11px] font-mono tracking-wide uppercase">charge-off</div>
+                        <div className="text-zinc-700 text-[10px] lg:text-[11px] font-mono tracking-wide uppercase">zarar oranı</div>
                       </div>
                     </div>
                     {fin.isSelfBacktest && fin.historyMonths < LOW_SAMPLE_HISTORY_MONTHS ? (
                       <div className="mt-4 text-xs text-amber-400/90 font-mono tracking-wide leading-relaxed">
                         Sınırlı veri (N={fin.historyMonths} ay) — bu sonuçlar öngörücü değil, bilgilendirici. Güvenilir bir
-                        charge-off oranı için en az {LOW_SAMPLE_HISTORY_MONTHS} aylık gerçek sipariş geçmişi gerekir.
+                        zarar oranı için en az {LOW_SAMPLE_HISTORY_MONTHS} aylık gerçek sipariş geçmişi gerekir.
                       </div>
                     ) : (
                       <div className="mt-4 text-xs fin-profit/80 font-mono tracking-wide flex items-center gap-3">
-                        <span className="text-emerald-500">↓</span> {lossRed}% loss reduction
-                        {fin.isSelfBacktest && <span className="text-zinc-600">· your own data, {fin.historyMonths} mo. history</span>}
+                        <span className="fin-profit">↓</span> %{lossRed} daha az zarar
+                        {fin.isSelfBacktest && <span className="text-zinc-600">· kendi verin, {fin.historyMonths} aylık geçmiş</span>}
                       </div>
                     )}
                   </div>
@@ -1723,12 +1728,12 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {/* VIEW: SELLERS */}
           {currentTab === "Sellers" && (
             <div className="max-w-[900px] px-8 py-12 md:py-20">
-              <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-12 border-l border-zinc-800 pl-4">Sellers Portfolio</h2>
+              <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-12 border-l border-zinc-800 pl-4">Satıcı Portföyü</h2>
               <div className="text-sm font-mono w-full">
                 <div className="flex w-full border-b border-zinc-900 pb-3 mb-3 text-zinc-600 text-[10px] uppercase tracking-[0.1em]">
-                  <div className="w-4/12">Seller</div>
-                  <div className="w-4/12 text-right">Perceived</div>
-                  <div className="w-4/12 text-right">True</div>
+                  <div className="w-4/12">Satıcı</div>
+                  <div className="w-4/12 text-right">Algılanan</div>
+                  <div className="w-4/12 text-right">Gerçek</div>
                 </div>
                 {sellers.map((s) => (
                   <button
@@ -1820,7 +1825,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     </div>
                   ) : (
                     <div className="mt-4 text-xs fin-profit/80 font-mono tracking-wide flex items-center gap-3">
-                      <span className="text-emerald-500">↓</span>{" "}
+                      <span className="fin-profit">↓</span>{" "}
                       {t("financing.lossReduction", {
                         pct: lossRed,
                         source: fin.isSelfBacktest ? t("financing.yourOwnData") : t("financing.designPartnersSource"),
@@ -2048,7 +2053,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                               <span className="text-zinc-200 text-sm truncate">{opt?.label ?? c.marketplaceId}</span>
                               <span
                                 className={`shrink-0 text-[9px] px-1.5 py-0.5 font-mono uppercase tracking-widest border ${
-                                  isLive ? "border-emerald-800/60 fin-profit/80" : "border-zinc-800 text-zinc-500"
+                                  isLive ? "fin-border-profit-subtle fin-profit/80" : "border-zinc-800 text-zinc-500"
                                 }`}
                               >
                                 {isLive ? t("settings.live") : t("settings.demo")}
@@ -2068,7 +2073,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                           <button
                             type="button"
                             onClick={() => setDisconnectTarget(c.marketplaceId)}
-                            className="shrink-0 inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-400 font-mono text-[12px] hover:border-red-400/40 hover:fin-loss transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
+                            className="shrink-0 inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-400 font-mono text-[12px] hover:border-[color-mix(in_srgb,var(--fin-loss)_40%,transparent)] hover:fin-loss transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
                           >
                             {t("settings.disconnect")}
                           </button>
@@ -2193,7 +2198,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                         type="button"
                         onClick={() => confirmDisconnect(true)}
                         disabled={disconnectBusy}
-                        className="inline-flex items-center justify-center h-10 px-4 border border-red-900/60 fin-loss font-mono text-[12px] hover:bg-red-950/30 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+                        className="inline-flex items-center justify-center h-10 px-4 fin-border-loss-subtle border fin-loss font-mono text-[12px] hover:bg-[color-mix(in_srgb,var(--fin-loss)_16%,transparent)] transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--fin-loss)]"
                       >
                         {disconnectBusy ? t("common.working") : t("settings.disconnectAndDelete")}
                       </button>

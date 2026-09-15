@@ -63,7 +63,7 @@ function Slider({ label, sub, value, min, max, step, unit, onChange, danger }: S
       </div>
       <div className="relative h-px bg-zinc-800">
         <div
-          className={`absolute inset-y-0 left-0 ${danger && value > 0 ? "bg-red-500/60" : "bg-zinc-500"}`}
+          className={`absolute inset-y-0 left-0 ${danger && value > 0 ? "fin-dot-loss opacity-60" : "bg-zinc-500"}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -225,7 +225,7 @@ export function CampaignSimulator({ tenantId, channel, currency }: Props) {
           <div
             className={`flex items-center justify-between border px-5 py-3 font-mono text-sm ${
               isWorseThanBase
-                ? "border-red-900/50 bg-red-950/20"
+                ? "fin-border-loss-subtle fin-bg-loss-subtle"
                 : "border-zinc-800 bg-zinc-900/20"
             }`}
           >
@@ -241,11 +241,11 @@ export function CampaignSimulator({ tenantId, channel, currency }: Props) {
 
           {/* Break-even alert */}
           {isBelowZero && (
-            <div className="border border-red-900/60 bg-red-950/20 px-5 py-4 font-mono">
+            <div className="fin-border-loss-subtle fin-bg-loss-subtle border px-5 py-4 font-mono">
               <div className="fin-loss text-[10px] uppercase tracking-[0.2em] mb-1">
                 ⚠ Kırılma Noktası Aşıldı
               </div>
-              <div className="text-red-500/80 text-[11px]">
+              <div className="fin-loss/80 text-[11px]">
                 Bu kampanya koşullarında satış başına zarar ediliyor.
                 İndirim oranını düşür veya reklam bütçesini kıs.
               </div>
@@ -258,7 +258,7 @@ export function CampaignSimulator({ tenantId, channel, currency }: Props) {
               className={`border px-5 py-3 font-mono text-[11px] ${
                 isWorseThanBase
                   ? "border-zinc-800 text-zinc-500"
-                  : "border-emerald-900/40 text-emerald-600"
+                  : "fin-border-profit-subtle fin-profit"
               }`}
             >
               {isWorseThanBase

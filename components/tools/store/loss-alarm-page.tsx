@@ -18,7 +18,7 @@ export function LossAlarmStorePage({ data }: { data: Ready }) {
 
   if (alarms.length === 0) {
     return (
-      <p className="rounded-[var(--tm-r-ui)] border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+      <p className="tm-capsule-profit rounded-[var(--tm-r-ui)] p-4 text-sm fin-profit">
         Şu an alarm veren SKU yok — tüm ürünler eşik değerlerin içinde.
       </p>
     );
@@ -40,7 +40,7 @@ export function LossAlarmStorePage({ data }: { data: Ready }) {
             <tr key={a.sku} className="border-t border-border">
               <td className="px-4 py-2">{data.skuEconomics.get(a.sku)?.productTitle ?? a.sku}</td>
               <td className="px-4 py-2">
-                <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-800">
+                <span className="fin-bg-loss-subtle rounded-full px-2 py-0.5 text-xs font-medium fin-loss">
                   {LEVEL_LABEL[a.level] ?? a.level}
                 </span>
               </td>

@@ -88,7 +88,10 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
             <p className="text-zinc-200 text-sm mb-2">Redirecting to {platformName}…</p>
             <p className="text-zinc-600 text-[12px]">You will authorize read-only access on their site.</p>
             <div className="mt-6 h-1 w-full bg-zinc-800 overflow-hidden">
-              <div className="h-full bg-zinc-400 w-1/3 animate-pulse" />
+              <div
+                className="h-full w-1/3"
+                style={{ background: "var(--tm-copper)", animation: "progress-sweep 1.4s ease-in-out infinite" }}
+              />
             </div>
           </div>
         )}
@@ -121,7 +124,7 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
               <ul className="space-y-1.5 mb-4">
                 {READ_ONLY_SCOPES.map((s) => (
                   <li key={s} className="text-zinc-500 text-[12px] font-mono flex items-center gap-2">
-                    <span className="text-emerald-500/80">+</span> {s}
+                    <span className="fin-profit/80">+</span> {s}
                   </li>
                 ))}
               </ul>
@@ -133,7 +136,7 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
               </p>
             </div>
             {syncError && (
-              <p className="mb-3 border border-[#c0392b]/40 bg-[#c0392b]/10 px-3 py-2 text-[11px] text-red-400 font-mono">
+              <p className="mb-3 fin-border-loss-subtle fin-bg-loss-subtle border px-3 py-2 text-[11px] fin-loss font-mono">
                 {syncError}
               </p>
             )}
@@ -177,13 +180,16 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
             )}
             {phase === "connected" && (
               <>
-                <p className="text-emerald-400 text-sm font-medium mb-1">Connected ✓</p>
+                <p className="fin-profit text-sm font-medium mb-1">Connected ✓</p>
                 <p className="text-zinc-500 text-[11px] font-mono">{platformName} · demo — sample data</p>
               </>
             )}
             {phase !== "connected" && (
               <div className="mt-5 h-1 w-full bg-zinc-800 overflow-hidden">
-                <div className="h-full bg-zinc-300 animate-pulse w-2/3 mx-auto" />
+                <div
+                  className="h-full w-2/3 mx-auto"
+                  style={{ background: "var(--tm-copper)", animation: "progress-sweep 1.4s ease-in-out infinite" }}
+                />
               </div>
             )}
           </div>

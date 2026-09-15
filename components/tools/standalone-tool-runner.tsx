@@ -115,6 +115,9 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
       <p className="mt-2 text-xs text-muted-foreground">
         Giriş yapmadan günde {GUEST_DAILY_LIMIT} sorgu (IP bazlı). Giriş yaptıysanız limit daha yüksektir.
       </p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Gerçek pazaryeri verisi canlı taranır — bu genellikle 15–60 saniye sürer, bazen daha uzun sürebilir.
+      </p>
 
       <form onSubmit={onSubmit} className="mt-8 space-y-4 rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-card p-6">
         <div>

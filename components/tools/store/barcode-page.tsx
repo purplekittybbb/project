@@ -5,6 +5,7 @@ import type { CanonicalProduct } from "@/lib/domain/canonical";
 import { MARKETPLACE_LABELS } from "@/lib/engine";
 import { buildBarcodeAnalysis } from "@/lib/tools/barcode-analysis";
 import { fmtPct, fmtTry } from "@/lib/tools/format-tr";
+import { FIELD_ERROR_TEXT, FIELD_SUCCESS_TEXT } from "@/lib/design/financial-ui";
 import type { useStoreToolData } from "./use-store-tool-data";
 
 type Ready = Extract<ReturnType<typeof useStoreToolData>, { status: "ready" }>;
@@ -148,8 +149,8 @@ export function BarcodeStorePage({
         >
           {uploading ? "Yükleniyor…" : "CSV yükle"}
         </button>
-        {uploadMsg && <p className="mt-2 text-sm text-emerald-800">{uploadMsg}</p>}
-        {uploadError && <p className="mt-2 text-sm text-red-700">{uploadError}</p>}
+        {uploadMsg && <p className={`mt-2 text-sm ${FIELD_SUCCESS_TEXT}`}>{uploadMsg}</p>}
+        {uploadError && <p className={`mt-2 text-sm ${FIELD_ERROR_TEXT}`}>{uploadError}</p>}
       </div>
 
       {stats.rowsWithBarcode === 0 ? (
