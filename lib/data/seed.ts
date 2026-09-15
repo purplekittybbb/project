@@ -199,6 +199,25 @@ const SEED_PRODUCT_TITLES: Record<string, string> = {
   "KOZ-CREAM-07": "Yoğun Nemlendirici Yüz Kremi 50ml",
 };
 
+/**
+ * Representative EAN/GTIN barcodes per seed SKU — shared across marketplaces
+ * for the same physical product, exactly like a real seller's own barcode
+ * would be. Without these, Barkod Analizi (a homepage-promised "Mağaza
+ * Gerekli" feature: "Aynı EAN/GTIN ile Trendyol, Hepsiburada ve N11
+ * listelerinizi... karşılaştırın") had nothing to match on in the demo and
+ * rendered an honest but empty "0/3 satırda barkod var" — i.e. one of the
+ * six flagship features looked broken in the one place prospects evaluate
+ * the product.
+ */
+const SEED_BARCODES: Record<string, string> = {
+  "EV-TOWEL-01": "8690000000017",
+  "EV-SHEET-02": "8690000000024",
+  "EL-EARBUD-09": "8690000000031",
+  "EL-CHARGER-3": "8690000000048",
+  "KOZ-SERUM-04": "8690000000055",
+  "KOZ-CREAM-07": "8690000000062",
+};
+
 /** Raw Trendyol seed rows per tenant — same arrays SELLERS is built from. */
 const SEED_TRENDYOL_RAW_BY_TENANT: Record<string, RawTrendyolRow[]> = {
   "seller-a": SELLER_A_RAW,
@@ -206,20 +225,36 @@ const SEED_TRENDYOL_RAW_BY_TENANT: Record<string, RawTrendyolRow[]> = {
   "seller-c": SELLER_C_RAW,
 };
 
+/** Raw Hepsiburada seed rows per tenant — same SKUs as the Trendyol rows
+ *  above (see SELLER_*_HEPSIBURADA_RAW), so Barkod Analizi has a genuine
+ *  second marketplace to cross-match against by barcode. */
+const SEED_HEPSIBURADA_RAW_BY_TENANT: Record<string, RawHepsiburadaRow[]> = {
+  "seller-a": SELLER_A_HEPSIBURADA_RAW,
+  "seller-b": SELLER_B_HEPSIBURADA_RAW,
+  "seller-c": SELLER_C_HEPSIBURADA_RAW,
+};
+
 /**
- * Demo-only bridge: converts one seed seller's raw Trendyol rows into the
- * SAME `StoredRow[]` shape a real signed-in user's uploaded/synced data takes
- * (lib/supabase/user-data.ts). Without this, /demo's dashboard shell renders
- * with `userRows` permanently empty (demo mode never touches Supabase — see
- * dashboard/page.tsx's `if (demoMode) return;` guard), so any panel built on
- * top of skuEconomics — Safe Price, Barcode Analysis — shows an honest but
- * useless "no data" state in the one place prospective customers actually
- * evaluate the product. This exists purely to make the demo walkthrough
- * actually demonstrate those features; it is never used for a real user.
+ * Demo-only bridge: converts one seed seller's raw Trendyol + Hepsiburada
+ * rows into the SAME `StoredRow[]` shape a real signed-in user's
+ * uploaded/synced data takes (lib/supabase/user-data.ts). Without this,
+ * /demo's dashboard shell renders with `userRows` permanently empty (demo
+ * mode never touches Supabase — see dashboard/page.tsx's `if (demoMode)
+ * return;` guard), so any panel built on top of skuEconomics — Safe Price,
+ * Barcode Analysis — shows an honest but useless "no data" state in the one
+ * place prospective customers actually evaluate the product. This exists
+ * purely to make the demo walkthrough actually demonstrate those features;
+ * it is never used for a real user.
+ *
+ * Two marketplaces (not just Trendyol) are included so Barkod Analizi's
+ * cross-marketplace comparison has something real to show — a single
+ * marketplace can never produce a "multi-marketplace barcode match".
  */
 export function seedStoredRowsForTenant(tenantId: string): StoredRow[] {
-  const raw = SEED_TRENDYOL_RAW_BY_TENANT[tenantId] ?? SELLER_B_RAW;
-  return raw.map((r, i) => ({
+  const trendyolRaw = SEED_TRENDYOL_RAW_BY_TENANT[tenantId] ?? SELLER_B_RAW;
+  const hepsiburadaRaw = SEED_HEPSIBURADA_RAW_BY_TENANT[tenantId] ?? SELLER_B_HEPSIBURADA_RAW;
+
+  const trendyolRows: StoredRow[] = trendyolRaw.map((r, i) => ({
     id: `${tenantId}-${r.orderId}-${i}`,
     order_id: r.orderId,
     sku: r.sku,
@@ -234,5 +269,26 @@ export function seedStoredRowsForTenant(tenantId: string): StoredRow[] {
     packaging: 0,
     marketplace: "trendyol",
     product_name: SEED_PRODUCT_TITLES[r.sku] ?? r.sku,
+    barcode: SEED_BARCODES[r.sku] ?? null,
   }));
+
+  const hepsiburadaRows: StoredRow[] = hepsiburadaRaw.map((r, i) => ({
+    id: `${tenantId}-${r.orderId}-${i}`,
+    order_id: r.orderId,
+    sku: r.sku,
+    category: r.category,
+    sale_date: r.saleDate,
+    units: r.units,
+    gross_revenue: r.grossRevenue,
+    unit_cost: r.unitCost,
+    shipping: r.shipping,
+    return_rate: r.returnRate,
+    ad_spend: r.adSpend,
+    packaging: 0,
+    marketplace: "hepsiburada",
+    product_name: SEED_PRODUCT_TITLES[r.sku] ?? r.sku,
+    barcode: SEED_BARCODES[r.sku] ?? null,
+  }));
+
+  return [...trendyolRows, ...hepsiburadaRows];
 }

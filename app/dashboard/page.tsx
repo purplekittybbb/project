@@ -180,8 +180,36 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Talep Ölçümü (a promised "Mağaza Gerekli" feature — "Kendi ürününüzün satış
+  // hızı ve stok tükenme sinyalleri") used to be skipped entirely in demoMode
+  // (this effect bailed out to an empty map whenever demoMode was true), so the
+  // demand badge never rendered anywhere in the demo — a prospective seller
+  // could never actually see this feature. demoMode now computes the same
+  // estimateDemand() locally from the seed seller's own rows instead of
+  // calling Supabase (demo never touches Supabase — see the `if (demoMode)
+  // return;` guard elsewhere in this file).
   useEffect(() => {
-    if (demoMode || userRows.length === 0) {
+    if (demoMode) {
+      const demoRows = seedStoredRowsForTenant(tenant);
+      const map = new Map<string, DemandRangeResult>();
+      const skus = [...new Set(demoRows.map((r) => r.sku))];
+      for (const sku of skus) {
+        const rows = demoRows.filter((r) => r.sku === sku);
+        const totalUnits = rows.reduce((s, r) => s + r.units, 0);
+        const timestamps = rows.map((r) => new Date(r.sale_date).getTime());
+        const dataDays = Math.max(
+          1,
+          Math.round((Math.max(...timestamps) - Math.min(...timestamps)) / 86_400_000),
+        );
+        map.set(
+          sku,
+          estimateDemand({ stockDelta: { dailySalesRate: totalUnits / dataDays, dataDays } }),
+        );
+      }
+      setDemandBySku(map);
+      return;
+    }
+    if (userRows.length === 0) {
       setDemandBySku(new Map());
       return;
     }
@@ -212,7 +240,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       setDemandBySku(map);
     })();
     return () => { active = false; };
-  }, [demoMode, userRows, dataVersion]);
+  }, [demoMode, tenant, userRows, dataVersion]);
 
   useEffect(() => {
     if (demoMode || !authConfigured) {
@@ -758,6 +786,17 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
 
   const approved = view.decision.approvedLimit > 0;
   const takeRate = (view.decision.takeRate * 100).toFixed(1);
+  // The Financing tab renders `fin.decision` (the whole-portfolio, Trendyol-only
+  // underwriting decision from getFinancing(tenant)/lib/data/seed.ts), NOT
+  // `view.decision` (scoped to whichever channel tab happens to be selected,
+  // e.g. "combined" or "hepsiburada"). It used to gate on `approved`/`takeRate`
+  // above (both view.decision-derived) while displaying fin.decision's money
+  // figure — so picking a non-Trendyol channel could show an approved-limit
+  // amount from fin.decision paired with a declined/mismatched takeRate, or
+  // vice versa. finApproved/finTakeRate keep the Financing tab's gate and its
+  // displayed numbers sourced from the SAME decision object.
+  const finApproved = fin.decision.approvedLimit > 0;
+  const finTakeRate = (fin.decision.takeRate * 100).toFixed(1);
   const coOurs = (fin.report.trueMargin.chargeOffRate * 100).toFixed(1);
   const coInc = (fin.report.incumbent.chargeOffRate * 100).toFixed(1);
   const lossRed = Math.round(fin.report.lossReductionPct * 100);
@@ -1456,7 +1495,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                                     {sku.sku}
                                   </div>
                                   {(() => {
-                                    const productTitle = productTitleForSku(userRows, sku.sku);
+                                    const productTitle = productTitleForSku(storeToolRows, sku.sku);
                                     const qualityScore = computeListQuality({
                                       title: productTitle,
                                       categoryName: sku.category,
@@ -1489,7 +1528,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                                 </div>
                                 {/* Quality panel — shown when badge is clicked */}
                                 {openQualityPanelSku === sku.sku && (() => {
-                                  const productTitle = productTitleForSku(userRows, sku.sku);
+                                  const productTitle = productTitleForSku(storeToolRows, sku.sku);
                                   const qualityScore = computeListQuality({
                                     title: productTitle,
                                     categoryName: sku.category,
@@ -1510,7 +1549,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                                 {demandBySku.get(sku.sku) && (
                                   <div className="mt-2 max-w-sm">
                                     <DemandEstimateCard
-                                      sku={productTitleForSku(userRows, sku.sku)}
+                                      sku={productTitleForSku(storeToolRows, sku.sku)}
                                       estimate={demandBySku.get(sku.sku)!}
                                     />
                                   </div>
@@ -1762,14 +1801,14 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 {/* LEFT: the unlock */}
                 <section>
                   <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">
-                    {approved ? t("financing.approvedLimit") : t("financing.underwritingDecision")}
+                    {finApproved ? t("financing.approvedLimit") : t("financing.underwritingDecision")}
                   </h3>
-                  <div className={`font-mono text-6xl tracking-tight tabular-nums ${approved ? "text-zinc-100" : "fin-loss"}`}>
-                    {approved ? money(fin.decision.approvedLimit) : t("financing.declined")}
+                  <div className={`font-mono text-6xl tracking-tight tabular-nums ${finApproved ? "text-zinc-100" : "fin-loss"}`}>
+                    {finApproved ? money(fin.decision.approvedLimit) : t("financing.declined")}
                   </div>
                   <p className="mt-4 max-w-md text-sm leading-relaxed text-zinc-500">
-                    {approved
-                      ? t("financing.approvedCopy", { rate: takeRate })
+                    {finApproved
+                      ? t("financing.approvedCopy", { rate: finTakeRate })
                       : t("financing.declinedCopy", { amount: money(0) })}
                   </p>
 
@@ -1804,7 +1843,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       <div className="text-zinc-400 font-sans text-xs mb-3">{t("financing.trueMargin")}</div>
                       <dl className="space-y-1.5 text-sm font-mono">
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.limit")}</dt><dd className="tabular-nums text-zinc-200">{money(fin.decision.approvedLimit)}</dd></div>
-                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.takeRate")}</dt><dd className="tabular-nums text-zinc-200">{approved ? `${takeRate}%` : "—"}</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.takeRate")}</dt><dd className="tabular-nums text-zinc-200">{finApproved ? `${finTakeRate}%` : "—"}</dd></div>
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.outcome")}</dt><dd className={fin.ourOutcome.impaired ? "fin-loss" : "fin-profit"}>{fin.ourOutcome.isLoan ? (fin.ourOutcome.impaired ? t("financing.impaired") : t("financing.performing")) : t("financing.declined")}</dd></div>
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.simLoss")}</dt><dd className="tabular-nums text-zinc-200">{money(fin.ourOutcome.loss)}</dd></div>
                       </dl>

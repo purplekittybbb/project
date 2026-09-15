@@ -268,6 +268,15 @@ export async function runStandaloneTool(
                 searchResultCount: cached.searchResultCount,
                 results: [],
                 scrapedAt: cached.scrapedAt,
+                // These three drive the "Pazaryeri / Anahtar kelime / Hedef
+                // ürün" fields the result panel renders — the cached row
+                // itself doesn't carry them, but the just-parsed query does,
+                // and they're identical to what was cached under (they're
+                // part of the cache key). Without this the panel always
+                // showed "—" for all three on every cache hit.
+                keyword: input.keyword,
+                targetTitle: input.targetTitle,
+                marketplace: input.marketplace,
               },
             };
           }
@@ -280,6 +289,9 @@ export async function runStandaloneTool(
               rank: cached.rank ?? undefined,
               status: !cached.isIndexed ? "not_indexed" : cached.isOnFirstPage ? "first_page" : "deep_page",
               scrapedAt: cached.scrapedAt,
+              keyword: input.keyword,
+              targetTitle: input.targetTitle,
+              marketplace: input.marketplace,
             },
           };
         }
@@ -360,10 +372,22 @@ export async function runStandaloneTool(
             searchResultCount: data.results.length,
           });
         }
-        // visibility/index-check scraper results carry no timestamp of their
-        // own — stamp one so every mode (live/cached/stale) always gives the
-        // frontend a scrapedAt to show, not just the cache-hit paths.
-        return { toolId, mode: "live", data: { ...data, scrapedAt: new Date().toISOString() } };
+        // visibility/index-check scraper results carry no timestamp — and no
+        // keyword/targetTitle/marketplace — of their own (searchProductRank's
+        // return type is just the scrape outcome), so stamp them here from
+        // the parsed query. Without this the result panel's "Pazaryeri /
+        // Anahtar kelime / Hedef ürün" fields always showed "—".
+        return {
+          toolId,
+          mode: "live",
+          data: {
+            ...data,
+            scrapedAt: new Date().toISOString(),
+            keyword: input.keyword,
+            targetTitle: input.targetTitle,
+            marketplace: input.marketplace,
+          },
+        };
       }
       case "index-check": {
         const data = await checkIndex(
@@ -383,7 +407,17 @@ export async function runStandaloneTool(
             isOnFirstPage: data.isOnFirstPage,
           });
         }
-        return { toolId, mode: "live", data: { ...data, scrapedAt: new Date().toISOString() } };
+        return {
+          toolId,
+          mode: "live",
+          data: {
+            ...data,
+            scrapedAt: new Date().toISOString(),
+            keyword: input.keyword,
+            targetTitle: input.targetTitle,
+            marketplace: input.marketplace,
+          },
+        };
       }
       case "price-track": {
         const data = await trackCompetitorPrices(

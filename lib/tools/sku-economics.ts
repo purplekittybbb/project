@@ -34,6 +34,17 @@ export function buildSkuEconomicsMap(rows: StoredRow[]): Map<string, SkuEconomic
     const title =
       group.map((r) => r.product_name?.trim()).find((t) => t && t.length > 0) ?? sku;
 
+    // shipping / packaging / ad_spend are stored as TOTALS for the whole order
+    // row (r.units items) — same convention the margin engine uses (see
+    // adapters/trendyol.ts: cogs = unitCost * units, and shipping/adSpend are
+    // used as batch totals directly). Dividing by group.length (the number of
+    // distinct order rows) instead of totalUnits inflated these per-unit costs
+    // by roughly (avg units per row)x — e.g. a 500-unit order's ₺12,000
+    // shipping came out as ₺12,000/unit instead of ₺24/unit. That fed straight
+    // into the Güvenli Fiyat (Safe Price) floor-price formula and produced
+    // break-even prices hundreds of times too high. unitCost is the one field
+    // that's genuinely already per-unit, so it correctly divides by totalUnits
+    // too (weighted average).
     out.set(sku, {
       sku,
       marketplace: latest.marketplace ?? "trendyol",
@@ -41,9 +52,9 @@ export function buildSkuEconomicsMap(rows: StoredRow[]): Map<string, SkuEconomic
       productTitle: title,
       avgSalePrice: gross / totalUnits,
       unitCost: group.reduce((s, r) => s + r.unit_cost * r.units, 0) / totalUnits,
-      shippingPerUnit: group.reduce((s, r) => s + r.shipping, 0) / group.length,
-      packagingPerUnit: group.reduce((s, r) => s + (r.packaging ?? 0), 0) / group.length,
-      adSpendPerUnit: group.reduce((s, r) => s + r.ad_spend, 0) / group.length,
+      shippingPerUnit: group.reduce((s, r) => s + r.shipping, 0) / totalUnits,
+      packagingPerUnit: group.reduce((s, r) => s + (r.packaging ?? 0), 0) / totalUnits,
+      adSpendPerUnit: group.reduce((s, r) => s + r.ad_spend, 0) / totalUnits,
       returnRate: group.reduce((s, r) => s + r.return_rate, 0) / group.length,
       totalUnits,
     });

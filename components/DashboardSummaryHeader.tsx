@@ -31,8 +31,14 @@ function fmtMoney(value: number, currency: string): string {
 
 export function DashboardSummaryHeader({ skus, currency }: DashboardSummaryHeaderProps) {
   const lossSkus = skus.filter((s) => s.trueMarginPct < 0);
-  const totalLossMarginSum = lossSkus.reduce(
-    (sum, s) => sum + Math.abs(s.trueMarginPct),
+  // Same figure as LossAlarmBanner further down the page (sum of |netContribution|
+  // across loss SKUs, in money). This used to sum trueMarginPct (percentage points)
+  // and label it "puan" — so a seller with exactly one losing product saw "1 ürün
+  // zarar ediyor" twice on the same page with two different "total risk" numbers in
+  // two different units (e.g. "9.6 puan" here vs. "₺48.760,00" below), which read as
+  // contradictory. Both widgets now report the same money amount.
+  const totalLossMoney = lossSkus.reduce(
+    (sum, s) => sum + Math.abs(s.netContribution),
     0
   );
   const allProfitable = lossSkus.length === 0;
@@ -105,7 +111,9 @@ export function DashboardSummaryHeader({ skus, currency }: DashboardSummaryHeade
         </div>
       </div>
 
-      {/* Secondary: total risk proxy (sum of |trueMarginPct| across loss skus) */}
+      {/* Secondary: total risk in money (sum of |netContribution| across loss skus) —
+          same figure LossAlarmBanner shows further down, kept in sync so the two
+          "X ürün zarar ediyor" summaries on this page never disagree. */}
       <div
         className="flex items-baseline gap-2 pl-5 sm:pl-0 border-l-0 sm:border-l"
         style={{ borderColor: "color-mix(in srgb, var(--tm-alert-clay) 20%, transparent)" }}
@@ -114,13 +122,13 @@ export function DashboardSummaryHeader({ skus, currency }: DashboardSummaryHeade
           className="text-[11px] uppercase tracking-[0.15em] font-sans"
           style={{ color: "var(--tm-ink)", opacity: 0.45 }}
         >
-          Toplam risk endeksi
+          Toplam risk
         </span>
         <span
           className="text-[20px] font-mono tabular-nums font-medium"
           style={{ color: "var(--tm-ink)", opacity: 0.75 }}
         >
-          {totalLossMarginSum.toFixed(1)} puan
+          {fmtMoney(totalLossMoney, currency)}
         </span>
       </div>
 
