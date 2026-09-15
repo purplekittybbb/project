@@ -92,7 +92,7 @@ import {
   type ServerCredentialConnection,
 } from "@/lib/connect/store";
 import type { MarketplaceConnection } from "@/lib/connect/types";
-import { DEFAULT_CHANNEL, DEFAULT_DASHBOARD_CHANNELS } from "@/lib/product-market";
+import { DEFAULT_CHANNEL, DEFAULT_DASHBOARD_CHANNELS, DEMO_DASHBOARD_CHANNELS } from "@/lib/product-market";
 import { isAiConfigured } from "@/lib/copilot/ai-configured";
 
 // Translation keys, not display strings — AI_PRESET_KEYS lives at module
@@ -384,8 +384,17 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const [currentTab, setCurrentTab] = useState("Dashboard");
   // Trial countdown is client-only (localStorage); read after mount to avoid
   // hydration mismatch. null → not on a trial (badge hidden).
+  // demoMode visitors never started a trial (getTrialDaysLeft() has no
+  // demoMode awareness and defaults to TRIAL_DAYS=30 whenever no localStorage
+  // key exists yet — true for essentially every /demo visitor), so the badge
+  // was showing a nonsensical "Ücretsiz deneme · 30 gün kaldı" to people who
+  // are just browsing the demo, not on any trial. Keep it null (hidden) in
+  // demoMode; it stays real for signed-in users on the actual dashboard.
   const [trialDaysLeft, setTrialDaysLeft] = useState<number | null>(null);
-  useEffect(() => { setTrialDaysLeft(getTrialDaysLeft()); }, []);
+  useEffect(() => {
+    if (demoMode) return;
+    setTrialDaysLeft(getTrialDaysLeft());
+  }, [demoMode]);
 
   // Marketplaces the user connected during onboarding (client-only localStorage).
   // Read after mount to avoid hydration mismatch.
@@ -811,14 +820,31 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // Dynamic marketplace tabs from the user's connected selection. Only engine-
   // supported marketplaces become live data channels; anything else is shown as a
   // demo "ghost" tab (not clickable) so we never call the engine with a channel it
-  // can't compute. With no selection (e.g. demo mode) we fall back to all three.
-  const DEFAULT_CHANNELS: Channel[] = [...DEFAULT_DASHBOARD_CHANNELS];
+  // can't compute.
+  //
+  // With no selection at all, we used to fall back to DEFAULT_DASHBOARD_CHANNELS
+  // (all 6 marketplaces we plan to support) for BOTH demo and real users. That
+  // rendered every marketplace as a top-bar tab as if it were already connected,
+  // even in the demo — where lib/data/seed.ts only ever seeds Trendyol + Amazon
+  // (US) + Hepsiburada — and for a real signed-in seller if their browser's
+  // localStorage connection record was empty/stale. Tabs should only ever appear
+  // for marketplaces there's real data behind, so:
+  //   - demoMode falls back to DEMO_DASHBOARD_CHANNELS (exactly what seed.ts has).
+  //   - a real signed-in seller with no localStorage record falls back to their
+  //     OWN actual data channels (realSellerChannels) — never the full wishlist.
+  //   - only when neither applies (a genuinely unauthenticated, non-demo render)
+  //     do we fall back to the full DEFAULT_DASHBOARD_CHANNELS wishlist.
+  const realSellerChannels: Channel[] = authConfigured ? (getSellerChannels(USER_TENANT_ID) as Channel[]) : [];
+  const DEFAULT_CHANNELS: Channel[] = demoMode
+    ? [...DEMO_DASHBOARD_CHANNELS]
+    : realSellerChannels.length > 0
+      ? realSellerChannels
+      : [...DEFAULT_DASHBOARD_CHANNELS];
   // `connectedIds` is a client-only (localStorage) record of what THIS browser
   // connected — it can be empty/stale on a different device or after the site
   // data was cleared, even though the user's real data (server-side) covers a
   // different marketplace. Union it with the marketplaces the signed-in seller
   // ACTUALLY has transactions for, so a tab always exists for real data.
-  const realSellerChannels: Channel[] = authConfigured ? (getSellerChannels(USER_TENANT_ID) as Channel[]) : [];
   const dataChannels: Channel[] = (() => {
     const base =
       connectedIds && connectedIds.length > 0

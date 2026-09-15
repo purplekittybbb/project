@@ -25,6 +25,19 @@ export const DEFAULT_DASHBOARD_CHANNELS: Channel[] = isLaunchCohortTurkish()
   ? ["trendyol", "hepsiburada", "n11", "amazon_tr", "shopify", "amazon_us"]
   : ["amazon_us", "shopify", "trendyol"];
 
+/**
+ * Channel tabs for the public /demo walkthrough. This is intentionally NOT
+ * DEFAULT_DASHBOARD_CHANNELS: that list names every marketplace we *plan* to
+ * support, shown as if already connected, even though lib/data/seed.ts only
+ * ever seeds Trendyol + Amazon (US) + Hepsiburada transactions for the demo
+ * sellers. Showing all 6 as pre-connected tabs in a demo where nobody
+ * connected anything reads as fake/broken (channels with zero real data
+ * behind them). The demo should only ever show marketplaces the seller
+ * actually has data for — same principle as "tabs appear as you add
+ * sellers", applied to a walkthrough that never lets you add any.
+ */
+export const DEMO_DASHBOARD_CHANNELS: Channel[] = ["trendyol", "amazon_us", "hepsiburada"];
+
 /** Connect step marketplace section order — launch cohort first. */
 export const CONNECT_REGION_ORDER = isLaunchCohortTurkish()
   ? (["tr", "own_store", "us", "other", "individual"] as const)
