@@ -31,12 +31,6 @@ export function Hero() {
               >
                 Kaydol
               </Link>
-              <Link
-                href="/demo"
-                className="inline-flex h-12 items-center justify-center border border-[color-mix(in_srgb,var(--tm-paper)_30%,transparent)] px-7 text-sm font-medium text-[var(--tm-paper)] transition-colors hover:bg-[color-mix(in_srgb,var(--tm-paper)_8%,transparent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--tm-paper)]"
-              >
-                Demoyu gör
-              </Link>
             </div>
           </Reveal>
         </div>

@@ -4,7 +4,6 @@ import { SITE_NAME } from "@/lib/seo";
 
 const footerLinks = [
   ...MARKETING_NAV,
-  { label: "Demo", href: "/demo" },
   { label: "Giriş", href: "/login" },
   { label: "Gizlilik", href: "/gizlilik" },
 ];

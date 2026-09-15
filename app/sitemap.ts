@@ -21,7 +21,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/sss`, lastModified, changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/blog`, lastModified, changeFrequency: "monthly", priority: 0.5 },
     ...toolPages,
-    { url: `${base}/demo`, lastModified, changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/login`, lastModified, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/signup`, lastModified, changeFrequency: "yearly", priority: 0.4 },
   ];

@@ -38,7 +38,6 @@ const PUBLIC_PREFIXES = [
   "/araclar",              // Category 1 standalone tools + Category 2 landing gates
   "/login",
   "/signup",
-  "/demo",
   "/api/auth",
   "/api/tools",            // Guest standalone tool queries (rate-limited)
   "/api/billing/iyzico",   // checkout/callback must be reachable pre-login
@@ -47,13 +46,11 @@ const PUBLIC_PREFIXES = [
   "/icons",
   "/downloads",            // static downloads (e.g. Chrome uzantısı .zip)
   "/api/extension/lookup", // Chrome uzantısı — auth'u kendi Bearer token'ı ile yapar, cookie session yok
-  "/api/chat",             // Copilot — /demo (public) için de kullanılıyor; route.ts kendi içinde
-                            // resolveSellerData() ile ayırıyor: seed/demo tenantId'ler (seller-a/b/c)
-                            // token'sız çalışır, ama gerçek USER_TENANT_ID için accessToken + Supabase
-                            // auth.getUser() + RLS zorunlu (route.ts satır ~117-134). Bu middleware'in
-                            // genel oturum kontrolü olmadan da route zaten güvenli; eskiden bu satır
-                            // eksikti ve demodaki her Copilot sorusu ham "Oturum gerekli." JSON hatası
-                            // döndürüyordu — vaad edilen bir özellik demoda tamamen çalışmıyordu.
+  // NOT: "/demo" ve onunla birlikte açılmış "/api/chat" public istisnası
+  // kaldırıldı — /demo sayfası ürünle birlikte tamamen kaldırıldı, artık
+  // hiçbir yerden oturumsuz Copilot çağrısı yapılmıyor. /api/chat tekrar
+  // normal (oturum zorunlu) korumaya döndü; gerçek kullanıcılar zaten
+  // her zaman geçerli bir session cookie ile çağırıyor.
   "/sitemap.xml",          // Googlebot vb. crawler'lar auth cookie'si taşımaz — public olmalı
   "/robots.txt",           // aynı sebep; ayrıca sitemap.xml'i referans ediyor
 ];
