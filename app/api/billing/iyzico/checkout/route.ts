@@ -86,6 +86,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 
+  // Split "full_name" into iyzico's separate name/surname fields. The last
+  // space-separated word is treated as the surname and everything before it
+  // as the given name — this handles multi-part first names correctly
+  // ("Ayşe Nur Yılmaz" → Ad: "Ayşe Nur", Soyad: "Yılmaz"), unlike the
+  // previous first-word/rest split which broke on exactly that case.
+  const fullNameParts = ((user.user_metadata?.full_name as string) ?? "").trim().split(/\s+/).filter(Boolean);
+  const buyerName = fullNameParts.length > 1 ? fullNameParts.slice(0, -1).join(" ") : fullNameParts[0] || "Ad";
+  const buyerSurname = fullNameParts.length > 1 ? fullNameParts[fullNameParts.length - 1] : "Soyad";
+
   const result = await initCheckoutForm(config, {
     price: String(plan.priceMonthly.toFixed(2)),
     paidPrice: String(plan.priceMonthly.toFixed(2)),
@@ -93,8 +102,8 @@ export async function POST(req: Request) {
     basketId: `${user.id}-${planId}-${Date.now()}`,
     callbackUrl,
     buyerEmail: user.email ?? "",
-    buyerName: (user.user_metadata?.full_name as string ?? "").split(" ")[0] || "Ad",
-    buyerSurname: (user.user_metadata?.full_name as string ?? "").split(" ").slice(1).join(" ") || "Soyad",
+    buyerName,
+    buyerSurname,
     buyerId: user.id,
     planId,
   });

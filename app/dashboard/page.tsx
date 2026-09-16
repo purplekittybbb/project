@@ -1268,8 +1268,11 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
             <div className="max-w-[1300px] mx-auto px-8 py-12 md:py-20">
               {view.channel === "combined" && view.marketplaceMargins && (
                 <div className="mb-16">
-                  <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-6">
-                    Pazaryeri bazında · TRY toplamı (USD→TRY @33)
+                  <h3
+                    className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-6"
+                    title="Sabit, temsili kur — anlık piyasa kuru değildir. Yalnızca farklı pazaryerlerindeki USD tutarları TRY ile karşılaştırılabilir hale getirmek için kullanılır."
+                  >
+                    Pazaryeri bazında · TRY toplamı (USD→TRY, temsili kur @33)
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px bg-zinc-800 border border-zinc-800">
                     {view.marketplaceMargins.map((mp) => (
@@ -1320,7 +1323,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               {/* Fırsat Keşfi — real per-SKU momentum from the seller's own sales
                   history (see lib/tools/opportunity-discovery.ts for why this is
                   scoped to "your own products", not a market-wide trend feed). */}
-              <OpportunityDiscoveryCard momentum={skuMomentum} />
+              <OpportunityDiscoveryCard momentum={skuMomentum} onGoToProducts={() => setCurrentTab("Products")} />
 
               <div className="flex flex-col lg:flex-row gap-16 lg:gap-24">
                 {/* LEFT COLUMN */}
@@ -2072,7 +2075,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     {ledger.map((l) => (
                       <div key={l.seq} className="flex w-full items-center py-3 border-b border-zinc-900/50 hover:bg-zinc-900/30 transition-colors">
                         <div className="w-1/12 text-zinc-600 tabular-nums">#{l.seq}</div>
-                        <div className="w-3/12 text-zinc-500 text-[11px] tabular-nums">{new Date(l.recordedAt).toISOString().replace("T", " ").slice(0, 19)}</div>
+                        <div className="w-3/12 text-zinc-500 text-[11px] tabular-nums">{new Date(l.recordedAt).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
                         <div className="w-3/12 text-zinc-300 text-[13px]">{l.label}</div>
                         <div className="w-3/12 text-right text-zinc-100 tabular-nums">{money(l.approvedLimit, l.currency)}</div>
                         <div className="w-2/12 text-right text-zinc-400 tabular-nums">{(l.takeRate * 100).toFixed(1)}%</div>

@@ -24,7 +24,13 @@ function momentumLabel(m: SkuMomentum): string {
   return m.growthPct >= 0 ? `+%${pct} büyüdü` : `−%${pct} düştü`;
 }
 
-export function OpportunityDiscoveryCard({ momentum }: { momentum: SkuMomentum[] }) {
+export function OpportunityDiscoveryCard({
+  momentum,
+  onGoToProducts,
+}: {
+  momentum: SkuMomentum[];
+  onGoToProducts?: () => void;
+}) {
   const [showAll, setShowAll] = useState(false);
   const rising = momentum.filter((m) => m.direction === "up");
   const falling = momentum.filter((m) => m.direction === "down");
@@ -88,9 +94,20 @@ export function OpportunityDiscoveryCard({ momentum }: { momentum: SkuMomentum[]
       )}
 
       {falling.length > 0 && (
-        <p className="mt-3 text-[11px] font-sans" style={{ color: "var(--tm-ink)", opacity: 0.45 }}>
-          {falling.length} ürün son dönemde ivme kaybediyor — Ürünler sekmesinde detaylandırın.
-        </p>
+        onGoToProducts ? (
+          <button
+            type="button"
+            onClick={onGoToProducts}
+            className="mt-3 text-[11px] font-sans underline underline-offset-2 cursor-pointer text-left"
+            style={{ color: "var(--tm-ink)", opacity: 0.45, background: "none", border: "none", padding: 0 }}
+          >
+            {falling.length} ürün son dönemde ivme kaybediyor — Ürünler sekmesinde detaylandırın.
+          </button>
+        ) : (
+          <p className="mt-3 text-[11px] font-sans" style={{ color: "var(--tm-ink)", opacity: 0.45 }}>
+            {falling.length} ürün son dönemde ivme kaybediyor — Ürünler sekmesinde detaylandırın.
+          </p>
+        )
       )}
     </div>
   );

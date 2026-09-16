@@ -38,6 +38,10 @@ const PUBLIC_PREFIXES = [
   "/araclar",              // Category 1 standalone tools + Category 2 landing gates
   "/login",
   "/signup",
+  "/sifremi-unuttum",       // şifre sıfırlama isteği — oturum yokken erişilebilir olmalı
+  "/sifre-sifirla",         // şifre sıfırlama e-posta bağlantısının indiği sayfa
+  "/kullanim-kosullari",
+  "/iptal-iade",
   "/api/auth",
   "/api/tools",            // Guest standalone tool queries (rate-limited)
   "/api/billing/iyzico",   // checkout/callback must be reachable pre-login

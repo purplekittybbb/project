@@ -17,6 +17,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseClient } from "../supabase/client";
 
 const TABLE = "iyzico_subscriptions";
+const TRIAL_TABLE = "billing_subscriptions";
 
 export type PlanId = "starter" | "pro";
 export type SubscriptionStatus = "active" | "cancelled" | "past_due" | "trialing";
@@ -86,7 +87,10 @@ export async function getMySubscriptionStatus(): Promise<SubscriptionInfo> {
     console.warn("[getMySubscriptionStatus] DB error — failing open: %s", error.message);
     return failOpenAccess();
   }
-  if (!data) return noSubscription();
+  if (!data) {
+    const { data: authData } = await supabase.auth.getUser();
+    return trialFallback(supabase, authData.user?.id ?? null);
+  }
   return mapRow(data as SubscriptionRow);
 }
 
@@ -123,9 +127,18 @@ export async function getSubscriptionStatus(
     }
 
     if (!data) {
-      // Row genuinely doesn't exist: user has never subscribed.
-      // FAIL-CLOSED: this is a business rule, not an infrastructure error.
-      return noSubscription();
+      // No iyzico (real paid) row — but this project also has a SEPARATE
+      // Stripe/demo free-trial table (billing_subscriptions, see
+      // app/api/billing/start-trial and start-demo-trial). Before this fix,
+      // a user actively in that free trial (status "trialing", real Stripe
+      // subscription or demo card-less trial) was blocked from every premium
+      // route (/api/demand, /api/top100, /api/cron/scan-visibility) because
+      // this function only ever looked at iyzico_subscriptions — a genuine
+      // architectural gap between the two billing paths (see audit report).
+      // Checking the trial table here as a fallback closes that gap without
+      // touching either table's schema or the iyzico-is-the-real-paid-plan
+      // semantics: iyzico still wins whenever a row exists there.
+      return trialFallback(supabase, userId);
     }
 
     return mapRow(data as SubscriptionRow);
@@ -198,6 +211,48 @@ function mapRow(r: SubscriptionRow): SubscriptionInfo {
     billingIssueAt: r.billing_issue_at ?? null,
     gracePeriodEnd,
   };
+}
+
+/**
+ * Fallback for when the user has no iyzico_subscriptions row: check the
+ * separate Stripe/demo free-trial table (billing_subscriptions) so a user
+ * actively inside their free trial isn't blocked from premium routes.
+ * See the long comment at this function's call site for why this exists.
+ * Best-effort — any error here degrades to noSubscription(), never throws.
+ */
+async function trialFallback(supabase: SupabaseClient, userId: string | null): Promise<SubscriptionInfo> {
+  try {
+    if (!userId) return noSubscription();
+
+    const { data: trialRow } = await supabase
+      .from(TRIAL_TABLE)
+      .select("status, trial_end")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (!trialRow) return noSubscription();
+
+    const status = trialRow.status as string;
+    const trialEnd = trialRow.trial_end as string | null;
+    const trialStillOpen = trialEnd === null || new Date(trialEnd).getTime() > Date.now();
+    const hasAccess = (status === "trialing" || status === "active") && trialStillOpen;
+
+    return {
+      hasAccess,
+      status: hasAccess ? "trialing" : null,
+      planId: null,
+      currentPeriodEnd: trialEnd,
+      isNew: false,
+      failOpen: false,
+      inGracePeriod: false,
+      billingIssueAt: null,
+      gracePeriodEnd: null,
+    };
+  } catch (err) {
+    console.warn("[trialFallback] unexpected error — falling back to noSubscription: %s",
+      err instanceof Error ? err.message : String(err));
+    return noSubscription();
+  }
 }
 
 /** User has no subscription row — this is a real "not subscribed" state, not a tech error. */

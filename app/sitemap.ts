@@ -18,7 +18,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/pricing`, lastModified, changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/hakkimizda`, lastModified, changeFrequency: "yearly", priority: 0.5 },
     { url: `${base}/gizlilik`, lastModified, changeFrequency: "yearly", priority: 0.3 },
+    { url: `${base}/kullanim-kosullari`, lastModified, changeFrequency: "yearly", priority: 0.3 },
+    { url: `${base}/iptal-iade`, lastModified, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/sss`, lastModified, changeFrequency: "monthly", priority: 0.6 },
+    { url: `${base}/changelog`, lastModified, changeFrequency: "weekly", priority: 0.4 },
     // /blog is intentionally excluded — it's noindex until it has real
     // content (see app/blog/page.tsx), so it shouldn't be in the sitemap.
     ...toolPages,

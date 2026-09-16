@@ -144,7 +144,7 @@ export default function LoginPage() {
                   Şifre
                 </label>
                 <Link
-                  href="#"
+                  href="/sifremi-unuttum"
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Şifremi unuttum

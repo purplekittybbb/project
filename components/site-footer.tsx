@@ -5,7 +5,10 @@ import { SITE_NAME } from "@/lib/seo";
 const footerLinks = [
   ...MARKETING_NAV,
   { label: "Giriş", href: "/login" },
+  { label: "Değişiklik Günlüğü", href: "/changelog" },
   { label: "Gizlilik", href: "/gizlilik" },
+  { label: "Kullanım Koşulları", href: "/kullanim-kosullari" },
+  { label: "İptal ve İade", href: "/iptal-iade" },
 ];
 
 export function SiteFooter() {
