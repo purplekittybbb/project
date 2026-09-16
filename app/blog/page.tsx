@@ -2,6 +2,13 @@ import Link from "next/link";
 import { MarketingPage } from "@/components/marketing/marketing-page";
 import { Reveal } from "@/components/reveal";
 
+// Sayfada henüz gerçek içerik yok ("yakında" notu) — arama motorlarına
+// içeriksiz bir sayfa sunmamak için index dışı bırakıldı. Gerçek yazılar
+// eklendiğinde bu metadata kaldırılıp normal index'e açılabilir.
+export const metadata = {
+  robots: { index: false, follow: true },
+};
+
 export default function BlogPage() {
   return (
     <MarketingPage>

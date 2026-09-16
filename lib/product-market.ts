@@ -46,8 +46,17 @@ export const CONNECT_REGION_ORDER = isLaunchCohortTurkish()
 /** Growth plan after free trial — company list price (USD). */
 export const GROWTH_PLAN_PRICE_USD = 79;
 
-/** Launch cohort list price (TRY) for first Turkish customers. */
-export const GROWTH_PLAN_PRICE_TRY = 2400;
+/**
+ * Launch cohort list price (TRY) for first Turkish customers — must match
+ * PRICING_TIERS' "pro" tier (lib/marketing/content.ts) priceMonthly, since
+ * that's the plan /connect actually describes ("Tüm pazaryerleri · tam
+ * motor" / "Sınırsız mağaza bağlantısı"). This used to be a separate,
+ * unrelated 2400 here vs 800 on the public /pricing page — a seller who
+ * saw ₺800/ay on the pricing page, signed up, and then saw ₺2.400/ay as
+ * the actual trial-end price during onboarding would reasonably feel
+ * misled (3x the advertised number). Both now read from the same tier.
+ */
+export const GROWTH_PLAN_PRICE_TRY = 800;
 
 export interface LaunchPlanDisplay {
   amount: number;

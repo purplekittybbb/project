@@ -98,11 +98,11 @@ export function FeeWaterfall({
 
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         <span style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", fontFamily: C.mono }}>
-          {perceivedPct.toFixed(1)}% perceived
+          %{perceivedPct.toFixed(1)} algılanan
         </span>
         <span style={{ color: "rgba(255,255,255,0.4)" }}>&rarr;</span>
         <span style={{ fontSize: 21, fontWeight: 600, color: trueNeg ? "#F6ADA6" : "#FFFFFF", fontFamily: C.mono }}>
-          {truePct.toFixed(1)}% true
+          %{truePct.toFixed(1)} gerçek
         </span>
         <span
           style={{
@@ -115,7 +115,7 @@ export function FeeWaterfall({
             fontFamily: C.mono,
           }}
         >
-          &minus;{hiddenPts.toFixed(1)} pts hidden
+          &minus;{hiddenPts.toFixed(1)} puan gizli
         </span>
       </div>
 
@@ -123,9 +123,9 @@ export function FeeWaterfall({
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
         role="img"
-        aria-label={`Fee waterfall: perceived margin ${perceivedPct.toFixed(
+        aria-label={`Ücret şelalesi: algılanan marj %${perceivedPct.toFixed(
           1
-        )} percent falls to a true margin of ${truePct.toFixed(1)} percent after VAT, shipping, returns, ad spend and payment fees are deducted.`}
+        )}, KDV, kargo, iade, reklam ve ödeme ücretleri düşüldükten sonra %${truePct.toFixed(1)} gerçek marja düşüyor.`}
         style={{ display: "block" }}
       >
         {ticks.map((t) => (

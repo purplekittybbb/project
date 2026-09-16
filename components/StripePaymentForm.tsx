@@ -151,7 +151,15 @@ export function StripePaymentForm({
   }, []);
 
   if (!stripePromise) {
-    return <p className="text-sm tm-field-error">Stripe publishable key yapılandırılmamış.</p>;
+    // Bu koşula gerçekte hiç girilmemeli — StripePaymentForm zaten yalnızca
+    // stripeLive true iken render ediliyor (bkz. app/connect/page.tsx). Yine
+    // de ortam yapılandırması eksikse, kullanıcıya "publishable key" gibi bir
+    // geliştirici hata mesajı yerine nötr bir mesaj gösteriyoruz.
+    return (
+      <p className="text-sm tm-field-error">
+        Ödeme yöntemi şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.
+      </p>
+    );
   }
 
   if (loadError) {

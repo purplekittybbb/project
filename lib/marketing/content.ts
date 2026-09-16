@@ -8,6 +8,7 @@ import {
   ALL_TOOLS,
   type ToolDefinition,
 } from "@/lib/tools/registry";
+import { MARKETING_MARKETPLACE_LIST_TR } from "@/lib/seo";
 
 export { STANDALONE_TOOLS, STORE_REQUIRED_TOOLS, ALL_TOOLS };
 export type { ToolDefinition };
@@ -65,7 +66,7 @@ export const EXTENSION_TOOLS = [
     id: "store-profit",
     title: "Mağaza kâr gösterimi",
     description:
-      "Trendyol / Hepsiburada partner panelinde kendi ürünün için anlık net kâr ve marj. Hesabınızı bağlayın, gerçek maliyet verinizle otomatik doldursun.",
+      "Trendyol / Hepsiburada / N11 satıcı panelinde kendi ürünün için anlık net kâr ve marj. Hesabınızı bağlayın, gerçek maliyet verinizle otomatik doldursun.",
     href: "/downloads/truemargin-asistan-chrome-extension.zip",
   },
 ];
@@ -83,8 +84,8 @@ export const LAUNCH_BANNER = {
 };
 
 export const INTEGRATION_BANNER = {
-  title: "4 pazaryerini tek panelde bağlayın",
-  body: "Trendyol, Hepsiburada, N11 ve Shopify — gerçek sipariş verinizle net kâr, alarm ve barkod analizi.",
+  title: "5 pazaryerini tek panelde bağlayın",
+  body: `${MARKETING_MARKETPLACE_LIST_TR} — gerçek sipariş verinizle net kâr, alarm ve barkod analizi.`,
   cta: "Mağazayı bağla",
   href: "/signup",
 };
@@ -169,7 +170,7 @@ export const FAQ_ITEMS = [
   },
   {
     q: "Hangi pazaryerleri destekleniyor?",
-    a: "Trendyol, Hepsiburada, N11 ve Shopify entegrasyonu. Bağımsız araçlar üç pazaryeri aramasında çalışır.",
+    a: `${MARKETING_MARKETPLACE_LIST_TR} entegrasyonu. Bağımsız araçlar üç pazaryeri aramasında çalışır.`,
   },
   {
     q: "Fiyatlar KDV dahil mi?",

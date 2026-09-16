@@ -23,7 +23,7 @@ function LockIcon() {
 }
 
 const READ_ONLY_COPY =
-  "We can only READ your data. We never modify, place orders, or access payments.";
+  "Verinizi yalnızca OKUYABİLİRİZ. Asla değiştirmeyiz, sipariş vermeyiz veya ödemelere erişmeyiz.";
 
 interface Props {
   marketplaceId: string | null;
@@ -84,9 +84,9 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
         {/* Redirecting */}
         {phase === "redirecting" && (
           <div className="p-8 text-center">
-            <div className="text-zinc-500 font-mono text-[11px] uppercase tracking-[0.2em] mb-4">Secure redirect</div>
-            <p className="text-zinc-200 text-sm mb-2">Redirecting to {platformName}…</p>
-            <p className="text-zinc-600 text-[12px]">You will authorize read-only access on their site.</p>
+            <div className="text-zinc-500 font-mono text-[11px] uppercase tracking-[0.2em] mb-4">Güvenli yönlendirme</div>
+            <p className="text-zinc-200 text-sm mb-2">{platformName}&apos;e yönlendiriliyorsunuz…</p>
+            <p className="text-zinc-600 text-[12px]">Salt okunur erişimi kendi sitelerinde onaylayacaksınız.</p>
             <div className="mt-6 h-1 w-full bg-zinc-800 overflow-hidden">
               <div
                 className="h-full w-1/3"
@@ -100,26 +100,28 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
         {phase === "consent" && (
           <div className="p-6">
             {/* Unmissable disclosure: this does NOT reach the real platform. No
-                integration exists yet for {platformName} here — clicking
-                Authorize creates a LOCAL, sample-data connection only, never a
-                real one silently passed off as genuine. */}
+                integration exists yet for {platformName} here. Authorize no
+                longer writes any fabricated data anywhere (see
+                lib/connect/demo-provider.ts) — it only marks the marketplace
+                as "connected" locally so the onboarding flow can continue;
+                the dashboard's own honest empty state takes over from there. */}
             <div className="mb-4 border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
               <p className="text-amber-300 text-[12px] font-semibold leading-snug">
-                Demo mode — no real {platformName} account is contacted.
+                Demo modu — gerçek bir {platformName} hesabına bağlanılmaz.
               </p>
               <p className="text-amber-200/80 text-[11px] leading-relaxed mt-1">
-                This creates a local, sample-data connection so you can preview the product. No password,
-                order, or settlement data is read from {platformName}. For your own real numbers, use
-                &quot;Upload CSV&quot; or &quot;Enter manually&quot; instead.
+                Bu, ürünü önizleyebilmeniz için yalnızca yerel bir bağlantı kaydı oluşturur — {platformName}&apos;dan
+                hiçbir şifre, sipariş veya hakediş verisi okunmaz ve hiçbir sahte veri hesabınıza yazılmaz.
+                Kendi gerçek rakamlarınız için &quot;CSV yükle&quot; veya &quot;Elle ekle&quot; seçeneklerini kullanın.
               </p>
             </div>
             <div className="border border-zinc-800 bg-zinc-900/40 p-4 mb-4">
               <div className="flex items-center gap-2 mb-3 pb-3 border-b border-zinc-800">
                 <span className="text-zinc-100 font-mono text-sm font-medium">{platformName}</span>
-                <span className="text-zinc-600 text-[10px] uppercase tracking-widest">demo consent</span>
+                <span className="text-zinc-600 text-[10px] uppercase tracking-widest">demo onayı</span>
               </div>
               <h2 id="oauth-modal-title" className="text-zinc-100 text-[15px] font-medium leading-snug mb-3">
-                TrueMargin is requesting <span className="text-zinc-300">READ-ONLY</span> access to your sales and settlement data.
+                TrueMargin, satış ve hakediş verinize <span className="text-zinc-300">SALT OKUNUR</span> erişim talep ediyor.
               </h2>
               <ul className="space-y-1.5 mb-4">
                 {READ_ONLY_SCOPES.map((s) => (
@@ -132,7 +134,7 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
                 {READ_ONLY_COPY}
               </p>
               <p className="text-zinc-700 text-[10px] mt-2">
-                You sign in on {platformName}&apos;s site — we never ask for your password.
+                {platformName}&apos;in kendi sitesinde giriş yaparsınız — şifrenizi asla istemeyiz.
               </p>
             </div>
             {syncError && (
@@ -146,19 +148,19 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
                 onClick={handleCancel}
                 className="flex-1 h-10 border border-zinc-800 text-zinc-400 text-sm hover:border-zinc-600 hover:text-zinc-200 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-zinc-500 focus-visible:outline-offset-2"
               >
-                Cancel
+                Vazgeç
               </button>
               <button
                 type="button"
                 onClick={handleAuthorize}
                 className="flex-1 h-10 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-zinc-500 focus-visible:outline-offset-2"
               >
-                Authorize
+                Onayla
               </button>
             </div>
             <div className="mt-3 flex items-center justify-center gap-1.5 text-zinc-600 text-[10px]">
               <LockIcon />
-              <span>Encrypted connection · read-only</span>
+              <span>Şifreli bağlantı · salt okunur</span>
             </div>
           </div>
         )}
@@ -168,20 +170,20 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
           <div className="p-8 text-center">
             {phase === "connecting" && (
               <>
-                <p className="text-zinc-200 text-sm mb-1">Connecting…</p>
-                <p className="text-zinc-600 text-[11px] font-mono">Establishing secure link</p>
+                <p className="text-zinc-200 text-sm mb-1">Bağlanıyor…</p>
+                <p className="text-zinc-600 text-[11px] font-mono">Güvenli bağlantı kuruluyor</p>
               </>
             )}
             {phase === "fetching" && (
               <>
-                <p className="text-zinc-200 text-sm mb-1">Fetching data…</p>
-                <p className="text-zinc-600 text-[11px] font-mono">Syncing settlement records (demo)</p>
+                <p className="text-zinc-200 text-sm mb-1">Kontrol ediliyor…</p>
+                <p className="text-zinc-600 text-[11px] font-mono">Demo bağlantı onaylanıyor</p>
               </>
             )}
             {phase === "connected" && (
               <>
-                <p className="fin-profit text-sm font-medium mb-1">Connected ✓</p>
-                <p className="text-zinc-500 text-[11px] font-mono">{platformName} · demo — sample data</p>
+                <p className="fin-profit text-sm font-medium mb-1">Bağlandı ✓</p>
+                <p className="text-zinc-500 text-[11px] font-mono">{platformName} · demo bağlantı, gerçek veri yazılmadı</p>
               </>
             )}
             {phase !== "connected" && (

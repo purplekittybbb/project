@@ -87,7 +87,7 @@
     "underwritingDecision": "Underwriting decision",
     "declined": "Declined",
     "approvedCopy": "Priced at a take-rate of {{rate}}% (target band 3–6%). Sized to real contribution profit, not a revenue snapshot.",
-    "declinedCopy": "This seller's true margin can't service new debt, so the model advances {{amount}}. A revenue-snapshot lender would not see this — and would lend anyway.",
+    "declinedCopy": "This seller's true margin can't service new debt. A revenue-snapshot lender wouldn't see that — and would still advance {{amount}}.",
     "decisionTrace": "Decision trace",
     "ruleBasedExplainable": "Rule-based and explainable (EU AI Act) — recorded immutably as a decision trace, seq #{{seq}} in the append-only ledger.",
     "backtestTitle": "Backtest — us vs incumbent",

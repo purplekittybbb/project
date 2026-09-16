@@ -19,7 +19,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/hakkimizda`, lastModified, changeFrequency: "yearly", priority: 0.5 },
     { url: `${base}/gizlilik`, lastModified, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/sss`, lastModified, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${base}/blog`, lastModified, changeFrequency: "monthly", priority: 0.5 },
+    // /blog is intentionally excluded — it's noindex until it has real
+    // content (see app/blog/page.tsx), so it shouldn't be in the sitemap.
     ...toolPages,
     { url: `${base}/login`, lastModified, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/signup`, lastModified, changeFrequency: "yearly", priority: 0.4 },

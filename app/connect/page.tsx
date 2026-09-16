@@ -115,9 +115,6 @@ function ConnectFlow() {
 
   const [step, setStep] = useState<Step>("connect");
   const [ready, setReady] = useState(false);
-  const [cardNo, setCardNo] = useState("");
-  const [exp, setExp] = useState("");
-  const [cvc, setCvc] = useState("");
   const [cardBusy, setCardBusy] = useState(false);
   const [cardError, setCardError] = useState("");
   const stripeLive = isStripeLiveEnabled();
@@ -222,14 +219,6 @@ function ConnectFlow() {
     router.push("/dashboard");
   }
 
-  function onCardNo(v: string) {
-    setCardNo(v.replace(/\D/g, "").slice(0, 16).replace(/(.{4})/g, "$1 ").trim());
-  }
-  function onExp(v: string) {
-    const d = v.replace(/\D/g, "").slice(0, 4);
-    setExp(d.length >= 3 ? `${d.slice(0, 2)}/${d.slice(2)}` : d);
-  }
-
   if (!ready) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -300,64 +289,41 @@ function ConnectFlow() {
             <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
               Denemeyi başlatmak için gerekli. <span className="text-foreground">Bugün ücret yok — ilk ay ücretsiz.</span>
             </p>
-            {!stripeLive && (
-              <p className="mb-4 text-[11px] border border-[var(--tm-mist)] bg-secondary px-3 py-2 rounded-[var(--tm-r-data)] text-muted-foreground">
-                Demo kart formu — Stripe yapılandırılmadı (gerçek ödeme alınmaz).
-              </p>
-            )}
-            <SecurePaymentCapsule
-              hint="Bugün ücret alınmaz. Kart bilgileri kapsüllenmiş alanda işlenir."
-              footerHint={stripeLive ? "Stripe ile şifrelenmiş ödeme" : "Demo — gerçek ödeme yok"}
-            >
-              {isAuthConfigured() && stripeLive ? (
+            {isAuthConfigured() && stripeLive ? (
+              <SecurePaymentCapsule
+                hint="Bugün ücret alınmaz. Kart bilgileri kapsüllenmiş alanda işlenir."
+                footerHint="Stripe ile şifrelenmiş ödeme"
+              >
                 <StripePaymentForm onSuccess={finish} />
-              ) : (
-                <form onSubmit={(e) => { e.preventDefault(); void finish(); }} className="space-y-4">
-                  <div>
-                    <label htmlFor="cardno" className="block text-[12px] font-medium mb-1.5">Kart numarası</label>
-                    <input
-                      id="cardno"
-                      inputMode="numeric"
-                      autoComplete="cc-number"
-                      value={cardNo}
-                      onChange={(e) => onCardNo(e.target.value)}
-                      placeholder="4242 4242 4242 4242"
-                      className="w-full border border-input bg-card px-3 py-2.5 text-sm tnum rounded-[var(--tm-r-data)] focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label htmlFor="exp" className="block text-[12px] font-medium mb-1.5">Son kullanma</label>
-                      <input
-                        id="exp"
-                        inputMode="numeric"
-                        autoComplete="cc-exp"
-                        value={exp}
-                        onChange={(e) => onExp(e.target.value)}
-                        placeholder="AA/YY"
-                        className="w-full border border-input bg-card px-3 py-2.5 text-sm tnum rounded-[var(--tm-r-data)] focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="cvc" className="block text-[12px] font-medium mb-1.5">CVC</label>
-                      <input
-                        id="cvc"
-                        inputMode="numeric"
-                        autoComplete="cc-csc"
-                        value={cvc}
-                        onChange={(e) => setCvc(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                        placeholder="123"
-                        className="w-full border border-input bg-card px-3 py-2.5 text-sm tnum rounded-[var(--tm-r-data)] focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                    </div>
-                  </div>
-                  <button type="submit" disabled={cardBusy} className="tm-btn-primary w-full">
-                    {cardBusy ? "Deneme başlatılıyor…" : "Ücretsiz ayı başlat"}
-                  </button>
-                  {cardError && <p role="alert" className="tm-field-error">{cardError}</p>}
-                </form>
-              )}
-            </SecurePaymentCapsule>
+              </SecurePaymentCapsule>
+            ) : (
+              // Ödeme sağlayıcısı henüz bu ortamda aktif değil. Daha önce burada
+              // gerçek bir kart formuna (numara/son kullanma/CVC alanları,
+              // "4242 4242 4242 4242" placeholder'ıyla) birebir benzeyen ama hiçbir
+              // yere göndermeyen bir "demo" form vardı — küçük punto bir uyarı
+              // dışında gerçek bir ödeme formundan görsel olarak ayırt edilemiyordu,
+              // bu da bir kullanıcıyı gerçek kart bilgisini yazmaya davet edebilirdi.
+              // Bir fintek ürününde asla kart numarası/CVC toplayan bir arayüz
+              // gösterilmemeli, gönderilmese bile. Bunun yerine açık, dürüst bir
+              // bilgilendirme + tek bir devam butonu gösteriyoruz.
+              <div className="border border-[var(--tm-mist)] bg-card rounded-[var(--tm-r-ui)] p-5">
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  Bu ortamda ödeme sağlayıcısı henüz etkin değil — kart bilgisi
+                  istemiyoruz. Deneme sürenizi kartsız başlatabilirsiniz;
+                  ödeme yalnızca gerçek abonelik sırasında, güvenli bir
+                  sağlayıcı üzerinden alınır.
+                </p>
+                <button
+                  type="button"
+                  disabled={cardBusy}
+                  onClick={() => void finish()}
+                  className="tm-btn-primary w-full mt-4"
+                >
+                  {cardBusy ? "Deneme başlatılıyor…" : "Kartsız devam et — ücretsiz ayı başlat"}
+                </button>
+                {cardError && <p role="alert" className="tm-field-error mt-2">{cardError}</p>}
+              </div>
+            )}
             <button type="button" onClick={() => setStep("plan")} className="mt-4 text-[11px] text-muted-foreground hover:text-foreground uppercase tracking-widest">
               ← Geri
             </button>

@@ -8,9 +8,18 @@ import type { Metadata } from "next";
 export const SITE_NAME = "TrueMargin";
 export const SITE_TAGLINE = "Pazaryeri satıcıları için gerçek net kâr.";
 
-export const DEFAULT_TITLE = "TrueMargin — Gerçek marjını gör, ona göre finansman al";
+// Tek kaynak: pazaryeri listesi her yerde (hero, meta açıklama, JSON-LD,
+// entegrasyon bandı, SSS) aynı olmalı. Eskiden 3 farklı sayfa/bileşen 3 farklı
+// alt küme sayıyordu (biri Amazon'suz, biri Shopify'sız, biri sadece 3
+// pazaryeri) — hiçbiri ürünün gerçekte desteklediği 6 pazaryeriyle (Trendyol,
+// Hepsiburada, N11, Amazon TR, Amazon US, Shopify — bkz. lib/engine.ts
+// MARKETPLACE_LABELS) eşleşmiyordu. Amazon TR/US "Amazon" olarak tek isimde
+// birleştirildi, insan diline daha uygun.
+export const MARKETING_MARKETPLACE_LIST_TR = "Trendyol, Hepsiburada, N11, Amazon ve Shopify";
+
+export const DEFAULT_TITLE = "TrueMargin — Gerçek net kârını gör, tahmin etme";
 export const DEFAULT_DESCRIPTION =
-  "Trendyol, Hepsiburada, N11 ve Amazon TR satıcıları için komisyon, KDV, kargo, iade ve reklam düşülmüş gerçek SKU kârı. Tahmin değil — senin siparişlerin.";
+  `${MARKETING_MARKETPLACE_LIST_TR} satıcıları için komisyon, KDV, kargo, iade ve reklam düşülmüş gerçek SKU kârı. Tahmin değil — senin siparişlerin.`;
 
 export function siteOrigin(): string {
   const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim();
@@ -70,7 +79,7 @@ export function softwareApplicationJsonLd(): Record<string, unknown> {
     featureList: [
       "Pazaryeri komisyon ve KDV matrahına göre net kâr",
       "SKU bazlı sessiz zarar alarmı",
-      "Trendyol, Hepsiburada, N11 senkronizasyonu",
+      `${MARKETING_MARKETPLACE_LIST_TR} senkronizasyonu`,
     ],
   };
 }

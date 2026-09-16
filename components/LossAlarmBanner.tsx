@@ -12,9 +12,13 @@
  */
 
 function fmtMoney(value: number, currency: string): string {
+  // 0 decimal digits — matching DashboardSummaryHeader's fmtMoney, which
+  // shows the SAME total-risk figure elsewhere on the same Dashboard tab.
+  // This used to show 2 decimals ("₺48.760,00") while the other widget
+  // showed 0 ("₺48.760") for the identical number — same amount, two
+  // different-looking figures on one screen reads as an error.
   const formatted = new Intl.NumberFormat("tr-TR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 0,
   }).format(Math.abs(value));
   return currency === "USD" ? `$${formatted}` : `₺${formatted}`;
 }

@@ -8,10 +8,6 @@
 
 import { addConnection, removeConnection } from "./store";
 import type { MarketplaceConnection } from "./types";
-import { getMarketplaceOption } from "../marketplaces";
-import { isAuthConfigured } from "../supabase/client";
-import { loadUserRows, saveUserRows } from "../supabase/user-data";
-import type { UserRawRow } from "../adapters/csv";
 
 const LINK_LATENCY_MS = 1200;
 const FETCH_LATENCY_MS = 900;
@@ -26,55 +22,28 @@ export async function completeDemoLink(marketplaceId: string): Promise<Marketpla
   return addConnection(marketplaceId, "demo");
 }
 
-const SAMPLE_CATEGORY_BY_MARKETPLACE: Record<string, string> = {
-  trendyol: "Ev & Yaşam",
-  hepsiburada: "Elektronik",
-  amazon_us: "Home",
-  shopify: "Apparel",
-  n11: "Ev & Yaşam",
-};
-
-/** A few representative settlement rows for one connected marketplace (demo initial sync). */
-function sampleRowsFor(marketplaceId: string): UserRawRow[] {
-  const category = SAMPLE_CATEGORY_BY_MARKETPLACE[marketplaceId] ?? "Diğer";
-  const today = Date.now();
-  const isoDaysAgo = (days: number) => new Date(today - days * 86_400_000).toISOString().slice(0, 10);
-  const skuPrefix = marketplaceId.toUpperCase();
-
-  return [
-    { order_id: `${marketplaceId}-init-1`, sku: `${skuPrefix}-SKU-01`, category, sale_date: isoDaysAgo(26), units: 40, gross_revenue: 18000, unit_cost: 120, shipping: 900, return_rate: 0.06, ad_spend: 1400, marketplace: marketplaceId },
-    { order_id: `${marketplaceId}-init-2`, sku: `${skuPrefix}-SKU-02`, category, sale_date: isoDaysAgo(13), units: 30, gross_revenue: 13500, unit_cost: 140, shipping: 700, return_rate: 0.05, ad_spend: 1100, marketplace: marketplaceId },
-    { order_id: `${marketplaceId}-init-3`, sku: `${skuPrefix}-SKU-01`, category, sale_date: isoDaysAgo(3), units: 44, gross_revenue: 19800, unit_cost: 120, shipping: 990, return_rate: 0.06, ad_spend: 1500, marketplace: marketplaceId },
-  ];
-}
-
 /**
  * Simulate the aggregator's initial data pull after a seller authorizes a
- * marketplace. Only marketplaces with a real engine adapter (see engineChannel in
- * lib/marketplaces.ts) get sample settlement rows persisted — anything else stays
- * a demo-mode ghost tab with no invented numbers. Idempotent: connecting the same
- * marketplace twice never duplicates rows.
- *
- * Marketplaces whose connect UI hits a live API (MarketplaceApiKeyModal →
- * the platform's own /api/.../connect route) persist real rows themselves —
- * never invent demo settlement data here. Shopify is NOT in this set: when
- * live (isShopifyLiveEnabled), /api/shopify/oauth/callback writes real rows;
- * when demo, simulateInitialSync may seed sample rows like other oauth demos.
+ * marketplace. This is a NO-OP for real (authenticated) accounts — it used to
+ * write fabricated sample rows (sampleRowsFor, above) straight into the
+ * signed-in user's real Supabase user_transactions table for any marketplace
+ * without a live adapter (Amazon US, and Shopify when Shopify isn't
+ * live-configured), with nothing in the UI marking those rows as invented.
+ * A real seller's dashboard could then show fake revenue/margin numbers
+ * mixed in with their real ones, indistinguishable from real data — never
+ * acceptable for a product a seller uses to make pricing/financing
+ * decisions. The dashboard already has an honest fallback for a connected-
+ * but-dataless marketplace (app/dashboard/page.tsx's "Henüz veri yok" empty
+ * state via hasNoRealDataYet), so the correct behavior here is simply: don't
+ * write anything. Marketplaces whose connect UI hits a live API
+ * (MarketplaceApiKeyModal → the platform's own /api/.../connect route, or
+ * Shopify's real OAuth callback) persist real rows themselves, unaffected by
+ * this function. sampleRowsFor() above is kept only for local/demo-mode
+ * preview surfaces that never touch a real user's account.
  */
-const LIVE_INTEGRATION_MARKETPLACES = new Set(["trendyol", "hepsiburada", "n11"]);
-
-export async function simulateInitialSync(conn: MarketplaceConnection): Promise<{ error: string | null }> {
-  if (LIVE_INTEGRATION_MARKETPLACES.has(conn.marketplaceId)) return { error: null };
-
+export async function simulateInitialSync(_conn: MarketplaceConnection): Promise<{ error: string | null }> {
   await delay(FETCH_LATENCY_MS);
-
-  const opt = getMarketplaceOption(conn.marketplaceId);
-  if (!opt?.engineChannel || !isAuthConfigured()) return { error: null };
-
-  const existing = await loadUserRows();
-  if (existing.some((r) => r.marketplace === conn.marketplaceId)) return { error: null };
-
-  return saveUserRows(sampleRowsFor(conn.marketplaceId));
+  return { error: null };
 }
 
 export function disconnectDemo(connectionId: string): void {

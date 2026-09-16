@@ -39,43 +39,43 @@ function marginBucket(marginPct: number): MarginBucket {
   if (marginPct > 20)
     return {
       key: "cash-cow",
-      label: "Cash Cow",
+      label: "Nakit İnek",
       chipClass: "fin-bg-profit-subtle fin-profit",
       cellClass: "fin-bg-profit-subtle fin-profit",
       dotClass: "fin-dot-profit",
-      actionLabel: "Fund Inventory",
+      actionLabel: "Stok Finansmanı",
       actionClass: "bg-[var(--tm-ledger-green)] text-white hover:opacity-90 focus-visible:ring-[var(--tm-ledger-green)]",
       Icon: TrendingUp,
     };
   if (marginPct >= 0)
     return {
       key: "profitable",
-      label: "Profitable",
+      label: "Kârlı",
       chipClass: "fin-bg-profit-subtle fin-profit",
       cellClass: "fin-bg-profit-subtle fin-profit",
       dotClass: "fin-dot-profit",
-      actionLabel: "Scale Ads",
+      actionLabel: "Reklamı Artır",
       actionClass: "fin-border-profit-subtle border fin-profit hover:fin-bg-profit-subtle focus-visible:ring-[var(--tm-ledger-green)]",
       Icon: TrendingUp,
     };
   if (marginPct >= -5)
     return {
       key: "bleeding",
-      label: "Bleeding",
+      label: "Kan Kaybediyor",
       chipClass: "bg-orange-50 text-orange-700",
       cellClass: "bg-orange-50 text-orange-700",
       dotClass: "bg-orange-500",
-      actionLabel: "Adjust Price",
+      actionLabel: "Fiyatı Düzelt",
       actionClass: "border border-orange-300 text-orange-700 hover:bg-orange-100 focus-visible:ring-orange-500",
       Icon: AlertCircle,
     };
   return {
     key: "silent-loser",
-    label: "Silent Loser",
+    label: "Sessiz Zarar",
     chipClass: "fin-bg-loss-subtle fin-loss",
     cellClass: "fin-bg-loss-subtle fin-loss",
     dotClass: "fin-dot-loss",
-    actionLabel: "Stop Ads",
+    actionLabel: "Reklamı Durdur",
     actionClass: "fin-border-loss-subtle border fin-loss hover:fin-bg-loss-subtle focus-visible:ring-[var(--fin-loss)]",
     Icon: TrendingDown,
   };
@@ -130,7 +130,7 @@ function FundInventoryPanel({
 }) {
   const estimate = useMemo(() => getSkuFinancingEstimate(tenantId, channel, row.sku), [tenantId, channel, row.sku]);
   return (
-    <PanelShell title={`Fund Inventory · ${row.sku}`} onClose={onClose}>
+    <PanelShell title={`Stok Finansmanı · ${row.sku}`} onClose={onClose}>
       {!estimate ? (
         <p className="text-xs text-slate-500">Bu SKU için finansman tahmini hesaplanamadı.</p>
       ) : (
@@ -175,7 +175,7 @@ function ScaleAdsPanel({
   }, [tenantId, channel, row.sku, boostPct, base]);
 
   return (
-    <PanelShell title={`Scale Ads · ${row.sku}`} onClose={onClose}>
+    <PanelShell title={`Reklamı Artır · ${row.sku}`} onClose={onClose}>
       {!scenario ? (
         <p className="text-xs text-slate-500">Bu SKU için reklam senaryosu hesaplanamadı.</p>
       ) : (
@@ -225,7 +225,7 @@ function AdjustPricePanel({
 }) {
   const breakEven = useMemo(() => getSkuBreakEven(tenantId, channel, row.sku), [tenantId, channel, row.sku]);
   return (
-    <PanelShell title={`Adjust Price · ${row.sku}`} onClose={onClose}>
+    <PanelShell title={`Fiyatı Düzelt · ${row.sku}`} onClose={onClose}>
       {!breakEven ? (
         <p className="text-xs text-slate-500">Bu SKU için başabaş fiyatı hesaplanamadı.</p>
       ) : (
@@ -256,7 +256,7 @@ function StopAdsPanel({
 }) {
   const scenario = useMemo(() => simulateSkuAdSpend(tenantId, channel, row.sku, 0), [tenantId, channel, row.sku]);
   return (
-    <PanelShell title={`Stop Ads · ${row.sku}`} onClose={onClose}>
+    <PanelShell title={`Reklamı Durdur · ${row.sku}`} onClose={onClose}>
       {!scenario ? (
         <p className="text-xs text-slate-500">Bu SKU için reklam senaryosu hesaplanamadı.</p>
       ) : (
@@ -347,25 +347,25 @@ function MarginTooltip({ row }: { row: SkuMargin }) {
       className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-64 origin-top-right scale-95 border border-slate-200 bg-white p-3.5 opacity-0 shadow-xl ring-1 ring-black/5 transition-all duration-150 group-hover:pointer-events-auto group-hover:scale-100 group-hover:opacity-100"
     >
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-        Margin breakdown
+        Marj dökümü
       </div>
       <dl className="space-y-1.5 font-mono text-xs tabular-nums text-slate-700">
         <div className="flex justify-between">
-          <dt className="text-slate-500">Perceived margin</dt>
+          <dt className="text-slate-500">Algılanan marj</dt>
           <dd className="font-medium text-slate-900">{pct(row.perceivedMarginPct)}</dd>
         </div>
         <div className="flex justify-between">
-          <dt className="text-slate-500">True margin</dt>
+          <dt className="text-slate-500">Gerçek marj</dt>
           <dd className={`font-semibold ${row.trueMarginPct >= 0 ? "fin-profit" : "fin-loss"}`}>
             {pct(row.trueMarginPct)}
           </dd>
         </div>
         <div className="mt-1 flex justify-between border-t border-slate-200 pt-2">
-          <dt className="text-slate-600">Hidden gap</dt>
-          <dd className="font-semibold fin-loss">−{row.gapPct.toFixed(1)} pts</dd>
+          <dt className="text-slate-600">Gizli fark</dt>
+          <dd className="font-semibold fin-loss">−{row.gapPct.toFixed(1)} puan</dd>
         </div>
         <div className="flex justify-between">
-          <dt className="text-slate-500">Return rate</dt>
+          <dt className="text-slate-500">İade oranı</dt>
           <dd className={row.isReturnRisk ? "fin-loss font-semibold" : "text-slate-700"}>
             {row.returnRatePct.toFixed(1)}%{row.isReturnRisk ? " ⚠" : ""}
           </dd>
@@ -435,10 +435,10 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
           </span>
           <div>
             <h3 className="text-base font-semibold tracking-tight text-slate-900">
-              SKU Profitability Heatmap
+              SKU Kârlılık Isı Haritası
             </h3>
             <p className="text-xs text-slate-500">
-              Real contribution margin per SKU — powered by perSkuMargins() engine output.
+              SKU bazında gerçek katkı marjı — gerçek işlem verinizden hesaplanır.
             </p>
           </div>
         </div>
@@ -446,13 +446,13 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
           {silentLosers > 0 && (
             <span className="fin-bg-loss-subtle inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium fin-loss">
               <span className="fin-dot-loss h-1.5 w-1.5 rounded-full" />
-              {silentLosers} Silent Loser{silentLosers > 1 ? "s" : ""}
+              {silentLosers} Sessiz Zarar
             </span>
           )}
           {cashCows > 0 && (
             <span className="fin-bg-profit-subtle inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium fin-profit">
               <span className="fin-dot-profit h-1.5 w-1.5 rounded-full" />
-              {cashCows} Cash Cow{cashCows > 1 ? "s" : ""}
+              {cashCows} Nakit İnek
             </span>
           )}
           {returnRisks > 0 && (
@@ -481,19 +481,19 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
                 </span>
               </th>
               <th scope="col" className="border-b border-slate-200 px-4 py-3 text-right">
-                <SortHeader label="True Margin" align="right" active={sortKey === "trueMarginPct"} direction={sortDir} onClick={() => handleSort("trueMarginPct")} />
+                <SortHeader label="Gerçek Marj" align="right" active={sortKey === "trueMarginPct"} direction={sortDir} onClick={() => handleSort("trueMarginPct")} />
               </th>
               <th scope="col" className="border-b border-slate-200 px-4 py-3 text-right">
-                <SortHeader label="Gap" align="right" active={sortKey === "gapPct"} direction={sortDir} onClick={() => handleSort("gapPct")} />
+                <SortHeader label="Fark" align="right" active={sortKey === "gapPct"} direction={sortDir} onClick={() => handleSort("gapPct")} />
               </th>
               <th scope="col" className="border-b border-slate-200 px-4 py-3 text-right">
                 <SortHeader label="İade %" align="right" active={sortKey === "returnRatePct"} direction={sortDir} onClick={() => handleSort("returnRatePct")} />
               </th>
               <th scope="col" className="border-b border-slate-200 px-4 py-3 text-left">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Status</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Durum</span>
               </th>
               <th scope="col" className="border-b border-slate-200 px-6 py-3 text-right">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Action</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Aksiyon</span>
               </th>
             </tr>
           </thead>
@@ -526,6 +526,7 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
                       <div
                         className={`inline-flex cursor-help items-center rounded-lg px-3 py-1.5 font-mono tabular-nums ${bucket.cellClass}`}
                         tabIndex={0}
+                        aria-label={`Gerçek marj ${pct(row.trueMarginPct)}, durum: ${bucket.label}`}
                       >
                         <span className="text-sm font-semibold">{pct(row.trueMarginPct)}</span>
                       </div>
@@ -533,9 +534,9 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
                     </div>
                   </td>
 
-                  {/* Gap */}
+                  {/* Fark */}
                   <td className="border-b border-slate-100 px-4 py-3 text-right font-mono text-sm tabular-nums fin-loss">
-                    −{row.gapPct.toFixed(1)} pts
+                    −{row.gapPct.toFixed(1)} puan
                   </td>
 
                   {/* Return rate */}
@@ -550,7 +551,7 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
                       {bucket.label}
                     </span>
                     {row.isSilentLoser && (
-                      <div className="mt-0.5 text-[10px] fin-loss font-mono">SILENT LOSS</div>
+                      <div className="mt-0.5 text-[10px] fin-loss font-mono">SESSİZ ZARAR</div>
                     )}
                   </td>
 
@@ -600,7 +601,7 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
       {/* Footer */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-6 py-3 text-[11px] text-slate-500">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="font-medium uppercase tracking-wider">Legend</span>
+          <span className="font-medium uppercase tracking-wider">Gösterge</span>
           {(["cash-cow", "profitable", "bleeding", "silent-loser"] as BucketKey[])
             .sort((a, b) => BUCKET_ORDER[b] - BUCKET_ORDER[a])
             .map((k) => {
@@ -614,7 +615,7 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
             })}
         </div>
         <span className="font-mono tabular-nums">
-          {skus.length} SKU · engine: perSkuMargins()
+          {skus.length} SKU
         </span>
       </div>
     </div>

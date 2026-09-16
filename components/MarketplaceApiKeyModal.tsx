@@ -215,7 +215,7 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
     if (!opt || !marketplaceId) return;
     for (const f of fields) {
       if (!values[f.key]?.trim()) {
-        setError(`${f.label} is required.`);
+        setError(`${f.label} alanı zorunludur.`);
         return;
       }
     }
@@ -235,7 +235,15 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
       return;
     }
 
-    // Non-Trendyol marketplaces: existing demo self-service flow, unchanged.
+    // DEAD CODE TODAY — every connectionMethod:"api_key" marketplace
+    // currently defined (lib/marketplaces.ts) is Trendyol/Hepsiburada/N11,
+    // all handled with a real backend call above; this branch can't be
+    // reached by any marketplace in the app right now. It exists only as
+    // legacy scaffolding for a hypothetical future api_key marketplace
+    // without a real backend yet. If that ever happens: DO NOT let this
+    // silently show "Bağlandı ✓" the way it does today — add the same
+    // visible "demo mode, no real account contacted" disclosure banner
+    // MarketplaceOAuthModal shows before wiring a new marketplace here.
     await new Promise((r) => setTimeout(r, 900));
 
     const primary = fields.find((f) => f.secret) ?? fields[0];

@@ -519,10 +519,20 @@ export function buildSellerView(seller: SeededSeller, channel: Channel = "trendy
     channel === "combined" ? "TRY" : (txs[0]?.currency ?? "TRY");
   const decision = trueMarginModel(seller.tenantId, inputs, currency as Currency);
   const waterfall = aggregateWaterfall(txs);
-  const { breakEvenPrice, commissionRatePct: breakEvenCommissionRatePct } = computeBreakEvenPrice(waterfall);
+  const { breakEvenPrice: aggregateBreakEven, commissionRatePct: breakEvenCommissionRatePct } = computeBreakEvenPrice(waterfall);
+  // computeBreakEvenPrice returns a threshold against the AGGREGATE waterfall
+  // (total COGS/shipping/payment fees across every unit sold in this channel),
+  // not a per-unit price. getSkuBreakEven (below, SKU-level "Adjust Price"
+  // card) already divides by unit count for exactly this reason — see its
+  // comment. This seller-level card was still showing the raw aggregate
+  // figure as if it were a single unit's floor price (e.g. a portfolio that
+  // sold 500 units would show a "break-even price" ~500x too high next to an
+  // avg sale price that's genuinely per-unit). Apply the same fix here.
+  const totalUnits = txs.reduce((s, t) => s + t.units, 0);
+  const breakEvenPrice = totalUnits > 0 ? aggregateBreakEven / totalUnits : aggregateBreakEven;
   const mpLabel =
     channel === "combined"
-      ? "Combined"
+      ? "Toplam"
       : MARKETPLACE_LABELS[channel as Marketplace] ?? channel;
   const settlement = computeSettlementVerification(waterfall, seller.tenantId, currency, mpLabel);
   const marginHistory = getMarginHistory(txs);

@@ -43,17 +43,17 @@ import {
 
 function connectLabel(m: MarketplaceOption): string {
   switch (m.connectionMethod) {
-    case "csv": return "Upload CSV";
-    case "manual": return "Add manually";
-    case "api_key": return "Add API key";
+    case "csv": return "CSV yükle";
+    case "manual": return "Elle ekle";
+    case "api_key": return "API anahtarı ekle";
     case "oauth":
       // Shopify is currently the only connectionMethod:"oauth" entry (see
       // lib/marketplaces.ts) — label reflects whether THIS deployment has
       // live Shopify Partner-app credentials configured (see startConnect).
-      if (m.id === "shopify" && isShopifyLiveEnabled()) return `Connect ${m.label.split(" ")[0]}`;
-      if (m.id === "amazon_tr" && isAmazonLwaConfigured()) return `Connect ${m.label.split(" ")[0]}`;
-      return `Connect ${m.label.split(" ")[0]} (Demo)`;
-    default: return `Connect ${m.label.split(" ")[0]}`;
+      if (m.id === "shopify" && isShopifyLiveEnabled()) return `${m.label.split(" ")[0]} bağla`;
+      if (m.id === "amazon_tr" && isAmazonLwaConfigured()) return `${m.label.split(" ")[0]} bağla`;
+      return `${m.label.split(" ")[0]} bağla (Demo)`;
+    default: return `${m.label.split(" ")[0]} bağla`;
   }
 }
 
@@ -334,14 +334,14 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                         c.status === "error" ? "text-[var(--tm-copper)]" : "fin-profit"
                       }`}
                     >
-                      {c.status === "error" ? "Reconnect required" : "Connected ✓"}
+                      {c.status === "error" ? "Yeniden bağlanmalı" : "Bağlandı ✓"}
                     </span>
                     <button
                       type="button"
                       onClick={() => handleDisconnect(c)}
                       className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:fin-loss transition-colors px-2 py-1 border border-[var(--tm-mist)] hover:fin-border-loss-subtle rounded-[var(--tm-r-data)]"
                     >
-                      Disconnect
+                      Bağlantıyı kes
                     </button>
                   </div>
                 </li>
@@ -373,10 +373,10 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                       <div className="text-zinc-600 text-[11px] truncate">{m.description}</div>
                     </div>
                     {linked ? (
-                      <span className="fin-profit/90 font-mono text-[10px] uppercase tracking-wider shrink-0">Connected ✓</span>
+                      <span className="fin-profit/90 font-mono text-[10px] uppercase tracking-wider shrink-0">Bağlandı ✓</span>
                     ) : m.connectionMethod === "coming_soon" ? (
                       <span className="shrink-0 h-8 px-3 border border-zinc-800 text-zinc-600 text-[10px] font-mono uppercase tracking-widest flex items-center">
-                        Coming soon
+                        Yakında
                       </span>
                     ) : (
                       <button
@@ -421,13 +421,13 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
       )}
 
       <div className="mt-4 flex items-center justify-between gap-4">
-        <span className="text-zinc-600 text-[11px]">Add more marketplaces later, anytime.</span>
+        <span className="text-zinc-600 text-[11px]">Daha sonra istediğiniz zaman yeni pazaryeri ekleyebilirsiniz.</span>
         <button
           type="button"
           onClick={downloadSample}
           className="text-[10px] font-mono text-zinc-600 hover:text-zinc-400 uppercase tracking-widest"
         >
-          ↓ Sample CSV
+          ↓ Örnek CSV
         </button>
       </div>
 
@@ -437,12 +437,12 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
         disabled={!canContinue}
         className="ob-input mt-3 w-full h-11 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        Continue
+        Devam et
       </button>
 
       <div className="mt-3 flex items-center justify-center gap-1.5 text-zinc-500 text-[11px]">
         <LockIcon />
-        <span>Bank-level encryption · OAuth-style · no passwords stored</span>
+        <span>Banka seviyesinde şifreleme · OAuth benzeri · şifre saklanmaz</span>
       </div>
 
       <MarketplaceOAuthModal
@@ -471,11 +471,11 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
         >
           <div className="bg-zinc-950 border border-zinc-800 p-6 max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
             <div className="text-zinc-100 text-sm font-medium mb-1.5">
-              Disconnect {getMarketplaceOption(disconnectTarget.marketplaceId)?.label ?? disconnectTarget.marketplaceId}
+              {getMarketplaceOption(disconnectTarget.marketplaceId)?.label ?? disconnectTarget.marketplaceId} bağlantısını kes
             </div>
             <p className="text-zinc-500 text-[12px] font-mono leading-relaxed mb-6">
-              This deletes the stored credential — you&apos;ll need to reconnect to sync again. You can also
-              choose to delete the order data already pulled from this marketplace.
+              Bu, saklanan kimlik bilgisini siler — tekrar senkronize etmek için yeniden bağlanmanız gerekir.
+              Bu pazaryerinden çekilmiş sipariş verisini de silmeyi seçebilirsiniz.
             </p>
             {disconnectError && (
               <p className="fin-loss text-[11px] font-mono mb-4">{disconnectError}</p>
@@ -487,7 +487,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                 disabled={disconnectBusy}
                 className="inline-flex items-center justify-center h-10 px-4 border border-zinc-800 text-zinc-200 font-mono text-[12px] hover:bg-zinc-900 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
               >
-                {disconnectBusy ? "Working…" : "Disconnect only — keep my data"}
+                {disconnectBusy ? "İşleniyor…" : "Yalnızca bağlantıyı kes — verimi sakla"}
               </button>
               <button
                 type="button"
@@ -495,7 +495,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                 disabled={disconnectBusy}
                 className="inline-flex items-center justify-center h-10 px-4 fin-border-loss-subtle border fin-loss font-mono text-[12px] hover:bg-[color-mix(in_srgb,var(--fin-loss)_16%,transparent)] transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--fin-loss)]"
               >
-                {disconnectBusy ? "Working…" : "Disconnect and delete this marketplace's data"}
+                {disconnectBusy ? "İşleniyor…" : "Bağlantıyı kes ve bu pazaryerinin verisini sil"}
               </button>
               <button
                 type="button"
@@ -503,7 +503,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                 disabled={disconnectBusy}
                 className="inline-flex items-center justify-center h-9 px-4 text-zinc-500 font-mono text-[12px] hover:text-zinc-300 transition-colors disabled:opacity-50"
               >
-                Cancel
+                Vazgeç
               </button>
             </div>
           </div>

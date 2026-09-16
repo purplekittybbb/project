@@ -810,12 +810,19 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const coInc = (fin.report.incumbent.chargeOffRate * 100).toFixed(1);
   const lossRed = Math.round(fin.report.lossReductionPct * 100);
 
+  // tr-TR locale (thousands separator "."), matching every other money-
+  // formatting helper on this page (DashboardSummaryHeader's fmtMoney,
+  // LossAlarmBanner, NetProfitLedger, etc.). This used to use "en-US"
+  // (thousands separator ","), so the same figure could show as "₺48,760"
+  // here and "₺48.760" a few pixels away — a Turkish reader can misread the
+  // comma as a decimal point, making the number look wrong even when it's
+  // the same value.
   const money = (val: number, cur: string = currency) => {
-    const s = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(Math.abs(val)));
+    const s = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 }).format(Math.round(Math.abs(val)));
     return (cur === "USD" ? "$" : "₺") + s;
   };
   const pctStr = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
-  const channelLabel = (c: Channel) => (c === "combined" ? "Combined" : MARKETPLACE_LABELS[c].replace(/ \(.*\)/, ""));
+  const channelLabel = (c: Channel) => (c === "combined" ? "Toplam" : MARKETPLACE_LABELS[c].replace(/ \(.*\)/, ""));
 
   // Dynamic marketplace tabs from the user's connected selection. Only engine-
   // supported marketplaces become live data channels; anything else is shown as a
@@ -1835,7 +1842,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   <p className="mt-4 max-w-md text-sm leading-relaxed text-zinc-500">
                     {finApproved
                       ? t("financing.approvedCopy", { rate: finTakeRate })
-                      : t("financing.declinedCopy", { amount: money(0) })}
+                      : t("financing.declinedCopy", { amount: money(fin.incumbentDecision.approvedLimit) })}
                   </p>
 
                   <div className="mt-8">
@@ -1860,7 +1867,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans">{t("financing.backtestTitle")}</h3>
                     {fin.isSelfBacktest && (
                       <span className="bg-zinc-900 text-zinc-500 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800">
-                        N=1 · {fin.historyMonths} mo.
+                        N=1 · {fin.historyMonths} aylık geçmiş
                       </span>
                     )}
                   </div>
@@ -2173,7 +2180,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                                 <span>{opt?.label ?? mp}</span>
                                 {needsReauth && (
                                   <span className="text-amber-400 text-[10px] font-mono uppercase tracking-wider">
-                                    Reconnect
+                                    Yeniden bağlanmalı
                                   </span>
                                 )}
                               </div>

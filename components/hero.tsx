@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { HeroSignupForm } from "@/components/marketing/hero-signup-form";
 import { Reveal } from "@/components/reveal";
+import { MARKETING_MARKETPLACE_LIST_TR } from "@/lib/seo";
 
 export function Hero() {
   return (
@@ -18,20 +18,9 @@ export function Hero() {
 
           <Reveal delay={80}>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-[color-mix(in_srgb,var(--tm-paper)_72%,transparent)]">
-              Trendyol, Hepsiburada ve N11 siparişlerinizden gerçek net kârı hesaplayın.
+              {MARKETING_MARKETPLACE_LIST_TR} siparişlerinizden gerçek net kârı hesaplayın.
               Komisyon, KDV, kargo, iade ve reklam düşülmüş — tahmin değil, sizin veriniz.
             </p>
-          </Reveal>
-
-          <Reveal delay={160}>
-            <div className="mt-10 flex flex-wrap items-center gap-3">
-              <Link
-                href="/signup"
-                className="inline-flex h-12 items-center justify-center bg-[var(--tm-copper)] px-7 text-sm font-medium text-[var(--tm-paper)] transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--tm-paper)]"
-              >
-                Kaydol
-              </Link>
-            </div>
           </Reveal>
         </div>
 

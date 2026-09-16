@@ -87,7 +87,7 @@
     "underwritingDecision": "Kredi kararı",
     "declined": "Reddedildi",
     "approvedCopy": "%{{rate}} kesinti oranıyla fiyatlandı (hedef bant %3–6). Gelir anlık görüntüsüne değil, gerçek katkı kârına göre boyutlandırıldı.",
-    "declinedCopy": "Bu satıcının gerçek marjı yeni borcu karşılayamıyor, bu yüzden model {{amount}} onaylıyor. Gelir-anlık-görüntüsü bazlı bir kredi verenin bunu görmesi mümkün değil — yine de borç verirdi.",
+    "declinedCopy": "Bu satıcının gerçek marjı yeni borcu karşılayamıyor. Gelir anlık görüntüsüne bakan geleneksel bir kredi veren bunu göremez — yine de {{amount}} tutarında borç verirdi.",
     "decisionTrace": "Karar izi",
     "ruleBasedExplainable": "Kural-tabanlı ve açıklanabilir (AB Yapay Zeka Yasası) — değiştirilemez şekilde bir karar izi olarak, append-only defterde sıra #{{seq}} olarak kaydedildi.",
     "backtestTitle": "Geçmiş test — biz vs. mevcut yöntem",

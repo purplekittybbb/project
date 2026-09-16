@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { MarketingPage } from "@/components/marketing/marketing-page";
 import { Reveal } from "@/components/reveal";
-import { SITE_NAME } from "@/lib/seo";
+import { SITE_NAME, siteOrigin } from "@/lib/seo";
 
 export const metadata = {
   title: `Gizlilik Politikası · ${SITE_NAME}`,
@@ -61,7 +61,7 @@ export default function GizlilikPage() {
               panel arayüzü değişirse sessizce boş döner, asla uydurma bir değer göstermez).
             </p>
             <p>
-              {`Uzantı; rakip fiyatlarını kazımaz, üçüncü taraf hesaplara erişmez ve arka planda otomatik hiçbir ağ isteği göndermez. Yalnızca siz popup'ta "Hesaptan Getir"e bastığınızda ve hesabınızı bağladığınızda, kendi hesabınızdaki kendi verinizi eşleştirmek için ${SITE_NAME} sunucusuna (https://matsorular.vercel.app/api/extension/lookup) tek bir istek gönderilir.`}
+              {`Uzantı; rakip fiyatlarını kazımaz, üçüncü taraf hesaplara erişmez ve arka planda otomatik hiçbir ağ isteği göndermez. Yalnızca siz popup'ta "Hesaptan Getir"e bastığınızda ve hesabınızı bağladığınızda, kendi hesabınızdaki kendi verinizi eşleştirmek için ${SITE_NAME} sunucusuna (${siteOrigin()}/api/extension/lookup) tek bir istek gönderilir.`}
             </p>
             <p>
               Hesabı bağlarken oluşturduğunuz kişisel token yalnızca cihazınızdaki{" "}
@@ -87,9 +87,22 @@ export default function GizlilikPage() {
             </p>
           </Section>
 
-          <Section title="5. İletişim">
+          <Section title="5. KVKK kapsamındaki haklarınız">
             <p>
-              Gizlilikle ilgili sorularınız için: <strong>destek@matsorular.vercel.app</strong>
+              6698 sayılı Kişisel Verilerin Korunması Kanunu (&quot;KVKK&quot;) kapsamında veri sorumlusu
+              sıfatıyla; kişisel verilerinizin işlenip işlenmediğini öğrenme, işlenmişse buna ilişkin
+              bilgi talep etme, işlenme amacını ve amacına uygun kullanılıp kullanılmadığını öğrenme,
+              yurt içinde/yurt dışında aktarıldığı üçüncü kişileri bilme, eksik/yanlış işlenmişse
+              düzeltilmesini isteme, KVKK madde 7&apos;de öngörülen şartlar çerçevesinde silinmesini/yok
+              edilmesini isteme ve bu işlemlerin aktarıldığı üçüncü kişilere bildirilmesini isteme
+              haklarına sahipsiniz (KVKK madde 11). Bu haklarınızı kullanmak için aşağıdaki iletişim
+              kanalından bize ulaşabilirsiniz.
+            </p>
+          </Section>
+
+          <Section title="6. İletişim">
+            <p>
+              Gizlilikle ve KVKK başvurularıyla ilgili sorularınız için: <strong>destek@truemargin.app</strong>
             </p>
           </Section>
         </Reveal>
