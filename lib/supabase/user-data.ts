@@ -42,8 +42,11 @@ export interface StoredRow extends UserRawRow {
   id: string;
 }
 
-/** DB column shape → UserRawRow. Includes columns added in migration 0012. */
-type DbRow = {
+/** DB column shape → UserRawRow. Includes columns added in migration 0012.
+ *  Exported so server-side callers (e.g. the weekly-digest cron, which reads
+ *  rows via a service-role client rather than loadUserRows' browser client)
+ *  can reuse the exact same mapping instead of duplicating it. */
+export type DbRow = {
   id: string;
   order_id: string;
   sku: string;
@@ -62,7 +65,7 @@ type DbRow = {
   barcode?: string | null;
 };
 
-function toStored(r: DbRow): StoredRow {
+export function toStored(r: DbRow): StoredRow {
   return {
     id: r.id,
     order_id: r.order_id,

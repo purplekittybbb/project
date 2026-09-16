@@ -30,10 +30,11 @@
  *  - Analyst Copilot → its own sidebar tab, streaming from /api/chat (grounded in lib/engine)
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/i18n/useLanguage";
+import { loadWeeklyDigestEnabled, setWeeklyDigestEnabled } from "@/lib/supabase/user-settings";
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "@/lib/i18n/config";
 import { translateRationale, translateBenchmarkLabel } from "@/lib/i18n/translateRationale";
 import {
@@ -77,6 +78,9 @@ import type { StoreToolState } from "@/components/tools/store/use-store-tool-dat
 import { seedStoredRowsForTenant } from "@/lib/data/seed";
 import { computeSkuMomentum } from "@/lib/tools/opportunity-discovery";
 import { OpportunityDiscoveryCard } from "@/components/OpportunityDiscoveryCard";
+import { SettlementReconciliationPanel } from "@/components/SettlementReconciliationPanel";
+import { OnboardingChecklist } from "@/components/OnboardingChecklist";
+import { TeamAccessPanel } from "@/components/TeamAccessPanel";
 import type { DemandRangeResult } from "@/lib/demand/signals";
 import { loadMyWatchedVisibility } from "@/lib/supabase/shared-visibility";
 import { pickWatchedVisibility } from "@/lib/visibility/display";
@@ -155,6 +159,50 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const [hasBillingHistory, setHasBillingHistory] = useState(false);
   const [onboardingLocallyDone, setOnboardingLocallyDone] = useState(false);
   useEffect(() => { setOnboardingLocallyDone(isOnboardingDone()); }, []);
+
+  // Haftalık kâr özeti e-postası tercihi — bkz. lib/supabase/user-settings.ts.
+  const [digestEnabled, setDigestEnabled] = useState(false);
+  const [digestLoaded, setDigestLoaded] = useState(false);
+  const [digestError, setDigestError] = useState("");
+  useEffect(() => {
+    if (demoMode || !authConfigured) return;
+    let active = true;
+    loadWeeklyDigestEnabled().then((enabled) => {
+      if (!active) return;
+      setDigestEnabled(enabled);
+      setDigestLoaded(true);
+    });
+    return () => { active = false; };
+  }, [demoMode, authConfigured]);
+
+  // Ekip erişimi — bir sahibin verisini salt-okunur görüntüleme modu.
+  const [viewingOwnerId, setViewingOwnerId] = useState<string | null>(null);
+  const [viewingOwnerLabel, setViewingOwnerLabel] = useState("");
+  const [teamDataError, setTeamDataError] = useState("");
+  const viewOwnerData = useCallback(async (ownerId: string, label: string) => {
+    setTeamDataError("");
+    const res = await fetch(`/api/team/data?ownerId=${encodeURIComponent(ownerId)}`);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setTeamDataError(body.error ?? "Veri yüklenemedi.");
+      return;
+    }
+    const teamTenantId = `team-${ownerId}`;
+    const seller = buildUserSeller(body.rows ?? [], teamTenantId);
+    if (!seller) {
+      setTeamDataError(`${label} için henüz veri yok.`);
+      return;
+    }
+    registerRuntimeSeller(seller, `${label} (salt-okunur)`);
+    setTenant(teamTenantId);
+    setViewingOwnerId(ownerId);
+    setViewingOwnerLabel(label);
+    setDataVersion((v) => v + 1);
+  }, []);
+  const stopViewingOwnerData = useCallback(() => {
+    setTenant(USER_TENANT_ID);
+    setViewingOwnerId(null);
+  }, []);
 
   // Load the signed-in user's persisted data once on mount, register it with the
   // engine, and switch to it so returning users see their own numbers immediately.
@@ -1190,6 +1238,17 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
             ))}
           </div>
 
+            {/* Ekip erişimi — sahibin verisi salt-okunur görüntüleniyor uyarısı */}
+            {viewingOwnerId && (
+              <span className="inline-flex items-center gap-2 border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-[11px] font-mono text-amber-300">
+                <span className="w-1.5 h-1.5 bg-amber-400" />
+                {viewingOwnerLabel} · salt-okunur görüntüleniyor
+                <button type="button" onClick={stopViewingOwnerData} className="underline hover:text-amber-200">
+                  çık
+                </button>
+              </span>
+            )}
+
             {/* Free-trial indicator */}
             {trialDaysLeft !== null && (
               <span className="inline-flex items-center gap-2 border border-zinc-800 bg-zinc-900/50 px-3 py-1 text-[11px] font-mono tabular-nums text-zinc-400">
@@ -1244,6 +1303,16 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   </div>
                 </div>
               )}
+
+              {/* Yeni hesaplar için başlangıç kontrol listesi — tüm adımlar
+                  tamamlanınca veya kullanıcı kapatınca kendiliğinden gizlenir. */}
+              <OnboardingChecklist
+                authConfigured={authConfigured}
+                hasMarketplaceConnected={dataChannels.length > 0}
+                hasRealData={view.skus.length > 0}
+                onGoToSettlement={() => setCurrentTab("Dashboard")}
+                onGoToProducts={() => setCurrentTab("Products")}
+              />
 
               {/* 3-30-300 hero header — spec §6: 3-second overview */}
               <DashboardSummaryHeader skus={view.skus} currency={currency} />
@@ -1336,6 +1405,16 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                         </div>
                       );
                     })()}
+
+                    {/* Gerçek hakediş mutabakatı — kullanıcının kendi girdiği tutarla
+                        yukarıdaki "Temsili" tahminin yerini alan gerçek karşılaştırma. */}
+                    <SettlementReconciliationPanel
+                      marketplace={view.channel}
+                      marketplaceLabel={view.settlement.marketplaceLabel}
+                      expectedPayout={view.settlement.expectedPayout}
+                      currency={view.currency}
+                      authConfigured={authConfigured}
+                    />
                   </div>
 
                   {/* Dönemsel Marj — Sparkline */}
@@ -2034,6 +2113,58 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   ))}
                 </div>
               </div>
+
+              {/* Haftalık kâr özeti — isteğe bağlı, varsayılan kapalı (0035 migration). */}
+              {authConfigured && (
+                <div className="mt-8 border border-zinc-900 bg-zinc-950/50 p-6">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-1.5">
+                        Haftalık kâr özeti
+                      </div>
+                      <p className="text-zinc-500 text-[12px] font-mono max-w-sm">
+                        Her hafta e-posta ile gerçek marjınızı, en çok zarar eden ürünlerinizi ve hakediş
+                        durumunuzu özetleyen bir mesaj alın.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const next = !digestEnabled;
+                        setDigestEnabled(next);
+                        const { error } = await setWeeklyDigestEnabled(next);
+                        if (error) {
+                          setDigestEnabled(!next);
+                          setDigestError(error);
+                        } else {
+                          setDigestError("");
+                        }
+                      }}
+                      disabled={!digestLoaded}
+                      className={`shrink-0 w-11 h-6 rounded-full transition-colors relative disabled:opacity-40 ${
+                        digestEnabled ? "bg-[var(--tm-copper)]" : "bg-zinc-800"
+                      }`}
+                      aria-pressed={digestEnabled}
+                      title={digestEnabled ? "Kapat" : "Aç"}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-zinc-100 transition-transform ${
+                          digestEnabled ? "translate-x-5" : ""
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  {digestError && <p className="fin-loss text-[11px] font-mono mt-2">{digestError}</p>}
+                </div>
+              )}
+
+              <TeamAccessPanel
+                authConfigured={authConfigured}
+                viewingOwnerId={viewingOwnerId}
+                onViewOwner={viewOwnerData}
+                onStopViewing={stopViewingOwnerData}
+              />
+              {teamDataError && <p className="fin-loss text-[11px] font-mono mt-2">{teamDataError}</p>}
 
               {/* Account — real identity from the Supabase session, not a placeholder. */}
               <div className="mt-8 border border-zinc-900 bg-zinc-950/50 p-6">

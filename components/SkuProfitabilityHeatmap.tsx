@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Package, TrendingDown, TrendingUp, X,
+  AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Download, Package, TrendingDown, TrendingUp, X,
 } from "lucide-react";
 import {
   getSkuBreakEven,
@@ -19,6 +19,20 @@ import {
   type Channel,
   type SkuMargin,
 } from "@/lib/engine";
+import { exportFilename, exportRowsAsCsv, type ExportColumn } from "@/lib/export-csv";
+import { markExportUsed } from "@/components/OnboardingChecklist";
+
+const SKU_EXPORT_COLUMNS: ExportColumn<SkuMargin>[] = [
+  { header: "SKU", value: (r) => r.sku },
+  { header: "Kategori", value: (r) => r.category },
+  { header: "Algılanan Marj (%)", value: (r) => Number(r.perceivedMarginPct.toFixed(2)) },
+  { header: "Gerçek Marj (%)", value: (r) => Number(r.trueMarginPct.toFixed(2)) },
+  { header: "Fark (puan)", value: (r) => Number(r.gapPct.toFixed(2)) },
+  { header: "İade Oranı (%)", value: (r) => Number(r.returnRatePct.toFixed(2)) },
+  { header: "Gerçek Katkı Marjı", value: (r) => Number(r.netContribution.toFixed(2)) },
+  { header: "Sessiz Zarar mı", value: (r) => (r.isSilentLoser ? "Evet" : "Hayır") },
+  { header: "Yüksek İade Riski mi", value: (r) => (r.isReturnRisk ? "Evet" : "Hayır") },
+];
 
 // ─── Bucket logic ─────────────────────────────────────────────────────────────
 
@@ -461,6 +475,18 @@ export function SkuProfitabilityHeatmap({ skus, tenantId, channel, onGoToFinanci
               {returnRisks} Yüksek İade
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              exportRowsAsCsv(sorted, SKU_EXPORT_COLUMNS, exportFilename(`urun-karliligi_${channel}`));
+              markExportUsed();
+            }}
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            title="Bu tabloyu Excel uyumlu CSV olarak indir"
+          >
+            <Download size={12} />
+            Dışa Aktar
+          </button>
         </div>
       </div>
 
