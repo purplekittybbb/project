@@ -64,8 +64,9 @@ export async function checkAndIncrementToolUsage(
   toolId: StandaloneToolId,
   subject: RateLimitSubject,
   client?: SupabaseClient | null,
+  isPaid = false,
 ): Promise<RateLimitResult> {
-  const limit = dailyLimitForSubject(subject.type);
+  const limit = dailyLimitForSubject(subject.type, isPaid);
   const supabase = client ?? serviceClient();
 
   if (!supabase) {

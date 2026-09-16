@@ -42,6 +42,45 @@ export function DashboardSummaryHeader({ skus, currency }: DashboardSummaryHeade
     0
   );
   const allProfitable = lossSkus.length === 0;
+  const hasNoData = skus.length === 0;
+
+  // A brand-new user with zero connected/analyzed SKUs is a different state
+  // than "we checked every product and none are losing money" — showing the
+  // same celebratory green banner for both was misleading (it can't tell
+  // "no losses because everything's fine" from "no losses because there's
+  // nothing here yet"). Neutral state, no green, no false confidence.
+  if (hasNoData) {
+    return (
+      <div
+        className="flex items-center gap-3 px-5 py-4 mb-8"
+        style={{
+          background: "var(--tm-paper)",
+          border: "1px dashed color-mix(in srgb, var(--tm-ink) 20%, transparent)",
+          borderRadius: "var(--tm-r-data, 2px)",
+        }}
+        role="status"
+        aria-label="Henüz analiz edilecek ürün yok"
+      >
+        <span
+          className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+          style={{ background: "color-mix(in srgb, var(--tm-ink) 35%, transparent)" }}
+          aria-hidden="true"
+        />
+        <span
+          className="text-[15px] font-semibold"
+          style={{ color: "var(--tm-ink)", opacity: 0.7 }}
+        >
+          Henüz analiz edilecek ürün yok
+        </span>
+        <span
+          className="text-[13px] ml-1"
+          style={{ color: "var(--tm-ink)", opacity: 0.5 }}
+        >
+          — mağazanızı bağladığınızda kâr durumu burada görünecek.
+        </span>
+      </div>
+    );
+  }
 
   if (allProfitable) {
     return (

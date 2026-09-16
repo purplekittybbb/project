@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { parseToolQuery } from "@/lib/tools/parse-query";
 import {
@@ -8,6 +9,7 @@ import {
 } from "@/lib/tools/guest-rate-limit";
 import { isScraperToolId, type StandaloneToolId } from "@/lib/tools/registry";
 import { runStandaloneTool } from "@/lib/tools/run-standalone";
+import { getSubscriptionStatus } from "@/lib/iyzico/subscription";
 
 export const runtime = "nodejs";
 /** 3-page scrape + anti-bot delays; requires Vercel Pro for >60s. */
@@ -17,10 +19,10 @@ interface RouteContext {
   params: Promise<{ toolId: string }>;
 }
 
-async function getOptionalUserId(): Promise<string | null> {
+async function getOptionalUser(): Promise<{ userId: string | null; supabase: SupabaseClient | null }> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseAnon) return null;
+  if (!supabaseUrl || !supabaseAnon) return { userId: null, supabase: null };
 
   const cookieStore = await cookies();
   const supabase = createServerClient(supabaseUrl, supabaseAnon, {
@@ -35,7 +37,22 @@ async function getOptionalUserId(): Promise<string | null> {
   });
 
   const { data } = await supabase.auth.getUser();
-  return data.user?.id ?? null;
+  return { userId: data.user?.id ?? null, supabase };
+}
+
+/**
+ * True when a signed-in user has an active/trialing subscription.
+ * Best-effort: any failure degrades to `false` (free-tier limit), never
+ * throws — this must never block a standalone-tool query from running.
+ */
+async function isPaidUser(supabase: SupabaseClient | null, userId: string | null): Promise<boolean> {
+  if (!supabase || !userId) return false;
+  try {
+    const sub = await getSubscriptionStatus(supabase, userId);
+    return sub.hasAccess;
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(req: Request, context: RouteContext) {
@@ -61,9 +78,10 @@ export async function POST(req: Request, context: RouteContext) {
     );
   }
 
-  const userId = await getOptionalUserId();
+  const { userId, supabase } = await getOptionalUser();
+  const paid = await isPaidUser(supabase, userId);
   const subject = buildRateLimitSubject(req.headers, userId);
-  const quota = await checkAndIncrementToolUsage(toolId, subject);
+  const quota = await checkAndIncrementToolUsage(toolId, subject, undefined, paid);
 
   if (!quota.allowed) {
     return NextResponse.json(
@@ -71,7 +89,11 @@ export async function POST(req: Request, context: RouteContext) {
         error: "Günlük ücretsiz sorgu limitine ulaştınız.",
         limit: quota.limit,
         used: quota.used,
-        upgradeHint: userId ? null : "Daha fazla sorgu için giriş yapın veya yarın tekrar deneyin.",
+        upgradeHint: paid
+          ? null
+          : userId
+            ? "Daha fazla sorgu için Profesyonel pakete geçin."
+            : "Daha fazla sorgu için giriş yapın veya yarın tekrar deneyin.",
       },
       { status: 429 },
     );

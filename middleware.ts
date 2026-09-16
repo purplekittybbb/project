@@ -62,6 +62,21 @@ const PUBLIC_PREFIXES = [
 /**
  * Prefixes that require an active subscription IN ADDITION to auth.
  * Other authenticated routes only require a valid session.
+ *
+ * HONESTY NOTE (found during a professionalism/quality audit — see
+ * lib/tools/limits.ts PAID_DAILY_LIMIT for the fix that's actually live):
+ * "/api/demand" and "/api/top100" do not correspond to any real route in
+ * this app — demand estimation is computed client-side in the dashboard
+ * from the user's own already-loaded sales data, and Top 100 is served by
+ * the standalone-tool route (app/api/tools/[toolId], public + rate-limited
+ * by design — a lead-gen free tool, not a premium dashboard feature). These
+ * two prefixes were dead entries gating nothing; kept here (rather than
+ * silently deleted) as a marker that a real per-route premium gate for
+ * these features hasn't been built yet — add the actual route path here
+ * once one exists. "/api/cron/scan-visibility" is a server cron endpoint
+ * authenticated by CRON_SECRET, not a user session, so this prefix doesn't
+ * do anything for it either — session-based gating only applies to routes
+ * a signed-in user's browser calls directly.
  */
 const PREMIUM_PREFIXES = [
   "/api/cron/scan-visibility",

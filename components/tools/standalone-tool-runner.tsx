@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { GUEST_DAILY_LIMIT } from "@/lib/tools/limits";
 import type { StandaloneToolId } from "@/lib/tools/registry";
 import { IndexCheckResultPanel } from "@/components/tools/results/index-check-result";
@@ -46,6 +47,7 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
   const [resultMode, setResultMode] = useState<string | undefined>();
   const [quota, setQuota] = useState<{ limit: number; remaining: number; used: number } | null>(null);
   const [queueStatus, setQueueStatus] = useState<string | null>(null);
+  const [upgradeHint, setUpgradeHint] = useState<string | null>(null);
 
   /** Concurrency cap hit ("queued") — quietly retry a few times before giving up. */
   const MAX_QUEUE_RETRIES = 5;
@@ -62,11 +64,13 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
         data?: Record<string, unknown>;
         mode?: string;
         quota?: { limit: number; remaining: number; used: number };
+        upgradeHint?: string | null;
       };
 
       if (!res.ok && res.status !== 202) {
         setError(json.error ?? "Sorgu başarısız.");
         if (json.quota) setQuota(json.quota);
+        setUpgradeHint(res.status === 429 ? (json.upgradeHint ?? null) : null);
         setLoading(false);
         return;
       }
@@ -85,6 +89,7 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
       }
 
       setQueueStatus(null);
+      setUpgradeHint(null);
       const payload = (json.data ?? json) as Record<string, unknown>;
       setResultData(payload);
       setResultMode(json.mode ?? (payload.mode as string | undefined));
@@ -102,6 +107,7 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
     setError(null);
     setResultData(null);
     setQueueStatus(null);
+    setUpgradeHint(null);
     await runQuery(0);
   }
 
@@ -113,7 +119,7 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
       <h1 className="mt-4 font-heading text-3xl font-bold tracking-tight text-foreground">{title}</h1>
       <p className="mt-3 text-base leading-relaxed text-muted-foreground">{description}</p>
       <p className="mt-2 text-xs text-muted-foreground">
-        Giriş yapmadan günde {GUEST_DAILY_LIMIT} sorgu (IP bazlı). Giriş yaptıysanız limit daha yüksektir.
+        Giriş yapmadan günde {GUEST_DAILY_LIMIT} sorgu (IP bazlı). Giriş yaptıysanız limit daha yüksektir, Profesyonel pakette çok daha yüksektir.
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
         Gerçek pazaryeri verisi canlı taranır — bu genellikle 15–60 saniye sürer, bazen daha uzun sürebilir.
@@ -172,7 +178,18 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
 
       {error && (
         <div className="mt-6 tm-field-error-box rounded-[var(--tm-r-ui)]" role="alert">
-          {error}
+          <p>{error}</p>
+          {upgradeHint && (
+            <p className="mt-2 flex flex-wrap items-center gap-2">
+              <span>{upgradeHint}</span>
+              <Link
+                href="/pricing"
+                className="font-medium text-foreground underline underline-offset-2"
+              >
+                Paketleri görün
+              </Link>
+            </p>
+          )}
         </div>
       )}
 
