@@ -59,6 +59,14 @@ function fmtRange(low: number, high: number): string {
   return `${new Intl.NumberFormat("tr-TR").format(low)}–${new Intl.NumberFormat("tr-TR").format(high)} adet/ay`;
 }
 
+// PDF §7.2 Seviye 3 ("Nasıl?") — tahmini oluşturan gerçek sinyallerin Türkçe adları.
+const SIGNAL_LABELS: Record<string, string> = {
+  stockDelta: "Stok / satış hızı",
+  reviewVelocity: "Yorum artış hızı",
+  favoriteSignal: "Favori / beğeni sinyali",
+  priceSignal: "Fiyat konumu",
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function DemandEstimateCard({ estimate, sku, last30Units, className }: DemandEstimateCardProps) {
@@ -164,12 +172,44 @@ export function DemandEstimateCard({ estimate, sku, last30Units, className }: De
         </button>
 
         {expanded && (
-          <p
-            className="mt-2 text-[12px] font-sans leading-relaxed"
-            style={{ color: "var(--tm-ink)", opacity: 0.65 }}
-          >
-            {estimate.explanation}
-          </p>
+          <div className="mt-2 space-y-2">
+            <p
+              className="text-[12px] font-sans leading-relaxed"
+              style={{ color: "var(--tm-ink)", opacity: 0.65 }}
+            >
+              {estimate.explanation}
+            </p>
+
+            {/* PDF §7.2 Seviye 3 — "Nasıl?": tahmini oluşturan gerçek sinyaller. */}
+            {estimate.signalsUsed && estimate.signalsUsed.length > 0 && (
+              <div>
+                <div
+                  className="text-[10px] uppercase tracking-[0.12em] font-sans mb-1"
+                  style={{ color: "var(--tm-ink)", opacity: 0.4 }}
+                >
+                  Kullanılan sinyaller
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {estimate.signalsUsed.map((s) => (
+                    <span
+                      key={s}
+                      className="text-[10px] font-sans"
+                      style={{
+                        color: "var(--tm-ink)",
+                        opacity: 0.7,
+                        background: "color-mix(in srgb, var(--tm-ink) 6%, var(--tm-paper))",
+                        border: "1px solid color-mix(in srgb, var(--tm-ink) 12%, transparent)",
+                        borderRadius: "var(--tm-r-data, 2px)",
+                        padding: "1px 6px",
+                      }}
+                    >
+                      {SIGNAL_LABELS[s] ?? s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

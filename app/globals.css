@@ -248,7 +248,8 @@
 
   /* ── Smooth number transition — spec §8 ("odometre efekti") ─────────── */
   .tm-num-transition {
-    transition: opacity 0.18s ease, transform 0.18s ease;
+    /* PDF §5.3 — insan algısına uygun yumuşak geçiş (~0.3sn), sert flaş yok. */
+    transition: opacity 0.28s ease, transform 0.28s ease;
   }
 
   /* ── PDF §4: kâr / zarar — neon emerald/red yasak ─────────────────────── */
