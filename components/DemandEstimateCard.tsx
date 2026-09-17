@@ -95,11 +95,27 @@ export function DemandEstimateCard({ estimate, sku, last30Units, className }: De
       {/* ── Level 1: forward projection (probabilistic — smaller weight) ───── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <div
-            className="text-[10px] uppercase tracking-[0.15em] font-sans mb-1"
-            style={{ color: "var(--tm-ink)", opacity: 0.45 }}
-          >
-            {hasReal ? "Önümüzdeki ay öngörüsü" : "Tahmini talep"}
+          <div className="mb-1 flex items-center gap-1.5">
+            <span
+              className="text-[10px] uppercase tracking-[0.15em] font-sans"
+              style={{ color: "var(--tm-ink)", opacity: 0.45 }}
+            >
+              {hasReal ? "Önümüzdeki ay öngörüsü" : "Tahmini talep"}
+            </span>
+            {/* PDF §7 — Seviye 1: çıktının YZ üretimi olduğunu belirten zarif rozet. */}
+            <span
+              className="inline-flex items-center gap-1 text-[9px] uppercase tracking-widest font-mono"
+              style={{
+                color: "var(--tm-copper)",
+                background: "color-mix(in srgb, var(--tm-copper) 10%, var(--tm-paper))",
+                border: "1px solid color-mix(in srgb, var(--tm-copper) 25%, transparent)",
+                borderRadius: "var(--tm-r-data, 2px)",
+                padding: "1px 5px",
+              }}
+              title="Bu öngörü, kendi satış sinyallerinizden yapay zekâ ile üretilmiştir — kesin bir taahhüt değildir."
+            >
+              ◇ AI destekli
+            </span>
           </div>
           <div
             className="text-[15px] font-mono tabular-nums"
@@ -122,6 +138,18 @@ export function DemandEstimateCard({ estimate, sku, last30Units, className }: De
           {badge.label}
         </span>
       </div>
+
+      {/* PDF §7.2 — Karar sınırı / escape hatch: veri sınırlıysa açıkça söyle,
+          körü körüne güvendirme; kullanıcıyı kendi verisiyle doğrulamaya yönelt. */}
+      {estimate.confidenceLevel === "low" && (
+        <p
+          className="mt-2 text-[11px] leading-relaxed"
+          style={{ color: "var(--tm-alert-clay)" }}
+        >
+          Sınırlı veriye dayanıyor — bu aralığa karar için güvenmeden önce kendi satış
+          geçmişinizle doğrulayın.
+        </p>
+      )}
 
       {/* ── Level 2: expandable explanation ────────────────────────────── */}
       <div className="mt-2">

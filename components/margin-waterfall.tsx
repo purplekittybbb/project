@@ -33,7 +33,7 @@ const C = {
   baseline: "rgba(255,255,255,0.18)",
   connector: "rgba(255,255,255,0.16)",
   mono:
-    "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+    "var(--font-plex-mono), ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
   sans:
     "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
 };

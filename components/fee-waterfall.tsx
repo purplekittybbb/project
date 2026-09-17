@@ -31,7 +31,7 @@ const C = {
   cat: "rgba(255,255,255,0.60)",
   baseline: "rgba(255,255,255,0.28)",
   connector: "rgba(255,255,255,0.16)",
-  mono: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+  mono: "var(--font-plex-mono), ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
 };
 
 function niceTicks(min: number, max: number): number[] {

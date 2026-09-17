@@ -7,6 +7,8 @@
 @theme inline {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-heading: var(--font-inter-tight), ui-sans-serif, system-ui, sans-serif;
+  /* PDF §4.2 — finansal rakamlar IBM Plex Mono; her cihazda aynı eşaralıklı hiza. */
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   --color-brand: var(--brand);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -209,6 +211,8 @@
 
   /* ── Tabular figures — spec §1.2: mandatory on ALL monetary / pct fields ── */
   .tnum {
+    /* PDF §4.2 — IBM Plex Mono eşaralıklı rakamlar; OS'a bağlı monospace yerine. */
+    font-family: var(--font-mono);
     font-feature-settings: "tnum" 1, "lnum" 1;
     font-variant-numeric: tabular-nums lining-nums;
   }

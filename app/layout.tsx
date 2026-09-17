@@ -1,6 +1,6 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
-import { Inter, Inter_Tight } from 'next/font/google'
+import { Inter, Inter_Tight, IBM_Plex_Mono } from 'next/font/google'
 import { I18nProvider } from '@/lib/i18n/I18nProvider'
 import { JsonLd } from '@/components/JsonLd'
 import {
@@ -21,6 +21,17 @@ const inter = Inter({
 const interTight = Inter_Tight({
   subsets: ['latin'],
   variable: '--font-inter-tight',
+  display: 'swap',
+})
+
+// PDF §4.2 — finansal rakamlar için eşaralıklı (tabular) mono font. IBM Plex
+// Mono, PDF'in TradingView örneğiyle önerdiği font; rakam güncellenirken piksel
+// hizası her cihazda sabit kalır (Mac'te SF Mono / Windows'ta Consolas gibi
+// OS'a bağlı tutarsızlığı ortadan kaldırır).
+const plexMono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-plex-mono',
   display: 'swap',
 })
 
@@ -80,7 +91,7 @@ export default function RootLayout({
   return (
     <html
       lang="tr"
-      className={`light ${inter.variable} ${interTight.variable} bg-background`}
+      className={`light ${inter.variable} ${interTight.variable} ${plexMono.variable} bg-background`}
     >
       <body className="font-sans antialiased">
         <JsonLd data={softwareApplicationJsonLd()} />
