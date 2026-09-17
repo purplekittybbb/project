@@ -97,10 +97,35 @@ export function HeroSignupForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-[var(--tm-copper)] py-3 text-sm font-medium text-[var(--tm-paper)] disabled:opacity-60"
+          className="w-full rounded-[var(--tm-r-ui)] bg-[var(--tm-copper)] py-3 text-sm font-medium text-[var(--tm-paper)] transition-opacity hover:opacity-90 disabled:opacity-60"
         >
           {loading ? "Kaydediliyor…" : "Ücretsiz Başla"}
         </button>
+
+        {/* PDF §3.2 — güven sinyalleri aksiyon butonunun hemen yanında. */}
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 pt-1 text-[11px] text-[color-mix(in_srgb,var(--tm-paper)_60%,transparent)]">
+          <span className="inline-flex items-center gap-1">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <rect x="4" y="10" width="16" height="10" rx="2" />
+              <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+            </svg>
+            256-bit SSL şifreleme
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
+              <path d="M9 12l2 2 4-4" />
+            </svg>
+            KVKK uyumlu
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <rect x="2" y="6" width="20" height="12" rx="2" />
+              <path d="M2 10h20" />
+            </svg>
+            Kredi kartı istenmez
+          </span>
+        </div>
       </form>
       <p className="mt-4 text-center text-xs text-[color-mix(in_srgb,var(--tm-paper)_55%,transparent)]">
         Zaten hesabınız var?{" "}
