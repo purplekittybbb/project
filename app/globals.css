@@ -60,12 +60,15 @@
   --tm-ink:          #12181B;
   /* Warm white / kağıt tonu (saf beyaz değil). */
   --tm-paper:        #F7F6F2;
-  /* Koyu çam yeşili — neon/açık yeşil değil. Pozitif kâr için. */
+  /* PDF §4 — Lacivert: fintek'in evrensel güven taban rengi. Marka/hero yüzeyi. */
+  --tm-navy:         #13385E;
+  /* Koyu çam yeşili — neon/açık yeşil değil. YALNIZCA pozitif kâr / para için. */
   --tm-ledger-green: #1F4D3A;
-  /* Toprak/kiremit kırmızısı — agresif alarm kırmızısı değil. Zarar için. */
-  --tm-alert-clay:   #B3442C;
-  /* Bakır/pirinç — yalnızca aksiyon butonları ve vurgu rakamlar için. */
-  --tm-copper:       #9C6B3E;
+  /* PDF §4 sert kural: zarar/düşüş HER ZAMAN kırmızı (neon değil, net kırmızı). */
+  --tm-alert-clay:   #C62828;
+  /* PDF §4 — mavi aksiyon rengi: CTA, link, ikon (token adı geçmişten "copper"
+   * ama artık marka mavisini tutar). */
+  --tm-copper:       #2563C9;
   /* Nötr ton — çizgiler, ayırıcılar, pasif durumlar. */
   --tm-mist:         #DCD9D2;
 
@@ -252,7 +255,8 @@
 
   [data-financial-surface="dark"] {
     --fin-profit: #6baa88;
-    --fin-loss: #d17a62;
+    /* PDF §4: koyu zeminde de zarar kırmızı — okunur, net kırmızı ton. */
+    --fin-loss: #ef6b63;
   }
 
   .fin-profit {

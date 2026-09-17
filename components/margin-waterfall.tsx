@@ -23,10 +23,10 @@ const DATA: Step[] = [
 const C = {
   bg: "#1F4D3A",
   start: "#93A69C",
-  loss: "#D17A62",
+  loss: "#EF6B63", // PDF §4: zarar net kırmızı (koyu zeminde okunur)
   result: "#6BAA88",
   startLabel: "#F7F6F2",
-  lossLabel: "#E8B5A8",
+  lossLabel: "#F6B4AE",
   resultLabel: "#A8D4BC",
   axis: "rgba(255,255,255,0.42)",
   cat: "rgba(255,255,255,0.60)",

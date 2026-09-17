@@ -193,10 +193,10 @@ export function StripePaymentForm({
           appearance: {
             theme: "stripe",
             variables: {
-              colorPrimary: "#9C6B3E",
+              colorPrimary: "#2563C9",
               colorBackground: "#F7F6F2",
               colorText: "#12181B",
-              colorDanger: "#B3442C",
+              colorDanger: "#C62828",
               fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
               borderRadius: "4px",
             },

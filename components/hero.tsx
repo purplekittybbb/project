@@ -11,7 +11,7 @@ export function Hero() {
   return (
     <section
       id="kesfet"
-      className="border-b border-[color-mix(in_srgb,var(--tm-ledger-green)_25%,var(--tm-mist))] bg-[var(--tm-ledger-green)]"
+      className="border-b border-[color-mix(in_srgb,var(--tm-navy)_25%,var(--tm-mist))] bg-[var(--tm-navy)]"
     >
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-6 py-20 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:gap-16 lg:px-8 lg:py-28">
         <div>

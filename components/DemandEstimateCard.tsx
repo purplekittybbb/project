@@ -40,10 +40,12 @@ const BADGE_CONFIG = {
     border: "color-mix(in srgb, var(--tm-ledger-green) 30%, transparent)",
   },
   medium: {
+    // PDF §7.2 — Orta güven = amber/turuncu (Yüksek=yeşil, Düşük=gri). Marka
+    // mavisinden bağımsız, sabit amber.
     label: "Orta güven",
-    color: "var(--tm-copper, #b45309)",
-    bg: "color-mix(in srgb, var(--tm-copper, #b45309) 10%, var(--tm-paper))",
-    border: "color-mix(in srgb, var(--tm-copper, #b45309) 25%, transparent)",
+    color: "#B45309",
+    bg: "color-mix(in srgb, #B45309 10%, var(--tm-paper))",
+    border: "color-mix(in srgb, #B45309 25%, transparent)",
   },
   low: {
     label: "Düşük güven",

@@ -27,5 +27,5 @@ export const FIELD_SUCCESS_TEXT = "text-[var(--tm-ledger-green)]";
  * globals.css'teki [data-financial-surface="dark"] --fin-loss/--fin-profit
  * tonlarıyla eşleşir.
  */
-export const FIELD_ERROR_TEXT_ON_DARK = "text-[#d17a62]";
+export const FIELD_ERROR_TEXT_ON_DARK = "text-[#ef6b63]";
 export const FIELD_SUCCESS_TEXT_ON_DARK = "text-[#6baa88]";
