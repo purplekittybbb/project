@@ -431,7 +431,14 @@ export function parseCsv(csvText: string): CsvParseResult {
   }
 
   if (rows.length === 0) {
-    return { ...base, delimiter, detectedHeaders: headers, marketplace, error: "Geçerli satır bulunamadı (gelir > 0 ve SKU dolu olmalı)." };
+    // If every sale row was cancelled out by refund/return lines, say so
+    // explicitly — a generic "no valid rows" would mislead a seller whose file
+    // actually parsed fine but netted to zero (PDF §3.3 yol gösterici hata).
+    const error =
+      refundLineCount > 0
+        ? "Tüm satışlar iade/kesinti satırlarıyla sıfırlandı — net satış kalmadı. İade tutarlarını ve tarih aralığını kontrol edin."
+        : "Geçerli satır bulunamadı (gelir > 0 ve SKU dolu olmalı).";
+    return { ...base, delimiter, detectedHeaders: headers, marketplace, error };
   }
 
   const mapping: Partial<Record<Field, string>> = {};
