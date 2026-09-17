@@ -21,6 +21,7 @@ import { loadProductCosts, upsertProductCost } from "@/lib/supabase/product-cost
 import type { ProductCost } from "@/lib/calc/enrich";
 import { feeConfigFor, type GuestMarketplace } from "@/lib/tools/marketplace-fees";
 import { resolveCommissionRate } from "@/lib/adapters/marketplace-adapter";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * PDF §7.2 — İnsan denetimi / ghost text: komisyon alanı boşken, uygulanacak
@@ -187,7 +188,19 @@ export function ProductCostEditor({
       </div>
 
       {!loaded ? (
-        <p className="text-zinc-600 font-mono text-[12px]">Maliyetler yükleniyor…</p>
+        // PDF §2 — içerik iskeleti: gelecek maliyet satırlarının biçimini shimmer ile göster.
+        <div className="space-y-3" role="status" aria-label="Maliyetler yükleniyor">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="border border-zinc-900 bg-zinc-950/40 p-4">
+              <Skeleton className="h-4 w-1/2" />
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {Array.from({ length: 6 }).map((_, j) => (
+                  <Skeleton key={j} className="h-9" />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="space-y-3">
           {filtered.map((e) => {

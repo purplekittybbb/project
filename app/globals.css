@@ -252,6 +252,42 @@
     transition: opacity 0.28s ease, transform 0.28s ease;
   }
 
+  /* PDF §5.3 — "odometre efekti": değer değişince rakam dikey kayarak güncellenir
+     (hücrenin kaba parlaması yerine). Değişimde `key` ile yeniden bağlanan sayıya
+     uygulanır. Hareket hassasiyeti olanlar için kapatılır. */
+  @keyframes tm-roll {
+    from { transform: translateY(0.4em); opacity: 0; }
+    to   { transform: translateY(0);     opacity: 1; }
+  }
+  .tm-roll {
+    display: inline-block;
+    animation: tm-roll 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tm-roll { animation: none; }
+  }
+
+  /* PDF §2 — yükleme iskeleti (skeleton/shimmer): boş "Yükleniyor…" metni yerine
+     içeriğin biçimini önceden gösteren zarif shimmer. Açık ve koyu yüzeyde çalışır. */
+  @keyframes tm-shimmer {
+    from { background-position: -200% 0; }
+    to   { background-position: 200% 0; }
+  }
+  .tm-skeleton {
+    background-image: linear-gradient(
+      90deg,
+      rgba(128, 128, 128, 0.11) 25%,
+      rgba(128, 128, 128, 0.22) 37%,
+      rgba(128, 128, 128, 0.11) 63%
+    );
+    background-size: 200% 100%;
+    animation: tm-shimmer 1.4s ease-in-out infinite;
+    border-radius: var(--tm-r-data);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tm-skeleton { animation: none; }
+  }
+
   /* ── PDF §4: kâr / zarar — neon emerald/red yasak ─────────────────────── */
   :root {
     --fin-profit: var(--tm-ledger-green);

@@ -160,7 +160,10 @@ export function ProfitCalculator() {
           >
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Net kâr</p>
             <p className={`mt-1 font-heading text-3xl font-bold tabular-nums ${result.isLoss ? "fin-loss" : "fin-profit"}`}>
-              {fmtTry(result.netProfit)}
+              {/* PDF §5.3 — odometre: değer değiştikçe sayı dikey kayarak güncellenir. */}
+              <span key={result.netProfit} className="tm-roll">
+                {fmtTry(result.netProfit)}
+              </span>
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
               Net marj: {fmtPct(result.netMarginPercent)} · Brüt ciro: {fmtTry(result.grossRevenue)}

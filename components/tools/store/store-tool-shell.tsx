@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ToolDefinition } from "@/lib/tools/registry";
 import { useStoreToolData } from "./use-store-tool-data";
+import { Skeleton, SkeletonLines } from "@/components/ui/skeleton";
 
 export function StoreToolShell({
   tool,
@@ -41,7 +42,16 @@ export function StoreToolShell({
   }
 
   if (state.status === "loading" || state.status === "anonymous" || redirectsToDashboard) {
-    return <div className="py-16 text-center text-sm text-muted-foreground">Yükleniyor…</div>;
+    // PDF §2 — boş "Yükleniyor…" yerine içerik iskeleti (algılanan hız + güven).
+    return (
+      <div className="mx-auto max-w-xl py-8" role="status" aria-label="Araç yükleniyor">
+        <Skeleton className="h-7 w-2/3" />
+        <Skeleton className="mt-3 h-4 w-5/6" />
+        <div className="mt-8 rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-card p-6">
+          <SkeletonLines lines={4} />
+        </div>
+      </div>
+    );
   }
 
   if (state.status === "no-store" || state.status === "no-data") {

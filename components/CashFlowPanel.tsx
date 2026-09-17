@@ -194,6 +194,12 @@ export function CashFlowPanel({ tenantId, channel, currency }: Props) {
 
   const isReal = entries[0]?.isRealSettlementData ?? false;
 
+  // PDF §6.1 — algılanan kontrol: bir sonraki ödemeyi robotik "Beklemede" yerine
+  // zaman damgalı, insani bir cümleyle göster; para asla "kaybolmuş" hissi vermesin.
+  const nextPending = entries
+    .filter((e) => e.status !== "received")
+    .sort((a, b) => a.daysFromToday - b.daysFromToday)[0];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -205,6 +211,28 @@ export function CashFlowPanel({ tenantId, channel, currency }: Props) {
           {t("cashFlow.subtitle")}
         </p>
       </div>
+
+      {/* PDF §6.1 — zaman damgalı, şeffaf para durumu bandı */}
+      {nextPending && (
+        <div className="flex items-start gap-3 border border-zinc-800 bg-zinc-900/30 px-4 py-3">
+          <span
+            className="mt-1.5 inline-block w-2 h-2 rounded-full shrink-0"
+            style={{ background: "var(--tm-copper)" }}
+            aria-hidden="true"
+          />
+          <p className="text-[13px] text-zinc-300 leading-relaxed">
+            Bir sonraki ödemeniz{" "}
+            <span className="font-mono tabular-nums text-zinc-100">
+              {money(nextPending.expectedPayout, currency)}
+            </span>{" "}
+            —{" "}
+            <span className="text-zinc-100">{nextPending.dateLabel}</span> tarihinde
+            {nextPending.daysFromToday > 0 ? ` (${nextPending.daysFromToday} gün sonra)` : ""}{" "}
+            hesabınıza geçmesi bekleniyor.
+            <span className="text-zinc-500"> Paranız adım adım takip ediliyor.</span>
+          </p>
+        </div>
+      )}
 
       {/* Summary cards */}
       <Summary entries={entries} currency={currency} />

@@ -187,12 +187,18 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
               </>
             )}
             {phase !== "connected" && (
-              <div className="mt-5 h-1 w-full bg-zinc-800 overflow-hidden">
-                <div
-                  className="h-full w-2/3 mx-auto"
-                  style={{ background: "var(--tm-copper)", animation: "progress-sweep 1.4s ease-in-out infinite" }}
-                />
-              </div>
+              <>
+                <div className="mt-5 h-1 w-full bg-zinc-800 overflow-hidden">
+                  <div
+                    className="h-full w-2/3 mx-auto"
+                    style={{ background: "var(--tm-copper)", animation: "progress-sweep 1.4s ease-in-out infinite" }}
+                  />
+                </div>
+                {/* PDF §6.2 — işlem ne kadar sürecek, açıkça belirt. */}
+                <p className="mt-3 text-zinc-500 text-[11px] font-mono">
+                  Genellikle 5–10 saniye sürer — lütfen bu pencereyi kapatmayın.
+                </p>
+              </>
             )}
           </div>
         )}
