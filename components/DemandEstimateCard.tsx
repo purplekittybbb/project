@@ -23,6 +23,10 @@ import type { DemandRangeResult } from "@/lib/demand/signals";
 export interface DemandEstimateCardProps {
   estimate: DemandRangeResult;
   sku: string;
+  /** Real trailing-30-day units actually sold (the historical figure the
+   *  marketing promises). When provided, shown as the headline number and the
+   *  projected range is clearly labeled as a forward-looking forecast. */
+  last30Units?: number;
   className?: string;
 }
 
@@ -55,9 +59,10 @@ function fmtRange(low: number, high: number): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function DemandEstimateCard({ estimate, sku, className }: DemandEstimateCardProps) {
+export function DemandEstimateCard({ estimate, sku, last30Units, className }: DemandEstimateCardProps) {
   const [expanded, setExpanded] = useState(false);
   const badge = BADGE_CONFIG[estimate.confidenceLevel];
+  const hasReal = last30Units != null;
 
   return (
     <div
@@ -68,17 +73,31 @@ export function DemandEstimateCard({ estimate, sku, className }: DemandEstimateC
         borderRadius: "var(--tm-r-data, 2px)",
         background: "var(--tm-paper)",
       }}
-      aria-label={`${sku} talep tahmini`}
+      aria-label={`${sku} talep`}
     >
-      {/* ── Level 1: always visible ─────────────────────────────────────── */}
+      {/* ── Headline: REAL trailing-30-day units sold (the promised metric) ── */}
+      {hasReal && (
+        <div className="mb-3 pb-3" style={{ borderBottom: "1px solid color-mix(in srgb, var(--tm-ink) 8%, transparent)" }}>
+          <div
+            className="text-[10px] uppercase tracking-[0.15em] font-sans mb-1"
+            style={{ color: "var(--tm-ink)", opacity: 0.45 }}
+          >
+            Son 30 günde satılan
+          </div>
+          <div className="text-[19px] font-mono tabular-nums font-semibold" style={{ color: "var(--tm-ink)" }}>
+            {new Intl.NumberFormat("tr-TR").format(last30Units)} adet
+          </div>
+        </div>
+      )}
+
+      {/* ── Level 1: forward projection (probabilistic — smaller weight) ───── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        {/* Range (probabilistic — smaller font than net-profit per spec §5) */}
         <div>
           <div
             className="text-[10px] uppercase tracking-[0.15em] font-sans mb-1"
             style={{ color: "var(--tm-ink)", opacity: 0.45 }}
           >
-            Tahmini talep
+            {hasReal ? "Önümüzdeki ay öngörüsü" : "Tahmini talep"}
           </div>
           <div
             className="text-[15px] font-mono tabular-nums"

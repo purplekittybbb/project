@@ -13,15 +13,33 @@
  * every bar, tabular numbers, no gradients/shadows, silent-loser SKU table.
  */
 
-import { use, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { getSellers, getSeller } from "@/lib/engine";
 import { FeeWaterfall, type WaterfallStep } from "@/components/fee-waterfall";
+import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
 
 const fmtPct = (n: number) => `${n.toFixed(1)}%`;
 
 export default function RevealPage({ params }: { params: Promise<{ tenantId: string }> }) {
   const { tenantId: routeTenant } = use(params);
+  const router = useRouter();
+
+  // Investor/sales DEMO surface only — seeded example sellers, never a real
+  // account's data. A signed-in seller who lands here (e.g. by URL) is bounced
+  // to their real dashboard so they never see the demo as if it were theirs.
+  useEffect(() => {
+    if (!isAuthConfigured()) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    let cancelled = false;
+    supabase.auth.getUser().then(({ data }) => {
+      if (!cancelled && data.user) router.replace("/dashboard");
+    });
+    return () => { cancelled = true; };
+  }, [router]);
+
   const sellers = useMemo(() => getSellers(), []);
   const initial = sellers.some((s) => s.tenantId === routeTenant) ? routeTenant : "seller-b";
   const [tenantId, setTenantId] = useState(initial);
@@ -70,10 +88,10 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
       <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-sm">
         <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6 lg:px-8">
           <Link href="/" className="font-heading text-lg font-bold tracking-tight text-foreground">
-            [BRAND]
+            TrueMargin
           </Link>
           <Link href="/" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
-            ← Overview
+            ← Genel bakış
           </Link>
         </nav>
       </header>

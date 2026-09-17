@@ -45,7 +45,19 @@ export function HeroSignupForm() {
 
     setLoading(false);
     if (signErr) {
-      setError(signErr.message);
+      setError(
+        /already registered|already exists/i.test(signErr.message)
+          ? "Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin."
+          : signErr.message,
+      );
+      return;
+    }
+    // Supabase obfuscates an existing-email signup as a "successful" response
+    // with an empty identities array (no confirmation email is actually sent).
+    // Detect it so we tell the user to sign in instead of falsely claiming a
+    // new account was created.
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      setError("Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin.");
       return;
     }
     if (!data.session) {

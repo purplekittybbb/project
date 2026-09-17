@@ -92,16 +92,16 @@ export function ShopifyConnectModal({ open, onClose }: Props) {
           <span className="text-zinc-600 text-[10px] uppercase tracking-widest">oauth</span>
         </div>
         <h2 id="shopify-modal-title" className="text-zinc-100 text-[15px] font-medium leading-snug mb-2">
-          Connect your Shopify store
+          Shopify mağazanızı bağlayın
         </h2>
         <p className="text-zinc-600 text-[11px] leading-relaxed mb-4 border-l border-zinc-800 pl-3">
-          You&apos;ll be redirected to Shopify to approve read-only access to your orders. We never see your password.
+          Siparişlerinize salt-okunur erişimi onaylamak için Shopify&apos;a yönlendirileceksiniz. Şifrenizi asla görmeyiz.
         </p>
 
         <form onSubmit={handleContinue} className="space-y-3">
           <div>
             <label htmlFor="shopify-shop" className="block text-[11px] text-zinc-500 mb-1">
-              Store domain
+              Mağaza alan adı
             </label>
             <input
               id="shopify-shop"
@@ -117,7 +117,7 @@ export function ShopifyConnectModal({ open, onClose }: Props) {
           {error && <p className="fin-loss text-[11px] font-mono">{error}</p>}
 
           <p className="text-zinc-600 text-[11px] leading-relaxed border-t border-zinc-800 pt-3">
-            We only use this connection to READ your order data. We never place orders or move money.
+            Bu bağlantıyı yalnızca sipariş verinizi OKUMAK için kullanırız. Asla sipariş vermez veya para hareketi yapmayız.
           </p>
 
           <div className="flex gap-2 pt-1">
@@ -127,14 +127,14 @@ export function ShopifyConnectModal({ open, onClose }: Props) {
               disabled={busy}
               className="flex-1 h-10 border border-zinc-800 text-zinc-400 text-sm hover:border-zinc-600 hover:text-zinc-200 transition-colors disabled:opacity-50"
             >
-              Cancel
+              Vazgeç
             </button>
             <button
               type="submit"
               disabled={busy}
               className="flex-1 h-10 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
             >
-              {busy ? "Redirecting…" : "Continue to Shopify"}
+              {busy ? "Yönlendiriliyor…" : "Shopify'a devam et"}
             </button>
           </div>
         </form>

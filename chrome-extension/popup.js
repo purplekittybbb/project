@@ -13,7 +13,25 @@
 
 "use strict";
 
-var API_BASE = "https://matsorular.vercel.app";
+// Production API base. Defaults to the current live deployment but can be
+// overridden without a rebuild via chrome.storage.local "apiBase" (set once the
+// custom domain — e.g. https://truemargin.app — is live). Both origins are in
+// the manifest host_permissions, so switching is a one-value change, never a
+// broken extension.
+var DEFAULT_API_BASE = "https://matsorular.vercel.app";
+var API_BASE = DEFAULT_API_BASE;
+
+(function resolveApiBase() {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return;
+  try {
+    chrome.storage.local.get(["apiBase"], function (stored) {
+      var v = stored && stored.apiBase;
+      if (typeof v === "string" && /^https:\/\/[^ ]+$/.test(v)) {
+        API_BASE = v.replace(/\/+$/, "");
+      }
+    });
+  } catch (e) { /* storage unavailable — keep default */ }
+})();
 
 // ── Math helpers ──────────────────────────────────────────────────────────────
 

@@ -252,8 +252,8 @@ function ConnectFlow() {
             <div className="border border-[var(--tm-mist)] bg-card rounded-[var(--tm-r-ui)] p-5">
               <div className="flex items-baseline justify-between mb-4">
                 <div>
-                  <div className="text-sm font-medium">Growth</div>
-                  <div className="text-[11px] text-muted-foreground">Tüm pazaryerleri · tam motor</div>
+                  <div className="text-sm font-medium">Profesyonel</div>
+                  <div className="text-[11px] text-muted-foreground">Tüm araçlar · tam motor</div>
                 </div>
                 <div className="text-right">
                   <div className="font-mono text-lg tnum">{plan.symbol}0<span className="text-muted-foreground text-sm">/ay</span></div>

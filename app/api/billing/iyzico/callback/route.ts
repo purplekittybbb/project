@@ -84,7 +84,7 @@ export async function POST(req: Request) {
         <p>Aboneliğiniz zaten aktif.</p>
         <script>
           if (window.parent !== window) {
-            window.parent.postMessage({ type: "IYZICO_PAYMENT_SUCCESS", token: "${token.replace(/"/g, "")}" }, "*");
+            window.parent.postMessage({ type: "IYZICO_PAYMENT_SUCCESS", token: "${token.replace(/"/g, "")}" }, window.location.origin);
           } else { window.location.href = "/dashboard"; }
         </script>
       </body></html>`,
@@ -182,7 +182,7 @@ export async function POST(req: Request) {
       <p>Aboneliğiniz başarıyla oluşturuldu. Dashboard'a yönlendiriliyorsunuz...</p>
       <script>
         if (window.parent !== window) {
-          window.parent.postMessage({ type: "IYZICO_PAYMENT_SUCCESS", token: "${token.replace(/"/g, "")}" }, "*");
+          window.parent.postMessage({ type: "IYZICO_PAYMENT_SUCCESS", token: "${token.replace(/"/g, "")}" }, window.location.origin);
         } else { window.location.href = "/dashboard"; }
       </script>
     </body></html>`,

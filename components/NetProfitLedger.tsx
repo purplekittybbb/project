@@ -258,6 +258,20 @@ export function NetProfitLedger({
           </p>
         )}
       </div>
+
+      {/* Honest disclosure: commission is a representative per-category rate,
+          not each seller's exact contract rate (which varies by category and
+          negotiation). Kept explicit so the headline "net kâr" is never taken
+          as exact when the commission input is approximate. */}
+      {commission > 0 && (
+        <p
+          className="mt-3 text-[10px] leading-relaxed select-none"
+          style={{ color: "var(--tm-ink)", opacity: 0.4 }}
+          title="Komisyon, pazaryeri kategori oranlarına göre temsilî hesaplanır; kendi sözleşme oranınız farklı olabilir. Kesin oran için satıcı panelinizdeki hakediş/komisyon kalemine bakın."
+        >
+          Komisyon temsilî kategori oranıyla hesaplanır — kendi sözleşme oranınız farklı olabilir.
+        </p>
+      )}
     </div>
   );
 }

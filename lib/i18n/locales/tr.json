@@ -2,6 +2,7 @@
   "nav": {
     "dashboard": "Dashboard",
     "myData": "Verilerim",
+    "costs": "Maliyetler",
     "safePrice": "Güvenli Fiyat",
     "barcode": "Barkod Analizi",
     "extension": "Uzantı",

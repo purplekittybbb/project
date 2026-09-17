@@ -2,6 +2,7 @@
   "nav": {
     "dashboard": "Dashboard",
     "myData": "My Data",
+    "costs": "Costs",
     "safePrice": "Safe Price",
     "barcode": "Barcode Analysis",
     "extension": "Extension",

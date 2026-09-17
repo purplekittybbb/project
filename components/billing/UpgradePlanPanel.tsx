@@ -28,6 +28,8 @@ import { useEffect, useRef, useState } from "react";
 import { getFreshAccessToken } from "@/lib/supabase/client";
 import { IYZICO_PLANS, type PlanId } from "@/lib/iyzico/plans";
 
+type CancelState = "idle" | "confirm" | "cancelling" | "done" | "error";
+
 export interface PaidPlanStatus {
   planId: "starter" | "pro";
   status: string;
@@ -56,7 +58,31 @@ export function UpgradePlanPanel({
   const [pendingPlanId, setPendingPlanId] = useState<"starter" | "pro" | null>(null);
   const [checkoutHtml, setCheckoutHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cancelState, setCancelState] = useState<CancelState>("idle");
   const formHostRef = useRef<HTMLDivElement>(null);
+
+  async function cancelSubscription() {
+    setCancelState("cancelling");
+    try {
+      const token = await getFreshAccessToken();
+      if (!token) {
+        setCancelState("error");
+        return;
+      }
+      const res = await fetch("/api/billing/iyzico/cancel", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setCancelState("error");
+        return;
+      }
+      setCancelState("done");
+      onChanged();
+    } catch {
+      setCancelState("error");
+    }
+  }
 
   async function startCheckout(planId: "starter" | "pro") {
     setError(null);
@@ -111,6 +137,9 @@ export function UpgradePlanPanel({
   // when embedded (see app/api/billing/iyzico/callback/route.ts).
   useEffect(() => {
     function onMessage(e: MessageEvent) {
+      // Only trust messages from our own origin (the callback iframe posts with
+      // targetOrigin = window.location.origin — see billing/iyzico/callback).
+      if (e.origin !== window.location.origin) return;
       if (e.data?.type === "IYZICO_PAYMENT_SUCCESS") {
         setCheckoutHtml(null);
         setPendingPlanId(null);
@@ -147,6 +176,51 @@ export function UpgradePlanPanel({
               <span className="text-zinc-200 tabular-nums">{activePlan.currentPeriodEnd.slice(0, 10)}</span>
             </div>
           )}
+
+          {/* Cancel-at-period-end — the flow the Terms/Refund pages promise. */}
+          <div className="pt-3 mt-1 border-t border-zinc-900">
+            {cancelState === "done" ? (
+              <p className="text-[12px] text-zinc-400">
+                Aboneliğiniz dönem sonunda iptal edilecek. Bu tarihe kadar erişiminiz devam eder.
+              </p>
+            ) : cancelState === "confirm" ? (
+              <div className="flex flex-col gap-2">
+                <span className="text-[12px] text-zinc-400">
+                  Emin misiniz? Erişiminiz dönem sonuna ({activePlan.currentPeriodEnd?.slice(0, 10) ?? "mevcut dönem sonu"}) kadar sürer.
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={cancelSubscription}
+                    className="h-8 px-3 border border-[var(--tm-alert-clay,#c0563e)]/50 text-[var(--tm-alert-clay,#c0563e)] text-[12px] hover:bg-[var(--tm-alert-clay,#c0563e)]/10 transition-colors"
+                  >
+                    Evet, iptal et
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCancelState("idle")}
+                    className="h-8 px-3 text-zinc-500 text-[12px] hover:text-zinc-300 transition-colors"
+                  >
+                    Vazgeç
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCancelState("confirm")}
+                  disabled={cancelState === "cancelling"}
+                  className="text-[12px] text-zinc-500 underline underline-offset-2 hover:text-zinc-300 transition-colors disabled:opacity-50"
+                >
+                  {cancelState === "cancelling" ? "İptal ediliyor…" : "Aboneliği iptal et"}
+                </button>
+                {cancelState === "error" && (
+                  <span className="text-[11px] text-[var(--tm-alert-clay,#c0563e)]">İptal edilemedi — tekrar deneyin</span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <>

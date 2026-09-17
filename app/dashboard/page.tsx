@@ -40,7 +40,7 @@ import { translateRationale, translateBenchmarkLabel } from "@/lib/i18n/translat
 import {
   ChevronDown, Sparkles, ArrowUpRight,
   LayoutDashboard, Users, Briefcase, History as HistoryIcon, Settings, Package, Tag, Landmark, Database,
-  ShieldCheck, Barcode as BarcodeIcon, Puzzle,
+  ShieldCheck, Barcode as BarcodeIcon, Puzzle, Coins,
 } from "lucide-react";
 import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
 import { ExtensionTokenPanel } from "@/components/account/ExtensionTokenPanel";
@@ -71,6 +71,8 @@ import { DemandEstimateCard } from "@/components/DemandEstimateCard";
 import { estimateDemand } from "@/lib/demand/signals";
 import { loadDemandEstimates, type StoredDemandEstimate } from "@/lib/supabase/demand-estimates";
 import { UpgradePlanPanel } from "@/components/billing/UpgradePlanPanel";
+import { ProFeatureLock } from "@/components/billing/ProFeatureLock";
+import { ProductCostEditor } from "@/components/ProductCostEditor";
 import { productTitleForSku, buildSkuEconomicsMap } from "@/lib/tools/sku-economics";
 import { SafePriceStorePage } from "@/components/tools/store/safe-price-page";
 import { BarcodeStorePage } from "@/components/tools/store/barcode-page";
@@ -133,6 +135,39 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const [demandBySku, setDemandBySku] = useState<Map<string, DemandRangeResult>>(new Map());
   const [dataBusy, setDataBusy] = useState(false);
   const [watchedVisibility, setWatchedVisibility] = useState<WatchedVisibility[]>([]);
+  const [visReload, setVisReload] = useState(0);
+  const [visScan, setVisScan] = useState<{ status: "idle" | "scanning" | "done" | "error"; msg?: string }>({ status: "idle" });
+
+  async function runVisibilityScan() {
+    if (channel === "combined") return;
+    setVisScan({ status: "scanning" });
+    try {
+      const res = await fetch("/api/visibility/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marketplace: channel }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        scanned?: number; found?: number; nothingDue?: boolean; errors?: string[]; error?: string;
+      };
+      if (!res.ok) {
+        setVisScan({ status: "error", msg: json.error ?? "Tarama başlatılamadı." });
+        return;
+      }
+      if (json.errors && json.errors.some((e) => e.includes("Browser session unavailable"))) {
+        setVisScan({ status: "error", msg: "Tarama altyapısı şu an uygun değil, biraz sonra tekrar deneyin." });
+        return;
+      }
+      if (json.nothingDue) {
+        setVisScan({ status: "done", msg: "Ürünleriniz yakın zamanda tarandı — güncel." });
+      } else {
+        setVisScan({ status: "done", msg: `${json.scanned ?? 0} ürün tarandı${json.found ? `, ${json.found} tanesi bulundu` : ""}.` });
+      }
+      setVisReload((v) => v + 1);
+    } catch {
+      setVisScan({ status: "error", msg: "Bağlantı hatası. Tekrar deneyin." });
+    }
+  }
   const [openVisibilitySku, setOpenVisibilitySku] = useState<string | null>(null);
   // Real signed-in deployments (Supabase configured) default straight to the
   // user's own tenant so an empty seller never sees a seed seller's numbers.
@@ -302,7 +337,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       if (active) setWatchedVisibility(rows);
     })();
     return () => { active = false; };
-  }, [demoMode, authConfigured, channel, dataVersion]);
+  }, [demoMode, authConfigured, channel, dataVersion, visReload]);
 
   useEffect(() => {
     setOpenVisibilitySku(null);
@@ -806,6 +841,36 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // same real rows storeToolData is built from (see lib/tools/opportunity-discovery.ts).
   const skuMomentum = useMemo(() => computeSkuMomentum(storeToolRows), [storeToolRows]);
 
+  // Real trailing-30-day units sold per SKU — the ACTUAL historical figure the
+  // marketing promises ("son 30 gün toplam satış adedi"), distinct from the
+  // forward-projected demand RANGE. Shown as the headline number on the demand
+  // card so the shipped metric matches the promise.
+  const last30BySku = useMemo(() => {
+    const cutoff = Date.now() - 30 * 86_400_000;
+    const m = new Map<string, number>();
+    for (const r of storeToolRows) {
+      const t = new Date(r.sale_date).getTime();
+      if (Number.isFinite(t) && t >= cutoff) {
+        m.set(r.sku, (m.get(r.sku) ?? 0) + (r.units ?? 0));
+      }
+    }
+    return m;
+  }, [storeToolRows]);
+
+  // "Costs missing" detection — the #1 accuracy gap: a store-API sync stores
+  // COGS/shipping/packaging/ad as 0, so unless the seller has entered a cost
+  // profile, "true margin" is overstated and the loss alarm never fires. Flag it
+  // so the Dashboard can nudge them to the Maliyetler tab. Real users only.
+  const costsLookMissing = useMemo(() => {
+    if (demoMode) return false;
+    if (storeToolRows.length === 0) return false;
+    const totalEnteredCost = storeToolRows.reduce(
+      (s, r) => s + (r.unit_cost ?? 0) + (r.shipping ?? 0) + (r.packaging ?? 0) + (r.ad_spend ?? 0),
+      0,
+    );
+    return totalEnteredCost <= 0;
+  }, [demoMode, storeToolRows]);
+
   // List quality panel: which SKU's quality panel is currently open (null = none)
   const [openQualityPanelSku, setOpenQualityPanelSku] = useState<string | null>(null);
 
@@ -1049,14 +1114,28 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
 
   // `id` stays the internal English state key (currentTab === "Dashboard" etc.,
   // compared throughout this file) — only the DISPLAYED label is translated.
+  // Two tabs are deliberately excluded for real signed-in users:
+  //  • "Sellers" — a multi-seller comparison view, but every real account is
+  //    pinned to a single fixed USER_TENANT_ID (lib/supabase/user-data.ts):
+  //    no multi-store/portfolio backend exists yet, so it can only ever show
+  //    one row for a real user.
+  //  • "Financing" — a leftover lending/underwriting ("Aktif Kredi Hattı",
+  //    "Stok Finansmanı") demo. TrueMargin is not a licensed lender and this
+  //    is not sold anywhere; offering "kredi hattı" unlicensed in Turkey is a
+  //    regulatory exposure. Real sellers must never see it.
+  // Both stay available ONLY in demo mode (investor/sales preview, seeded with
+  // example sellers) where they're representative — never for a real account.
   const navItems = [
     { id: "Dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
     { id: "Verilerim", labelKey: "nav.myData", icon: Database },
+    { id: "Maliyetler", labelKey: "nav.costs", icon: Coins },
     { id: "GuvenliFiyat", labelKey: "nav.safePrice", icon: ShieldCheck },
     { id: "Barkod", labelKey: "nav.barcode", icon: BarcodeIcon },
     { id: "Extension", labelKey: "nav.extension", icon: Puzzle },
-    { id: "Sellers", labelKey: "nav.sellers", icon: Users },
-    { id: "Financing", labelKey: "nav.financing", icon: Briefcase },
+    ...(authConfigured ? [] : [
+      { id: "Sellers", labelKey: "nav.sellers", icon: Users },
+      { id: "Financing", labelKey: "nav.financing", icon: Briefcase },
+    ]),
     { id: "Campaign", labelKey: "nav.campaign", icon: Tag },
     { id: "Nakit", labelKey: "nav.cashFlow", icon: Landmark },
     { id: "Products", labelKey: "nav.products", icon: Package },
@@ -1064,6 +1143,24 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     { id: "History", labelKey: "nav.history", icon: HistoryIcon },
     { id: "Settings", labelKey: "nav.settings", icon: Settings },
   ];
+
+  // ── Paket ayrımı (basit, 2 kademe) ─────────────────────────────────────────
+  // Başlangıç: temel panel (yukarıdaki listenin geri kalanı).
+  // Profesyonel: yukarıdakilere ek olarak bu 3 "ileri" sekme.
+  // "Sellers" (Satıcı Portföyü) ve "Financing" (kredi) gerçek kullanıcıya hiç
+  // gösterilmiyor (yukarıdaki navItems yorumuna bakın), o yüzden Pro
+  // listesinde de yok.
+  // Aktif deneme (Stripe veya demo) sırasında ürünü tam haliyle görsün diye
+  // deneme = Profesyonel erişimiyle aynı muamele görür (standart SaaS deseni
+  // — dönüşümü en üst düzeye çıkarır, deneme planına özel ek karmaşıklık
+  // gerektirmez). Gerçek bir iyzico ödemesi olduğunda planId belirleyici olur.
+  const PRO_ONLY_TABS = new Set(["Campaign", "Nakit", "Copilot", "Extension"]);
+  const trialStillActive =
+    billingStatus?.subscription?.status === "trialing" &&
+    (!billingStatus.subscription.trialEnd || new Date(billingStatus.subscription.trialEnd).getTime() > Date.now());
+  const hasProAccess =
+    trialStillActive ||
+    (billingStatus?.paidPlan?.status === "active" && billingStatus.paidPlan.planId === "pro");
 
   // Still waiting on the initial Supabase fetch for a real signed-in user —
   // `view`/`fin` above are the seed fallback for this one frame; never paint
@@ -1108,7 +1205,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           <p className="text-zinc-500 text-sm leading-relaxed">
             Hesabınız kuruldu, ancak gösterilecek gerçek sipariş verisi henüz yok — kayıt sırasında bir
             pazaryeri bağlamak hesabı ilişkilendirir ama geçmiş siparişleri kendiliğinden çekmez. Rakamlarınızı
-            burada görmek için bir CSV yükleyin veya gerçek API erişimiyle bir pazaryeri bağlayın.
+            burada görmek için bir CSV yükleyin, satışlarınızı elle girin veya gerçek API erişimiyle bir
+            pazaryeri bağlayın.
           </p>
           <div className="flex flex-col gap-2 pt-2">
             <button
@@ -1116,8 +1214,11 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               onClick={() => router.push("/connect")}
               className="h-10 px-4 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors"
             >
-              Pazaryeri bağla
+              CSV yükle veya pazaryeri bağla
             </button>
+            <p className="text-zinc-600 text-[11px]">
+              Excel/CSV yükleme ve elle satış girişi de bağlantı ekranındadır.
+            </p>
           </div>
         </div>
       </div>
@@ -1153,16 +1254,44 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
             >
               <item.icon size={16} className={currentTab === item.id ? "text-zinc-300" : "text-zinc-600"} />
               <span>{t(item.labelKey)}</span>
+              {PRO_ONLY_TABS.has(item.id) && !hasProAccess && (
+                <span className="ml-auto text-[9px] font-mono uppercase tracking-widest text-amber-400/70 border border-amber-400/20 px-1 py-0.5">
+                  Pro
+                </span>
+              )}
             </button>
           ))}
         </nav>
-        <div className="p-4 border-t border-zinc-900 m-3 mb-4 rounded-sm flex items-center gap-3">
-          <div className="w-8 h-8 bg-zinc-800 shrink-0 flex items-center justify-center text-zinc-500 text-xs font-mono">UD</div>
-          <div className="flex flex-col">
-            <span className="text-xs text-zinc-300 font-medium truncate">Underwriting desk</span>
-            <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono">Team</span>
-          </div>
-        </div>
+        {(() => {
+          // Real signed-in seller's own identity — never the old hardcoded
+          // "Underwriting desk / Team" lending-demo placeholder.
+          const displayName = authConfigured
+            ? (account?.company || account?.email || "Hesabım")
+            : "Demo hesabı";
+          const secondary = authConfigured
+            ? (account?.company && account?.email ? account.email : "Hesap")
+            : "Örnek veri";
+          const initials = (account?.company || account?.email || "TM")
+            .trim()
+            .split(/[\s@.]+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((w) => w[0]?.toUpperCase() ?? "")
+            .join("") || "TM";
+          return (
+            <button
+              type="button"
+              onClick={() => setCurrentTab("Settings")}
+              className="p-4 border-t border-zinc-900 m-3 mb-4 rounded-sm flex items-center gap-3 text-left hover:bg-zinc-900/50 transition-colors w-[calc(100%-1.5rem)]"
+            >
+              <div className="w-8 h-8 bg-zinc-800 shrink-0 flex items-center justify-center text-zinc-400 text-xs font-mono">{initials}</div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs text-zinc-300 font-medium truncate">{displayName}</span>
+                <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono truncate">{secondary}</span>
+              </div>
+            </button>
+          );
+        })()}
       </aside>
 
       {/* MAIN CONTAINER */}
@@ -1266,6 +1395,24 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {/* VIEW: DASHBOARD */}
           {currentTab === "Dashboard" && (
             <div className="max-w-[1300px] mx-auto px-8 py-12 md:py-20">
+              {costsLookMissing && (
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab("Maliyetler")}
+                  className="w-full mb-8 flex items-start gap-3 border border-amber-500/30 bg-amber-500/[0.07] px-5 py-4 text-left hover:bg-amber-500/[0.12] transition-colors"
+                >
+                  <span className="mt-0.5 inline-block w-2 h-2 rounded-full bg-amber-400 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-semibold text-amber-200">
+                      Maliyetleriniz eksik — kârınız olduğundan yüksek görünüyor
+                    </span>
+                    <span className="block text-[12px] text-amber-200/70 mt-0.5">
+                      Alış fiyatı, kargo, ambalaj ve iade oranını girene kadar gerçek net kâr ve zarar
+                      alarmları doğru hesaplanamaz. Maliyet Merkezi'ne gidin →
+                    </span>
+                  </span>
+                </button>
+              )}
               {view.channel === "combined" && view.marketplaceMargins && (
                 <div className="mb-16">
                   <h3
@@ -1313,6 +1460,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 authConfigured={authConfigured}
                 hasMarketplaceConnected={dataChannels.length > 0}
                 hasRealData={view.skus.length > 0}
+                onConnect={() => router.push("/connect")}
+                onGoToData={() => setCurrentTab("Verilerim")}
                 onGoToSettlement={() => setCurrentTab("Dashboard")}
                 onGoToProducts={() => setCurrentTab("Products")}
               />
@@ -1560,12 +1709,38 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       ) : null;
                     })()}
 
-                    <h3
-                      className="text-[10px] uppercase tracking-[0.2em] font-sans mb-4"
-                      style={{ color: "var(--tm-ink)", opacity: 0.5 }}
-                    >
-                      SKU Birim Ekonomisi
-                    </h3>
+                    <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+                      <h3
+                        className="text-[10px] uppercase tracking-[0.2em] font-sans"
+                        style={{ color: "var(--tm-ink)", opacity: 0.5 }}
+                      >
+                        SKU Birim Ekonomisi
+                      </h3>
+                      {/* Görünürlük taraması — kendi ürünlerinizin pazaryeri arama
+                          sırasını canlı tarar (yalnızca tekil pazaryeri sekmesinde). */}
+                      {!demoMode && channel !== "combined" && (
+                        <div className="flex items-center gap-2">
+                          {visScan.msg && (
+                            <span
+                              className="text-[11px]"
+                              style={{ color: visScan.status === "error" ? "var(--tm-alert-clay)" : "var(--tm-ink)", opacity: visScan.status === "error" ? 0.9 : 0.5 }}
+                            >
+                              {visScan.msg}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={runVisibilityScan}
+                            disabled={visScan.status === "scanning"}
+                            className="h-7 px-3 text-[11px] font-medium border rounded-[var(--tm-r-data)] transition-colors disabled:opacity-50"
+                            style={{ borderColor: "color-mix(in srgb, var(--tm-ink) 20%, transparent)", color: "var(--tm-ink)" }}
+                            title="Bu pazaryerindeki ürünlerinizin arama sonuçlarındaki sırasını tarar. 15–60 saniye sürebilir."
+                          >
+                            {visScan.status === "scanning" ? "Taranıyor…" : "Görünürlüğü tara"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
                     <div className="text-sm font-mono w-full">
                       {/* Header row */}
@@ -1666,6 +1841,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                                     <DemandEstimateCard
                                       sku={productTitleForSku(storeToolRows, sku.sku)}
                                       estimate={demandBySku.get(sku.sku)!}
+                                      last30Units={last30BySku.get(sku.sku)}
                                     />
                                   </div>
                                 )}
@@ -1799,6 +1975,18 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
             </div>
           )}
 
+          {/* VIEW: MALİYETLER — per-SKU cost profile editor (COGS, shipping,
+              packaging, ad, return rate). Fills the gaps a marketplace API can't
+              know, so gerçek net kâr + zarar alarmı are actually correct. */}
+          {currentTab === "Maliyetler" && (
+            <div className="max-w-[1100px] mx-auto px-8 py-12 md:py-16">
+              <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-8 border-l border-zinc-800 pl-4">
+                Maliyet Merkezi
+              </h2>
+              <ProductCostEditor rows={storeToolRows} onSaved={refreshUserData} />
+            </div>
+          )}
+
           {/* VIEW: GÜVENLİ FİYAT — same component as the standalone /araclar/guvenli-fiyat
               page, now living inside the shell instead of a separate marketing-chrome
               page. Reuses storeToolData (built above from the same real userRows this
@@ -1810,7 +1998,12 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   Henüz veri yok — Verilerim sekmesinden yükleyin veya mağaza bağlayın.
                 </p>
               ) : (
-                <SafePriceStorePage data={storeToolData} />
+                // These tools are light-themed (shared with the standalone light
+                // pages). Give them an intentional light canvas so they don't
+                // read as white cards floating on the dark dashboard.
+                <div className="bg-[var(--tm-paper)] text-[var(--tm-ink)] rounded-[var(--tm-r-ui)] p-6 md:p-8">
+                  <SafePriceStorePage data={storeToolData} />
+                </div>
               )}
             </div>
           )}
@@ -1823,13 +2016,19 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   Henüz veri yok — Verilerim sekmesinden yükleyin veya mağaza bağlayın.
                 </p>
               ) : (
-                <BarcodeStorePage data={storeToolData} onRefresh={async () => { if (typeof window !== "undefined") window.location.reload(); }} />
+                <div className="bg-[var(--tm-paper)] text-[var(--tm-ink)] rounded-[var(--tm-r-ui)] p-6 md:p-8">
+                  <BarcodeStorePage data={storeToolData} onRefresh={async () => { if (typeof window !== "undefined") window.location.reload(); }} />
+                </div>
               )}
             </div>
           )}
 
-          {/* VIEW: EXTENSION — Chrome uzantısı hesap bağlantısı (personal access token) */}
-          {currentTab === "Extension" && (
+          {/* VIEW: EXTENSION — Chrome uzantısı hesap bağlantısı (personal access token).
+              Profesyonel'e özel — en pahalı pakete eklenen özellik. */}
+          {currentTab === "Extension" && !hasProAccess && (
+            <ProFeatureLock feature="Chrome Uzantısı" onUpgrade={() => setCurrentTab("Settings")} />
+          )}
+          {currentTab === "Extension" && hasProAccess && (
             <div className="max-w-[700px] mx-auto px-8 py-12 md:py-16">
               <h2 className="text-zinc-200 font-sans text-lg font-medium mb-2">Chrome Uzantısı</h2>
               <p className="text-zinc-500 font-mono text-[12px] leading-relaxed mb-6">
@@ -1846,7 +2045,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           )}
 
           {/* VIEW: CAMPAIGN — campaign discount simulator, live recompute via engine */}
-          {currentTab === "Campaign" && view && (
+          {currentTab === "Campaign" && !hasProAccess && (
+            <ProFeatureLock feature="Kampanya Simülatörü" onUpgrade={() => setCurrentTab("Settings")} />
+          )}
+          {currentTab === "Campaign" && view && hasProAccess && (
             <div className="max-w-[1100px] mx-auto px-8 py-12 md:py-20">
               <CampaignSimulator
                 tenantId={view.tenantId}
@@ -1857,7 +2059,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           )}
 
           {/* VIEW: NAKIT — cash-flow projection from seed transaction data */}
-          {currentTab === "Nakit" && view && (
+          {currentTab === "Nakit" && !hasProAccess && (
+            <ProFeatureLock feature="Nakit Akışı" onUpgrade={() => setCurrentTab("Settings")} />
+          )}
+          {currentTab === "Nakit" && view && hasProAccess && (
             <div className="max-w-[1000px] mx-auto px-8 py-12 md:py-20">
               <CashFlowPanel
                 tenantId={view.tenantId}
@@ -1870,17 +2075,20 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {/* VIEW: PRODUCTS — SKU profitability heatmap (real engine data) */}
           {currentTab === "Products" && view && (
             <div className="max-w-[1300px] mx-auto px-8 py-12 md:py-16">
+              {/* "Stok Finansmanı" SKU action is a lending-demo leftover —
+                  only wire it in demo mode, never for a real seller. */}
               <SkuProfitabilityHeatmap
                 skus={view.skus}
                 tenantId={view.tenantId}
                 channel={view.channel}
-                onGoToFinancing={() => setCurrentTab("Financing")}
+                onGoToFinancing={authConfigured ? undefined : () => setCurrentTab("Financing")}
               />
             </div>
           )}
 
-          {/* VIEW: SELLERS */}
-          {currentTab === "Sellers" && (
+          {/* VIEW: SELLERS — demo-mode-only (see navItems' comment above), never
+              shown to a real signed-in seller. */}
+          {currentTab === "Sellers" && !authConfigured && (
             <div className="max-w-[900px] px-8 py-12 md:py-20">
               <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-12 border-l border-zinc-800 pl-4">Satıcı Portföyü</h2>
               <div className="text-sm font-mono w-full">
@@ -1904,9 +2112,12 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
             </div>
           )}
 
-          {/* VIEW: FINANCING — the unlock (approved limit + take-rate + decision trace + backtest),
-              plus the seed-stage investor/technical-credibility benchmarks from the diligence memo. */}
-          {currentTab === "Financing" && (
+          {/* VIEW: FINANCING — DEMO/INVESTOR SURFACE ONLY (never rendered for a
+              real signed-in seller: it's a leftover lending/underwriting demo,
+              TrueMargin is not a licensed lender — see navItems comment). Gated
+              on !authConfigured so a real account can never reach it even by
+              manipulating currentTab. */}
+          {currentTab === "Financing" && !authConfigured && (
             <div className="max-w-[1200px] mx-auto px-8 py-12 md:py-20">
               <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-12 border-l border-zinc-800 pl-4">
                 {t("financing.activeCreditLine", { seller: view.label })}
@@ -2424,7 +2635,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           )}
 
           {/* VIEW: COPILOT — Analyst Copilot tab, streaming from /api/chat (grounded via lib/engine) */}
-          {currentTab === "Copilot" && (
+          {currentTab === "Copilot" && !hasProAccess && (
+            <ProFeatureLock feature="Copilot" onUpgrade={() => setCurrentTab("Settings")} />
+          )}
+          {currentTab === "Copilot" && hasProAccess && (
             <div className="max-w-[900px] px-8 py-12 md:py-20">
               <div className="flex items-center gap-3 mb-2">
                 <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] border-l border-zinc-800 pl-4">{t("copilot.title")}</h2>

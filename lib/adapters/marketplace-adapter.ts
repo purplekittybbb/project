@@ -46,3 +46,20 @@ export function resolveCommissionRate(fees: FeeConfig, category: string): number
   const internal = mapToInternalCategory(category);
   return fees.commissionTable[internal] ?? fees.defaultCommission;
 }
+
+/**
+ * The commission rate to actually charge for a row: a seller-supplied override
+ * (their real, negotiated contract rate — 0..1) wins over the representative
+ * per-category table. This is how a seller makes "gerçek net kâr" exact instead
+ * of approximate: the marketplace's published category rates are only
+ * representative and negotiated rates differ. An override of 0/undefined means
+ * "use the category rate" (a real 0% marketplace commission does not exist).
+ */
+export function effectiveCommissionRate(
+  fees: FeeConfig,
+  category: string,
+  override?: number,
+): number {
+  if (override != null && override > 0) return override;
+  return resolveCommissionRate(fees, category);
+}

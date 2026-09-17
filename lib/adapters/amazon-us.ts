@@ -25,6 +25,7 @@ export interface RawAmazonUsRow {
   returnRate: number;
   adSpend: number; // USD, sponsored products, allocated
   packaging?: number; // USD, packaging cost for the line (box/filler/label)
+  commissionRate?: number; // 0..1 — seller's own referral-fee rate; overrides the category table
 }
 
 /** Representative Amazon US fee configuration. Verify before use. */
@@ -58,7 +59,7 @@ export class AmazonUsAdapter implements MarketplaceAdapter<RawAmazonUsRow> {
     return raw.map((r) => {
       // Referral fee via the shared calc engine (vatRate 0 ⇒ base == gross).
       const { commission } = computeCommission(r.grossRevenue, {
-        rate: this.commissionRate(r.category),
+        rate: r.commissionRate && r.commissionRate > 0 ? r.commissionRate : this.commissionRate(r.category),
         basis: this.fees.commissionBasis,
         vatRate: this.fees.vatRate,
         commissionVatRate: this.fees.vatRate,

@@ -188,6 +188,15 @@ export default function SignupPage() {
       return;
     }
 
+    // Supabase obfuscates an already-registered email as a "successful" signUp
+    // with an empty identities array (no email is actually sent). Detect it and
+    // tell the user to sign in, instead of falsely claiming a new account.
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      setLoading(false);
+      setFormError("Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin.");
+      return;
+    }
+
     // If email confirmation is required, no session is returned yet.
     if (!data.session) {
       setLoading(false);
@@ -292,6 +301,18 @@ export default function SignupPage() {
             <button type="submit" disabled={loading} className="tm-btn-primary w-full">
               {loading ? "Hesap oluşturuluyor…" : "Kaydol"}
             </button>
+
+            <p className="text-center text-[11px] text-muted-foreground leading-relaxed">
+              Kaydolarak{" "}
+              <Link href="/kullanim-kosullari" className="text-foreground underline underline-offset-2 hover:no-underline">
+                Kullanım Koşulları
+              </Link>{" "}
+              ve{" "}
+              <Link href="/gizlilik" className="text-foreground underline underline-offset-2 hover:no-underline">
+                Gizlilik Politikası
+              </Link>
+              'nı kabul etmiş olursunuz.
+            </p>
 
             <div className="flex items-center justify-center gap-1.5 text-muted-foreground text-[11px]">
               <LockIcon />

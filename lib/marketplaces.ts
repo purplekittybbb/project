@@ -37,26 +37,26 @@ export interface MarketplaceOption {
 export const MARKETPLACE_OPTIONS: MarketplaceOption[] = [
   // ── US marketplaces (primary) ──
   {
-    id: "amazon_us", label: "Amazon (US)", region: "us", description: "SP-API — requires Amazon approval",
+    id: "amazon_us", label: "Amazon (US)", region: "us", description: "SP-API — Amazon onayı gerekir",
     currency: "USD", engineChannel: "amazon_us", connectionMethod: "coming_soon",
   },
-  { id: "walmart", label: "Walmart Marketplace", region: "us", description: "Integration in development", currency: "USD", connectionMethod: "coming_soon" },
-  { id: "ebay", label: "eBay", region: "us", description: "Integration in development", currency: "USD", connectionMethod: "coming_soon" },
-  { id: "etsy", label: "Etsy", region: "us", description: "Integration in development", currency: "USD", connectionMethod: "coming_soon" },
+  { id: "walmart", label: "Walmart Marketplace", region: "us", description: "Entegrasyon geliştiriliyor", currency: "USD", connectionMethod: "coming_soon" },
+  { id: "ebay", label: "eBay", region: "us", description: "Entegrasyon geliştiriliyor", currency: "USD", connectionMethod: "coming_soon" },
+  { id: "etsy", label: "Etsy", region: "us", description: "Entegrasyon geliştiriliyor", currency: "USD", connectionMethod: "coming_soon" },
 
   // ── Your store / website ──
   {
-    id: "shopify", label: "Shopify", region: "own_store", description: "Your own storefront",
+    id: "shopify", label: "Shopify", region: "own_store", description: "Kendi mağazanız",
     currency: "USD", engineChannel: "shopify", connectionMethod: "oauth",
   },
   {
-    id: "woocommerce", label: "WooCommerce", region: "own_store", description: "Integration in development",
+    id: "woocommerce", label: "WooCommerce", region: "own_store", description: "Entegrasyon geliştiriliyor",
     currency: "USD", connectionMethod: "coming_soon",
   },
 
   // ── Turkish marketplaces (secondary) ──
   {
-    id: "trendyol", label: "Trendyol (TR)", region: "tr", description: "Auto-sync settlement data",
+    id: "trendyol", label: "Trendyol (TR)", region: "tr", description: "Hakediş verisini otomatik senkronlar",
     currency: "TRY", engineChannel: "trendyol", connectionMethod: "api_key",
     credentialFields: [
       { key: "supplierId", label: "Seller ID", placeholder: "123456" },
@@ -66,7 +66,7 @@ export const MARKETPLACE_OPTIONS: MarketplaceOption[] = [
     credentialHelp: "Trendyol Satıcı Panelinde Hesap Bilgilerim → Entegrasyon Bilgileri'nden alın.",
   },
   {
-    id: "hepsiburada", label: "Hepsiburada (TR)", region: "tr", description: "Auto-sync settlement data",
+    id: "hepsiburada", label: "Hepsiburada (TR)", region: "tr", description: "Hakediş verisini otomatik senkronlar",
     currency: "TRY", engineChannel: "hepsiburada", connectionMethod: "api_key",
     credentialFields: [
       { key: "merchantId", label: "Merchant ID", placeholder: "hepsiburada-merchant-id" },
@@ -76,7 +76,7 @@ export const MARKETPLACE_OPTIONS: MarketplaceOption[] = [
     credentialHelp: "Hepsiburada Merchant Panel (HMS) → Hesabım → Entegrasyon Bilgileri → API Anahtarı'ndan alın.",
   },
   {
-    id: "n11", label: "N11", region: "tr", description: "Auto-sync settlement data",
+    id: "n11", label: "N11", region: "tr", description: "Hakediş verisini otomatik senkronlar",
     currency: "TRY", engineChannel: "n11", connectionMethod: "api_key",
     credentialFields: [
       { key: "apiKey", label: "App Key", secret: true },
@@ -90,50 +90,50 @@ export const MARKETPLACE_OPTIONS: MarketplaceOption[] = [
     currency: "TRY", engineChannel: "amazon_tr", connectionMethod: "oauth",
   },
   {
-    id: "pazarama", label: "Pazarama", region: "tr", description: "Integration in development",
+    id: "pazarama", label: "Pazarama", region: "tr", description: "Entegrasyon geliştiriliyor",
     currency: "TRY", connectionMethod: "coming_soon",
   },
   {
-    id: "ciceksepeti", label: "Çiçeksepeti", region: "tr", description: "Integration in development",
+    id: "ciceksepeti", label: "Çiçeksepeti", region: "tr", description: "Entegrasyon geliştiriliyor",
     currency: "TRY", connectionMethod: "coming_soon",
   },
   {
-    id: "pttavm", label: "PttAVM", region: "tr", description: "Integration in development",
+    id: "pttavm", label: "PttAVM", region: "tr", description: "Entegrasyon geliştiriliyor",
     currency: "TRY", connectionMethod: "coming_soon",
   },
   {
-    id: "ikas", label: "ikas", region: "tr", description: "Integration in development",
+    id: "ikas", label: "ikas", region: "tr", description: "Entegrasyon geliştiriliyor",
     currency: "TRY", connectionMethod: "coming_soon",
   },
   {
-    id: "ticimax", label: "Ticimax", region: "tr", description: "Integration in development",
+    id: "ticimax", label: "Ticimax", region: "tr", description: "Entegrasyon geliştiriliyor",
     currency: "TRY", connectionMethod: "coming_soon",
   },
 
   // ── Other regions ──
-  { id: "noon", label: "Noon (MENA)", region: "other", description: "Integration in development", currency: "AED", connectionMethod: "coming_soon" },
+  { id: "noon", label: "Noon (MENA)", region: "other", description: "Entegrasyon geliştiriliyor", currency: "AED", connectionMethod: "coming_soon" },
 
   // ── Individual / manual ──
   {
-    id: "manual_entry", label: "Enter manually", region: "individual",
-    description: "No connection required — add sales rows by hand", currency: "—", connectionMethod: "manual",
+    id: "manual_entry", label: "Elle ekle", region: "individual",
+    description: "Bağlantı gerekmez — satış satırlarını elle ekleyin", currency: "—", connectionMethod: "manual",
   },
   {
-    id: "manual_csv", label: "Upload CSV", region: "individual",
-    description: "Upload an Excel/CSV export", currency: "—", connectionMethod: "csv",
+    id: "manual_csv", label: "CSV yükle", region: "individual",
+    description: "Excel/CSV dışa aktarımı yükleyin", currency: "—", connectionMethod: "csv",
   },
   {
-    id: "own_site", label: "Other website / platform", region: "individual",
-    description: "Integration in development — use CSV or manual entry for now", currency: "—", connectionMethod: "coming_soon",
+    id: "own_site", label: "Diğer site / platform", region: "individual",
+    description: "Entegrasyon geliştiriliyor — şimdilik CSV veya elle giriş kullanın", currency: "—", connectionMethod: "coming_soon",
   },
 ];
 
 export const REGION_LABELS: Record<MarketplaceRegion, string> = {
-  us: "US marketplaces",
-  own_store: "Your store / website",
-  tr: "Turkish marketplaces",
-  other: "Other regions",
-  individual: "Individual / manual",
+  us: "ABD pazaryerleri",
+  own_store: "Kendi mağazanız / siteniz",
+  tr: "Türkiye pazaryerleri",
+  other: "Diğer bölgeler",
+  individual: "Bireysel / elle",
 };
 
 export const REGION_ORDER: MarketplaceRegion[] = [...CONNECT_REGION_ORDER];

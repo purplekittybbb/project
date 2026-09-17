@@ -12,7 +12,7 @@
 
 import type { Transaction } from "../domain/canonical";
 import type { FeeConfig, MarketplaceAdapter } from "./marketplace-adapter";
-import { resolveCommissionRate } from "./marketplace-adapter";
+import { effectiveCommissionRate } from "./marketplace-adapter";
 import { computeCommission } from "../calc/commission";
 import { mapToInternalCategory } from "../domain/internal-category";
 
@@ -28,6 +28,7 @@ export interface RawTrendyolRow {
   returnRate: number; // 0..1 for this SKU
   adSpend: number; // TRY, already allocated to this SKU/order
   packaging?: number; // TRY, packaging cost for the line (box/filler/label)
+  commissionRate?: number; // 0..1 — seller's own contract rate; overrides the category table
 }
 
 /** Representative Turkish marketplace fee configuration. Verify before use. */
@@ -62,7 +63,7 @@ export class TrendyolAdapter implements MarketplaceAdapter<RawTrendyolRow> {
       // irrecoverable seller cost is the VAT levied on the marketplace
       // commission, returned here as commissionVat.
       const { commission, commissionVat: vat } = computeCommission(r.grossRevenue, {
-        rate: resolveCommissionRate(this.fees, category),
+        rate: effectiveCommissionRate(this.fees, category, r.commissionRate),
         basis: this.fees.commissionBasis,
         vatRate: this.fees.vatRate,
         commissionVatRate: this.fees.vatRate,

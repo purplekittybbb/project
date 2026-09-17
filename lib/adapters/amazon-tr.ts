@@ -18,7 +18,7 @@
 
 import type { Transaction } from "../domain/canonical";
 import type { FeeConfig, MarketplaceAdapter } from "./marketplace-adapter";
-import { resolveCommissionRate } from "./marketplace-adapter";
+import { effectiveCommissionRate } from "./marketplace-adapter";
 import { computeCommission } from "../calc/commission";
 import { mapToInternalCategory } from "../domain/internal-category";
 
@@ -34,6 +34,7 @@ export interface RawAmazonTrRow {
   returnRate: number;
   adSpend: number;
   packaging?: number;
+  commissionRate?: number; // 0..1 — seller's own contract rate; overrides the category table
 }
 
 /** Representative Amazon TR fee configuration. Verify against Seller Central. */
@@ -61,7 +62,7 @@ export class AmazonTrAdapter implements MarketplaceAdapter<RawAmazonTrRow> {
     return raw.map((r) => {
       const category = mapToInternalCategory(r.category);
       const { commission, commissionVat: vat } = computeCommission(r.grossRevenue, {
-        rate: resolveCommissionRate(this.fees, category),
+        rate: effectiveCommissionRate(this.fees, category, r.commissionRate),
         basis: this.fees.commissionBasis,
         vatRate: this.fees.vatRate,
         commissionVatRate: this.fees.vatRate,

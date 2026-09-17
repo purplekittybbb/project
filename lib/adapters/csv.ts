@@ -30,6 +30,14 @@ export interface UserRawRow {
   ad_spend: number;
   /** Packaging cost per line (box/filler/label). Optional — defaults to 0. */
   packaging?: number;
+  /**
+   * Seller's own marketplace commission rate for this SKU (0..1). Optional —
+   * filled from the per-SKU cost profile (product_costs) during enrichment when
+   * the seller has entered their real contract rate. When absent/0 the adapter
+   * uses the representative per-category rate. Never comes from the marketplace
+   * API (it can't report the seller's negotiated rate).
+   */
+  commissionRate?: number;
   marketplace: string;
   /**
    * Human-readable product title from the marketplace API (e.g. Trendyol's
@@ -180,6 +188,17 @@ function parseNumber(raw: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Normalize a return-rate cell to a 0..1 fraction. Sellers commonly write the
+ * rate as a whole percent ("8" meaning 8%), which the old code clamped straight
+ * to 1.0 = 100% and wrecked every margin. Heuristic: a value > 1 is a percent
+ * (÷100); a value in [0,1] is already a fraction. Then clamp to [0,1].
+ */
+function normalizeReturnRate(v: number): number {
+  const frac = v > 1 ? v / 100 : v;
+  return Math.min(1, Math.max(0, frac));
+}
+
 /** Normalize a date-ish string to YYYY-MM-DD; falls back to today when unparseable. */
 function normalizeDate(raw: string | undefined): string {
   const today = new Date().toISOString().slice(0, 10);
@@ -316,12 +335,29 @@ export function parseCsv(csvText: string): CsvParseResult {
   };
 
   const rows: UserRawRow[] = [];
+  // Refund / return / platform-deduction lines (negative revenue) collected per
+  // SKU so we can NET them into that SKU's realized revenue + units below —
+  // instead of silently dropping them (which would inflate "true" margin) or
+  // emitting negative-revenue rows (the engine requires positive per-line
+  // revenue, see UserRawRowSchema). This models realized NET sales: a returned
+  // order removes its revenue and units from the SKU's totals.
+  const refunds = new Map<string, { amount: number; units: number }>();
+  let refundLineCount = 0;
   for (let i = headerLineIdx + 1; i < allLines.length; i++) {
     const cols = splitLine(allLines[i], delimiter);
     if (cols.length < 2) continue;
 
     const grossRevenue = parseNumber(cell(cols, "gross_revenue"));
     const skuVal = (cell(cols, "sku") ?? "").trim();
+    if (grossRevenue < 0 && skuVal) {
+      const key = skuVal.slice(0, 120);
+      const prev = refunds.get(key) ?? { amount: 0, units: 0 };
+      prev.amount += -grossRevenue;
+      prev.units += Math.max(1, Math.round(Math.abs(parseNumber(cell(cols, "units")) || 1)));
+      refunds.set(key, prev);
+      refundLineCount++;
+      continue;
+    }
     if (grossRevenue <= 0 || !skuVal) continue; // skip totals/blank/footer rows
 
     const barcodeVal = (cell(cols, "barcode") ?? "").trim();
@@ -338,12 +374,60 @@ export function parseCsv(csvText: string): CsvParseResult {
       gross_revenue: grossRevenue,
       unit_cost: parseNumber(cell(cols, "unit_cost")),
       shipping: parseNumber(cell(cols, "shipping")),
-      return_rate: Math.min(1, Math.max(0, parseNumber(cell(cols, "return_rate")))),
+      return_rate: normalizeReturnRate(parseNumber(cell(cols, "return_rate"))),
       ad_spend: parseNumber(cell(cols, "ad_spend")),
       packaging: parseNumber(cell(cols, "packaging")),
       marketplace,
       ...(barcode ? { barcode } : {}),
     });
+  }
+
+  // ── Net refunds into each SKU's realized revenue + units ────────────────────
+  // Greedy reduction over that SKU's positive sale rows (most recent first, so a
+  // refund lands against the sale it most likely belongs to): subtract the
+  // refunded amount and units, clamping each row at 0 and dropping rows that hit
+  // 0. Reducing units also reduces COGS/shipping downstream (adapters scale
+  // those by units), so a returned unit stops counting as a profitable sale.
+  // A refund larger than all recorded sales for a SKU simply zeroes them out.
+  let netMoreThanSales = 0;
+  if (refunds.size > 0) {
+    for (const [sku, refund] of refunds) {
+      let amountLeft = refund.amount;
+      let unitsLeft = refund.units;
+      // Most-recent sale rows first.
+      const idxs = rows
+        .map((r, idx) => ({ idx, r }))
+        .filter((x) => x.r.sku === sku)
+        .sort((a, b) => (a.r.sale_date < b.r.sale_date ? 1 : -1))
+        .map((x) => x.idx);
+      if (idxs.length === 0) { netMoreThanSales++; continue; }
+      for (const idx of idxs) {
+        if (amountLeft <= 0 && unitsLeft <= 0) break;
+        const row = rows[idx];
+        const takeAmount = Math.min(amountLeft, row.gross_revenue);
+        row.gross_revenue -= takeAmount;
+        amountLeft -= takeAmount;
+        const takeUnits = Math.min(unitsLeft, row.units);
+        row.units -= takeUnits;
+        unitsLeft -= takeUnits;
+      }
+      if (amountLeft > 0.01) netMoreThanSales++;
+    }
+    // Drop rows fully cancelled by refunds (0 revenue or 0 units left).
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].gross_revenue <= 0 || rows[i].units <= 0) rows.splice(i, 1);
+    }
+  }
+
+  if (refundLineCount > 0) {
+    warnings.push(
+      `${refundLineCount} iade/kesinti satırı, ilgili ürünlerin net cirosundan ve satış adedinden düşüldü — böylece gerçek kâr olduğundan yüksek görünmez.`,
+    );
+  }
+  if (netMoreThanSales > 0) {
+    warnings.push(
+      `${netMoreThanSales} üründe iade tutarı, o dönemdeki satıştan fazlaydı — bu ürünlerin net satışı sıfırlandı; veriyi kontrol edin.`,
+    );
   }
 
   if (rows.length === 0) {

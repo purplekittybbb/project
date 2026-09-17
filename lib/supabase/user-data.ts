@@ -63,6 +63,9 @@ export type DbRow = {
   packaging?: number;
   product_name?: string | null;
   barcode?: string | null;
+  // Not a user_transactions column — carried on the enriched StoredRow from the
+  // per-SKU cost profile (product_costs). Always absent when read from the DB.
+  commission_rate?: number | null;
 };
 
 export function toStored(r: DbRow): StoredRow {
@@ -192,6 +195,7 @@ export function toCanonicalForMarketplace(tenantId: string, marketplaceId: strin
       returnRate: r.return_rate,
       adSpend: r.ad_spend,
       packaging: r.packaging,
+      commissionRate: r.commissionRate,
     }));
     return amazonUs.toCanonical(tenantId, raw);
   }
@@ -209,6 +213,7 @@ export function toCanonicalForMarketplace(tenantId: string, marketplaceId: strin
       returnRate: r.return_rate,
       adSpend: r.ad_spend,
       packaging: r.packaging,
+      commissionRate: r.commissionRate,
     }));
     return amazonTr.toCanonical(tenantId, raw);
   }
@@ -226,6 +231,7 @@ export function toCanonicalForMarketplace(tenantId: string, marketplaceId: strin
       returnRate: r.return_rate,
       adSpend: r.ad_spend,
       packaging: r.packaging,
+      commissionRate: r.commissionRate,
     }));
     return hepsiburada.toCanonical(tenantId, raw);
   }
@@ -243,6 +249,7 @@ export function toCanonicalForMarketplace(tenantId: string, marketplaceId: strin
       returnRate: r.return_rate,
       adSpend: r.ad_spend,
       packaging: r.packaging,
+      commissionRate: r.commissionRate,
     }));
     return n11.toCanonical(tenantId, raw);
   }
@@ -277,6 +284,7 @@ export function toCanonicalForMarketplace(tenantId: string, marketplaceId: strin
     returnRate: r.return_rate,
     adSpend: r.ad_spend,
     packaging: r.packaging,
+    commissionRate: r.commissionRate,
   }));
   return trendyol.toCanonical(tenantId, raw);
 }

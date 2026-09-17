@@ -84,7 +84,7 @@ export const LAUNCH_BANNER = {
 };
 
 export const INTEGRATION_BANNER = {
-  title: "5 pazaryerini tek panelde bağlayın",
+  title: "Pazaryerlerinizi tek panelde bağlayın",
   body: `${MARKETING_MARKETPLACE_LIST_TR} — gerçek sipariş verinizle net kâr, alarm ve barkod analizi.`,
   cta: "Mağazayı bağla",
   href: "/signup",
@@ -109,7 +109,7 @@ export const PRICING_TIERS = [
     name: "Başlangıç",
     priceMonthly: 400,
     highlight: false,
-    summary: "1 mağaza, tüm Kategori 2 araçları",
+    summary: "1 mağaza, temel panel",
     features: [
       "1 mağaza bağlantısı",
       "Gerçek net kâr & zarar alarmı",
@@ -122,12 +122,11 @@ export const PRICING_TIERS = [
     name: "Profesyonel",
     priceMonthly: 800,
     highlight: true,
-    summary: "Sınırsız mağaza, tüm pazaryerleri",
+    summary: "İleri analiz araçları",
     features: [
-      "Sınırsız mağaza bağlantısı",
-      "Tüm pazaryerleri",
-      "Öncelikli tarama",
-      "Tüm Kategori 2 araçları",
+      "Kampanya simülatörü, nakit akışı",
+      "Copilot (yapay zekâ destekli analiz)",
+      "Chrome uzantısı",
     ],
   },
 ] as const;
@@ -155,8 +154,10 @@ export const FEATURE_MATRIX: FeatureMatrixRow[] = [
   { label: "Liste Kalite Skoru", free: false, starter: true, pro: true },
   { label: "Barkod Analizi", free: false, starter: true, pro: true },
   { label: "Mağaza bağlantısı", free: false, starter: true, pro: true },
-  { label: "Çoklu mağaza", free: false, starter: false, pro: true },
-  { label: "Öncelikli tarama", free: false, starter: false, pro: true },
+  { label: "Kampanya Simülatörü", free: false, starter: false, pro: true },
+  { label: "Nakit Akışı", free: false, starter: false, pro: true },
+  { label: "Copilot", free: false, starter: false, pro: true },
+  { label: "Chrome Uzantısı", free: false, starter: false, pro: true },
 ];
 
 export const FAQ_ITEMS = [
@@ -184,7 +185,8 @@ export const MARKETING_NAV = [
   { label: "Fiyatlandırma", href: "/pricing" },
   { label: "Hakkımızda", href: "/hakkimizda" },
   { label: "SSS", href: "/sss" },
-  { label: "Blog", href: "/blog" },
+  // "Blog" removed from the footer until it has real content — app/blog is a
+  // noindex "yakında" placeholder, so a plain footer link to it was a dead end.
 ] as const;
 
 export function getRelatedTools(currentSlug: string, limit = 4): ToolDefinition[] {

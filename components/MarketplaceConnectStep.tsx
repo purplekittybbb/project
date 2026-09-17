@@ -270,7 +270,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
     const text = await file.text();
     const res = parseCsv(text);
     if (!res.ok) {
-      setConnectError(res.error ?? "CSV could not be parsed.");
+      setConnectError(res.error ?? "CSV okunamadı.");
       setCsvBusy(false);
       return;
     }
@@ -355,7 +355,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
       <div className="border border-[var(--tm-mist)] bg-card rounded-[var(--tm-r-ui)] p-5 space-y-6">
         {REGION_ORDER.map((region) => (
           <div key={region}>
-            <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-2.5">
+            <div className="text-muted-foreground text-[10px] uppercase tracking-[0.2em] font-sans mb-2.5">
               {REGION_LABELS[region]}
             </div>
             <div className="space-y-2">
@@ -364,18 +364,18 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                 return (
                   <div
                     key={m.id}
-                    className={`flex items-center justify-between gap-3 border px-4 py-3 ${
-                      linked ? "border-zinc-800 bg-zinc-950/50 opacity-60" : "border-zinc-800 bg-zinc-950"
+                    className={`flex items-center justify-between gap-3 border rounded-[var(--tm-r-data)] px-4 py-3 ${
+                      linked ? "border-[var(--tm-mist)] bg-muted opacity-70" : "border-[var(--tm-mist)] bg-background"
                     }`}
                   >
                     <div className="min-w-0">
-                      <div className="text-sm text-zinc-100 truncate">{m.label}</div>
-                      <div className="text-zinc-600 text-[11px] truncate">{m.description}</div>
+                      <div className="text-sm text-foreground truncate">{m.label}</div>
+                      <div className="text-muted-foreground text-[11px] truncate">{m.description}</div>
                     </div>
                     {linked ? (
-                      <span className="fin-profit/90 font-mono text-[10px] uppercase tracking-wider shrink-0">Bağlandı ✓</span>
+                      <span className="fin-profit font-mono text-[10px] uppercase tracking-wider shrink-0">Bağlandı ✓</span>
                     ) : m.connectionMethod === "coming_soon" ? (
-                      <span className="shrink-0 h-8 px-3 border border-zinc-800 text-zinc-600 text-[10px] font-mono uppercase tracking-widest flex items-center">
+                      <span className="shrink-0 h-8 px-3 border border-[var(--tm-mist)] text-muted-foreground text-[10px] font-mono uppercase tracking-widest flex items-center rounded-[var(--tm-r-data)]">
                         Yakında
                       </span>
                     ) : (
@@ -383,7 +383,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                         type="button"
                         onClick={() => startConnect(m.id)}
                         disabled={csvBusy && m.id === "manual_csv"}
-                        className="ob-input shrink-0 h-8 px-3 border border-zinc-700 text-zinc-200 text-[12px] font-medium hover:border-zinc-400 hover:bg-zinc-900 transition-colors disabled:opacity-50"
+                        className="ob-input shrink-0 h-8 px-3 border border-input text-foreground text-[12px] font-medium rounded-[var(--tm-r-data)] hover:border-foreground/40 hover:bg-muted transition-colors disabled:opacity-50"
                       >
                         {connectLabel(m)}
                       </button>
@@ -409,7 +409,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
 
         {csvRows && (
           <p className="fin-profit font-mono text-[11px] tnum border-t border-[var(--tm-mist)] pt-3">
-            CSV imported · {csvRows.length} rows saved
+            CSV içe aktarıldı · {csvRows.length} satır kaydedildi
           </p>
         )}
       </div>
@@ -421,11 +421,11 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
       )}
 
       <div className="mt-4 flex items-center justify-between gap-4">
-        <span className="text-zinc-600 text-[11px]">Daha sonra istediğiniz zaman yeni pazaryeri ekleyebilirsiniz.</span>
+        <span className="text-muted-foreground text-[11px]">Daha sonra istediğiniz zaman yeni pazaryeri ekleyebilirsiniz.</span>
         <button
           type="button"
           onClick={downloadSample}
-          className="text-[10px] font-mono text-zinc-600 hover:text-zinc-400 uppercase tracking-widest"
+          className="text-[10px] font-mono text-muted-foreground hover:text-foreground uppercase tracking-widest"
         >
           ↓ Örnek CSV
         </button>
@@ -435,12 +435,12 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
         type="button"
         onClick={onContinue}
         disabled={!canContinue}
-        className="ob-input mt-3 w-full h-11 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="tm-btn-primary mt-3 w-full h-11 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Devam et
       </button>
 
-      <div className="mt-3 flex items-center justify-center gap-1.5 text-zinc-500 text-[11px]">
+      <div className="mt-3 flex items-center justify-center gap-1.5 text-muted-foreground text-[11px]">
         <LockIcon />
         <span>Banka seviyesinde şifreleme · OAuth benzeri · şifre saklanmaz</span>
       </div>
@@ -469,11 +469,11 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
           className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4"
           onClick={() => !disconnectBusy && setDisconnectTarget(null)}
         >
-          <div className="bg-zinc-950 border border-zinc-800 p-6 max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
-            <div className="text-zinc-100 text-sm font-medium mb-1.5">
+          <div className="bg-card border border-[var(--tm-mist)] rounded-[var(--tm-r-ui)] p-6 max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="text-foreground text-sm font-medium mb-1.5">
               {getMarketplaceOption(disconnectTarget.marketplaceId)?.label ?? disconnectTarget.marketplaceId} bağlantısını kes
             </div>
-            <p className="text-zinc-500 text-[12px] font-mono leading-relaxed mb-6">
+            <p className="text-muted-foreground text-[12px] font-mono leading-relaxed mb-6">
               Bu, saklanan kimlik bilgisini siler — tekrar senkronize etmek için yeniden bağlanmanız gerekir.
               Bu pazaryerinden çekilmiş sipariş verisini de silmeyi seçebilirsiniz.
             </p>
@@ -485,7 +485,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                 type="button"
                 onClick={() => confirmDisconnect(false)}
                 disabled={disconnectBusy}
-                className="inline-flex items-center justify-center h-10 px-4 border border-zinc-800 text-zinc-200 font-mono text-[12px] hover:bg-zinc-900 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
+                className="inline-flex items-center justify-center h-10 px-4 border border-input text-foreground font-mono text-[12px] rounded-[var(--tm-r-data)] hover:bg-muted transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               >
                 {disconnectBusy ? "İşleniyor…" : "Yalnızca bağlantıyı kes — verimi sakla"}
               </button>
@@ -501,7 +501,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                 type="button"
                 onClick={() => setDisconnectTarget(null)}
                 disabled={disconnectBusy}
-                className="inline-flex items-center justify-center h-9 px-4 text-zinc-500 font-mono text-[12px] hover:text-zinc-300 transition-colors disabled:opacity-50"
+                className="inline-flex items-center justify-center h-9 px-4 text-muted-foreground font-mono text-[12px] hover:text-foreground transition-colors disabled:opacity-50"
               >
                 Vazgeç
               </button>

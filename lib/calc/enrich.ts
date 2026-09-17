@@ -31,6 +31,8 @@ export interface ProductCost {
   adSpendPerUnit?: number;
   /** Packaging cost per unit. */
   packagingPerUnit?: number;
+  /** Seller's own marketplace commission rate for this SKU, 0..1. */
+  commissionRate?: number;
 }
 
 /** True when a numeric field is missing or left at 0 (i.e. a fillable gap). */
@@ -61,6 +63,11 @@ export function enrichRowWithProductCost(row: UserRawRow, cost: ProductCost | un
   }
   if (isGap(enriched.packaging) && cost.packagingPerUnit != null) {
     enriched.packaging = cost.packagingPerUnit * units;
+  }
+  // Commission rate is a rate (not a per-unit amount) applied as-is, like
+  // returnRate. Fill it only when the row doesn't already carry one.
+  if (isGap(enriched.commissionRate) && cost.commissionRate != null && cost.commissionRate > 0) {
+    enriched.commissionRate = cost.commissionRate;
   }
 
   return enriched;

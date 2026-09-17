@@ -73,11 +73,16 @@ export function ToolsGrid({ id = "kesfet", showHeading = true }: ToolsGridProps)
 
         <Reveal delay={160}>
           <div id="uzanti" className="border-t border-border pt-16">
-            <h3 className="font-heading text-lg font-semibold tracking-tight text-foreground">
-              Chrome Uzantısı
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-heading text-lg font-semibold tracking-tight text-foreground">
+                Chrome Uzantısı
+              </h3>
+              <span className="inline-flex items-center rounded-full border border-[var(--tm-copper)]/30 bg-[var(--tm-copper)]/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-[var(--tm-copper)]">
+                Profesyonel
+              </span>
+            </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              Partner panelinde kendi mağaza kârını göster; hesabınızı bağlarsanız maliyet alanlarını gerçek verinizden otomatik doldurur. Henüz Chrome Web Mağazası&apos;nda değil; aşağıdan indirip Geliştirici Modu ile kurabilirsiniz.
+              Partner panelinde kendi mağaza kârını göster; hesabınızı bağlarsanız maliyet alanlarını gerçek verinizden otomatik doldurur. Henüz Chrome Web Mağazası&apos;nda değil; aşağıdan indirip Geliştirici Modu ile kurabilirsiniz. Hesap bağlantısı Profesyonel pakete dahildir.
             </p>
             <ul className="mt-6 grid grid-cols-1 gap-3 lg:max-w-md">
               {EXTENSION_TOOLS.map((tool) => (

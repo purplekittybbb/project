@@ -15,7 +15,12 @@ export const SITE_TAGLINE = "Pazaryeri satıcıları için gerçek net kâr.";
 // Hepsiburada, N11, Amazon TR, Amazon US, Shopify — bkz. lib/engine.ts
 // MARKETPLACE_LABELS) eşleşmiyordu. Amazon TR/US "Amazon" olarak tek isimde
 // birleştirildi, insan diline daha uygun.
-export const MARKETING_MARKETPLACE_LIST_TR = "Trendyol, Hepsiburada, N11, Amazon ve Shopify";
+// Only marketplaces with a real, live order-sync adapter today. Amazon (US/TR)
+// is "coming_soon" in lib/marketplaces.ts (Amazon TR connects but pulls no
+// orders yet), so listing it here overclaimed. Shopify has a real adapter +
+// OAuth and stays selectable in Connect, but the launch cohort's headline is
+// the three Turkish marketplaces that genuinely sync.
+export const MARKETING_MARKETPLACE_LIST_TR = "Trendyol, Hepsiburada ve N11";
 
 export const DEFAULT_TITLE = "TrueMargin — Gerçek net kârını gör, tahmin etme";
 export const DEFAULT_DESCRIPTION =

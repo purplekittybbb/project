@@ -150,8 +150,18 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) {
+/*
+ * TrueMargin's marketing / signup / connect / tool surfaces are LIGHT by
+ * design; the dashboard is its own hardcoded dark "financial terminal"
+ * (bg-zinc-950), independent of these tokens. There is no designed dark theme
+ * for the light surfaces, so an OS-level `prefers-color-scheme: dark` used to
+ * half-darken them in ways nobody designed (broken contrast, a hero that keeps
+ * its fixed green on a darkened card). We therefore commit to light and apply
+ * these dark tokens ONLY under an explicit `:root.dark` opt-in (nothing sets it
+ * today — reserved for a future, fully-designed dark theme) instead of reacting
+ * to the OS. This keeps every light surface consistent regardless of OS setting.
+ */
+:root.dark {
     color-scheme: dark;
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
@@ -185,7 +195,6 @@
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
   }
-}
 
 @layer base {
   * {

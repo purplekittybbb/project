@@ -29,6 +29,8 @@ interface Props {
   authConfigured: boolean;
   hasMarketplaceConnected: boolean;
   hasRealData: boolean;
+  onConnect: () => void;
+  onGoToData: () => void;
   onGoToSettlement: () => void;
   onGoToProducts: () => void;
 }
@@ -37,6 +39,8 @@ export function OnboardingChecklist({
   authConfigured,
   hasMarketplaceConnected,
   hasRealData,
+  onConnect,
+  onGoToData,
   onGoToSettlement,
   onGoToProducts,
 }: Props) {
@@ -69,8 +73,8 @@ export function OnboardingChecklist({
   if (!ready || !authConfigured || dismissed) return null;
 
   const steps = [
-    { done: hasMarketplaceConnected, label: "Bir pazaryeri bağlayın", onClick: undefined },
-    { done: hasRealData, label: "İlk gerçek satış verinizi görün", onClick: undefined },
+    { done: hasMarketplaceConnected, label: "Bir pazaryeri bağlayın", onClick: onConnect },
+    { done: hasRealData, label: "İlk gerçek satış verinizi görün", onClick: onGoToData },
     { done: hasSettlementEntry, label: "Gerçek hakediş tutarınızı girin", onClick: onGoToSettlement },
     { done: hasExported, label: "Bir raporu dışa aktarın", onClick: onGoToProducts },
   ];
@@ -119,7 +123,7 @@ export function OnboardingChecklist({
             ) : (
               <Circle size={15} className="text-zinc-700 shrink-0" />
             )}
-            {s.onClick && !s.done ? (
+            {!s.done ? (
               <button
                 type="button"
                 onClick={s.onClick}
@@ -128,7 +132,7 @@ export function OnboardingChecklist({
                 {s.label}
               </button>
             ) : (
-              <span className={s.done ? "text-zinc-500 line-through" : "text-zinc-400"}>{s.label}</span>
+              <span className="text-zinc-500 line-through">{s.label}</span>
             )}
           </li>
         ))}

@@ -72,7 +72,7 @@ export function launchPlanDisplay(): LaunchPlanDisplay {
       amount: GROWTH_PLAN_PRICE_TRY,
       currency: "TRY",
       symbol: "₺",
-      formattedAfterTrial: `₺${GROWTH_PLAN_PRICE_TRY.toLocaleString("tr-TR")}/mo`,
+      formattedAfterTrial: `₺${GROWTH_PLAN_PRICE_TRY.toLocaleString("tr-TR")}/ay`,
     };
   }
   return {

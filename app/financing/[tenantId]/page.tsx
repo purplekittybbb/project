@@ -9,10 +9,12 @@
  * over-lends to the silent-loser seller. Fed live by lib/engine (getFinancing).
  */
 
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { getSellers, getFinancing } from "@/lib/engine";
 import { ExplainPanel } from "@/components/explain-panel";
+import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
 
 const PROFIT = "#0B7A4B";
 const EROSION = "#B4432E";
@@ -25,6 +27,22 @@ const pct1 = (n: number) => `${n.toFixed(1)}%`;
 
 export default function FinancingPage({ params }: { params: Promise<{ tenantId: string }> }) {
   const { tenantId: routeTenant } = use(params);
+  const router = useRouter();
+
+  // Investor/sales DEMO surface only (not a licensed lending product, seeded
+  // example sellers). A real signed-in seller is redirected to their dashboard
+  // so they never see a fabricated "approved credit line".
+  useEffect(() => {
+    if (!isAuthConfigured()) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    let cancelled = false;
+    supabase.auth.getUser().then(({ data }) => {
+      if (!cancelled && data.user) router.replace("/dashboard");
+    });
+    return () => { cancelled = true; };
+  }, [router]);
+
   const sellers = getSellers();
   const initial = sellers.some((s) => s.tenantId === routeTenant) ? routeTenant : "seller-b";
   const [tenantId, setTenantId] = useState(initial);
@@ -43,14 +61,14 @@ export default function FinancingPage({ params }: { params: Promise<{ tenantId: 
       <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-sm">
         <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6 lg:px-8">
           <Link href="/" className="font-heading text-lg font-bold tracking-tight text-foreground">
-            [BRAND]
+            TrueMargin
           </Link>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
             <Link href={`/reveal/${tenantId}`} className="transition-colors hover:text-foreground">
               ← Reveal
             </Link>
             <Link href="/" className="transition-colors hover:text-foreground">
-              Overview
+              Genel bakış
             </Link>
           </div>
         </nav>

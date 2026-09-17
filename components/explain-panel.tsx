@@ -44,10 +44,10 @@ export function ExplainPanel({
         body: JSON.stringify({ decision, sellerLabel, question: q }),
       });
       const data = await res.json();
-      setAnswer(data.answer ?? data.error ?? "No answer.");
+      setAnswer(data.answer ?? data.error ?? "Yanıt yok.");
       setSource(data.source ?? null);
     } catch {
-      setAnswer("Could not reach the explainer.");
+      setAnswer("Açıklayıcıya ulaşılamadı.");
     } finally {
       setLoading(false);
     }

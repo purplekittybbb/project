@@ -26,7 +26,7 @@
 
 import type { Transaction } from "../domain/canonical";
 import type { FeeConfig, MarketplaceAdapter } from "./marketplace-adapter";
-import { resolveCommissionRate } from "./marketplace-adapter";
+import { effectiveCommissionRate } from "./marketplace-adapter";
 import { computeCommission } from "../calc/commission";
 import { mapToInternalCategory } from "../domain/internal-category";
 
@@ -42,6 +42,7 @@ export interface RawN11Row {
   returnRate: number; // 0..1 for this SKU
   adSpend: number; // TRY, already allocated to this SKU/order
   packaging?: number; // TRY, packaging cost for the line (box/filler/label)
+  commissionRate?: number; // 0..1 — seller's own contract rate; overrides the category table
 }
 
 /** Official extra-fee rates (fraction of the relevant base). */
@@ -98,7 +99,7 @@ export class N11Adapter implements MarketplaceAdapter<RawN11Row> {
     return raw.map((r) => {
       const category = mapToInternalCategory(r.category);
       const { commission, commissionVat: vat } = computeCommission(r.grossRevenue, {
-        rate: resolveCommissionRate(this.fees, category),
+        rate: effectiveCommissionRate(this.fees, category, r.commissionRate),
         basis: this.fees.commissionBasis,
         vatRate: this.fees.vatRate,
         commissionVatRate: this.fees.vatRate,
