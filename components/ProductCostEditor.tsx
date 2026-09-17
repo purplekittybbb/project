@@ -19,6 +19,25 @@ import type { StoredRow } from "@/lib/supabase/user-data";
 import { buildSkuEconomicsMap } from "@/lib/tools/sku-economics";
 import { loadProductCosts, upsertProductCost } from "@/lib/supabase/product-costs";
 import type { ProductCost } from "@/lib/calc/enrich";
+import { feeConfigFor, type GuestMarketplace } from "@/lib/tools/marketplace-fees";
+import { resolveCommissionRate } from "@/lib/adapters/marketplace-adapter";
+
+/**
+ * PDF §7.2 — İnsan denetimi / ghost text: komisyon alanı boşken, uygulanacak
+ * temsilî kategori oranını "hayalet" olarak göster (kullanıcı hangi oranın
+ * kullanılacağını görsün ve isterse kendi sözleşme oranıyla ezsin). Yalnızca
+ * temsilî fee tablosu olan pazaryerleri için; diğerlerinde null.
+ */
+function categoryRatePct(marketplace: string, category: string): number | null {
+  if (marketplace === "trendyol" || marketplace === "hepsiburada" || marketplace === "n11") {
+    return resolveCommissionRate(feeConfigFor(marketplace as GuestMarketplace), category) * 100;
+  }
+  return null;
+}
+
+function fmtRatePct(r: number): string {
+  return `%${r.toFixed(1).replace(".", ",")}`;
+}
 
 interface Draft {
   unitCost: string;
@@ -179,6 +198,7 @@ export function ProductCostEditor({
               parseNum(d.unitCost) + parseNum(d.shippingPerUnit) + parseNum(d.packagingPerUnit) + parseNum(d.adSpendPerUnit);
             const roughPerUnit = e.avgSalePrice - perUnitCost; // komisyon/KDV hariç
             const st = saveStates[e.sku] ?? "idle";
+            const ghostRate = categoryRatePct(e.marketplace, e.category); // §7.2 ghost text
             return (
               <div key={e.sku} className="border border-zinc-900 bg-zinc-950/40 p-4">
                 <div className="flex items-start justify-between gap-4 mb-3">
@@ -202,7 +222,13 @@ export function ProductCostEditor({
                   <CostField label="Ambalaj ₺/adet" value={d.packagingPerUnit} onChange={(v) => setField(e.sku, "packagingPerUnit", v)} />
                   <CostField label="Reklam ₺/adet" value={d.adSpendPerUnit} onChange={(v) => setField(e.sku, "adSpendPerUnit", v)} />
                   <CostField label="İade oranı %" value={d.returnRatePct} onChange={(v) => setField(e.sku, "returnRatePct", v)} />
-                  <CostField label="Komisyon %" value={d.commissionRatePct} onChange={(v) => setField(e.sku, "commissionRatePct", v)} hint="Boş bırakırsanız kategori oranı" />
+                  <CostField
+                    label="Komisyon %"
+                    value={d.commissionRatePct}
+                    onChange={(v) => setField(e.sku, "commissionRatePct", v)}
+                    placeholder={ghostRate != null ? fmtRatePct(ghostRate) : "0"}
+                    hint={ghostRate != null ? `Boş = kategori oranı (${fmtRatePct(ghostRate)})` : "Boş bırakırsanız kategori oranı"}
+                  />
                 </div>
 
                 <div className="flex items-center justify-end gap-3 mt-3">
@@ -231,11 +257,13 @@ function CostField({
   value,
   onChange,
   hint,
+  placeholder = "0",
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   hint?: string;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
@@ -245,7 +273,7 @@ function CostField({
         inputMode="decimal"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="0"
+        placeholder={placeholder}
         className="w-full bg-zinc-950 border border-zinc-800 text-zinc-100 text-[13px] font-mono tabular-nums px-2.5 py-1.5 focus:outline-none focus:border-zinc-600 placeholder-zinc-700"
       />
       {hint && <span className="block text-zinc-700 text-[9px] mt-0.5 leading-tight">{hint}</span>}
