@@ -11,13 +11,13 @@ type Step = {
 };
 
 const DATA: Step[] = [
-  { label: ["Reported"], low: 0, high: 24, tag: "24%", kind: "start" },
-  { label: ["Commission"], low: 17, high: 24, tag: "\u22127", kind: "loss" },
-  { label: ["VAT"], low: 13, high: 17, tag: "\u22124", kind: "loss" },
-  { label: ["Shipping"], low: 10, high: 13, tag: "\u22123", kind: "loss" },
-  { label: ["Returns"], low: 8, high: 10, tag: "\u22122", kind: "loss" },
-  { label: ["Ad", "spend"], low: 4, high: 8, tag: "\u22124", kind: "loss" },
-  { label: ["True", "margin"], low: 0, high: 4, tag: "4%", kind: "result" },
+  { label: ["G\u00f6r\u00fcnen"], low: 0, high: 24, tag: "%24", kind: "start" },
+  { label: ["Komisyon"], low: 17, high: 24, tag: "\u22127", kind: "loss" },
+  { label: ["KDV"], low: 13, high: 17, tag: "\u22124", kind: "loss" },
+  { label: ["Kargo"], low: 10, high: 13, tag: "\u22123", kind: "loss" },
+  { label: ["\u0130ade"], low: 8, high: 10, tag: "\u22122", kind: "loss" },
+  { label: ["Reklam"], low: 4, high: 8, tag: "\u22124", kind: "loss" },
+  { label: ["Ger\u00e7ek", "marj"], low: 0, high: 4, tag: "%4", kind: "result" },
 ];
 
 const C = {
@@ -95,7 +95,7 @@ export default function MarginWaterfall() {
         }}
       >
         <span style={{ fontSize: 13, color: "rgba(255,255,255,0.62)" }}>
-          Sample seller &middot; margin per SKU
+          Örnek satıcı &middot; SKU başına marj
         </span>
         <span
           style={{
@@ -108,7 +108,7 @@ export default function MarginWaterfall() {
             letterSpacing: "0.02em",
           }}
         >
-          illustrative
+          örnek
         </span>
       </div>
 
@@ -128,7 +128,7 @@ export default function MarginWaterfall() {
             fontFamily: C.mono,
           }}
         >
-          24% reported
+          %24 görünen
         </span>
         <span style={{ color: "rgba(255,255,255,0.4)" }}>&rarr;</span>
         <span
@@ -139,7 +139,7 @@ export default function MarginWaterfall() {
             fontFamily: C.mono,
           }}
         >
-          4% true
+          %4 gerçek
         </span>
         <span
           style={{
@@ -152,7 +152,7 @@ export default function MarginWaterfall() {
             fontFamily: C.mono,
           }}
         >
-          &minus;20 pts hidden
+          &minus;20 puan gizli
         </span>
       </div>
 
@@ -160,7 +160,7 @@ export default function MarginWaterfall() {
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
         role="img"
-        aria-label="Waterfall chart: reported margin 24 percent falls to a true margin of 4 percent after commission, VAT, shipping, returns and ad spend are deducted."
+        aria-label="Şelale grafiği: görünen %24 marj; komisyon, KDV, kargo, iade ve reklam gideri düşüldükten sonra gerçek marj %4'e iniyor."
         style={{
           display: "block",
           opacity: shown ? 1 : 0,
@@ -178,7 +178,7 @@ export default function MarginWaterfall() {
             fontFamily={C.mono}
             fill={C.axis}
           >
-            {t}%
+            %{t}
           </text>
         ))}
 

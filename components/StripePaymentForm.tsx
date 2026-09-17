@@ -86,11 +86,18 @@ function PaymentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement
-        options={{
-          layout: "tabs",
-        }}
-      />
+      {/* PDF §3.1 — hassas kart alanı görsel olarak kapsüllenir ("dijital kasa"). */}
+      <div className="tm-secure-field-group p-4 space-y-3">
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <LockIcon className="text-[var(--tm-copper)]" />
+          <span>Kart bilgileriniz Stripe tarafından şifrelenir; sunucularımızda saklanmaz.</span>
+        </div>
+        <PaymentElement
+          options={{
+            layout: "tabs",
+          }}
+        />
+      </div>
       <button
         type="submit"
         disabled={!stripe || busy}

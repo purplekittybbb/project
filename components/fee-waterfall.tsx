@@ -130,7 +130,7 @@ export function FeeWaterfall({
       >
         {ticks.map((t) => (
           <text key={t} x={padL - 8} y={y(t) + 3.5} textAnchor="end" fontSize={11} fontFamily={C.mono} fill={C.axis}>
-            {t}%
+            %{t}
           </text>
         ))}
 

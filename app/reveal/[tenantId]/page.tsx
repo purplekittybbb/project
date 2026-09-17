@@ -20,7 +20,7 @@ import { getSellers, getSeller } from "@/lib/engine";
 import { FeeWaterfall, type WaterfallStep } from "@/components/fee-waterfall";
 import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
 
-const fmtPct = (n: number) => `${n.toFixed(1)}%`;
+const fmtPct = (n: number) => `%${n.toFixed(1)}`;
 
 export default function RevealPage({ params }: { params: Promise<{ tenantId: string }> }) {
   const { tenantId: routeTenant } = use(params);
@@ -57,14 +57,14 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
   const steps: WaterfallStep[] = useMemo(() => {
     const asPct = (v: number) => (revenue ? (v / revenue) * 100 : 0);
     const losses = [
-      { label: ["VAT"], amt: w.vat },
-      { label: ["Shipping"], amt: w.shipping },
-      { label: ["Returns"], amt: w.returnsAllocated },
-      { label: ["Ad", "spend"], amt: w.adSpendAllocated },
-      { label: ["Payment"], amt: w.paymentFees },
+      { label: ["KDV"], amt: w.vat },
+      { label: ["Kargo"], amt: w.shipping },
+      { label: ["İade"], amt: w.returnsAllocated },
+      { label: ["Reklam"], amt: w.adSpendAllocated },
+      { label: ["Ödeme"], amt: w.paymentFees },
     ];
     const out: WaterfallStep[] = [
-      { label: ["Perceived"], low: 0, high: perceived, kind: "start", tag: `${perceived.toFixed(0)}%` },
+      { label: ["Görünen"], low: 0, high: perceived, kind: "start", tag: `%${perceived.toFixed(0)}` },
     ];
     let cum = perceived;
     for (const l of losses) {
@@ -73,7 +73,7 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
       cum -= p;
     }
     out.push({
-      label: ["True", "margin"],
+      label: ["Gerçek", "marj"],
       low: Math.min(0, trueM),
       high: Math.max(0, trueM),
       kind: "result",
