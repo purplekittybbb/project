@@ -11,6 +11,7 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { getCashFlowProjection, type CashFlowEntry, type Channel } from "@/lib/engine";
+import { fmtCompactMoney } from "@/lib/format/compact";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -117,22 +118,26 @@ function Summary({ entries, currency }: SummaryProps) {
   // gap figure is a representative model, not a verified reconciliation.
   const isReal = entries[0]?.isRealSettlementData ?? false;
 
-  const cards = [
+  // PDF §5.2 — özet kutuları tek-bakış: milyon+ kompakt (₺1,2M); tam değer title'da.
+  const cards: { label: string; val: string; exact?: string; sub: string; dim?: boolean; err?: boolean }[] = [
     {
       label: isReal ? t("cashFlow.receivedTotal") : t("cashFlow.receivedTotalRepresentative"),
-      val: money(totalRec, currency),
+      val: fmtCompactMoney(totalRec, currency),
+      exact: money(totalRec, currency),
       sub: t("cashFlow.settlements", { count: received.length }),
       dim: false,
     },
     {
       label: t("cashFlow.expectedTotal"),
-      val: money(totalPend, currency),
+      val: fmtCompactMoney(totalPend, currency),
+      exact: money(totalPend, currency),
       sub: t("cashFlow.pending", { count: pending.length }),
       dim: true,
     },
     {
       label: isReal ? t("cashFlow.totalGap") : t("cashFlow.totalGapRepresentative"),
-      val: !isReal ? "—" : totalGap > 0 ? `−${money(totalGap, currency)}` : "—",
+      val: !isReal ? "—" : totalGap > 0 ? `−${fmtCompactMoney(totalGap, currency)}` : "—",
+      exact: isReal && totalGap > 0 ? money(totalGap, currency) : undefined,
       sub: !isReal ? t("cashFlow.noRealSettlementFile") : totalGap > 0 ? t("cashFlow.underpaid") : t("cashFlow.paidInFull"),
       err: isReal && totalGap > 0,
     },
@@ -146,10 +151,13 @@ function Summary({ entries, currency }: SummaryProps) {
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-zinc-800 border border-zinc-800 mb-8">
-      {cards.map(({ label, val, sub, dim, err }) => (
+      {cards.map(({ label, val, exact, sub, dim, err }) => (
         <div key={label} className="bg-zinc-950 p-4 lg:p-5">
           <div className="text-zinc-600 text-[10px] uppercase tracking-[0.15em] font-sans mb-2">{label}</div>
-          <div className={`font-mono tabular-nums text-lg font-semibold ${err ? "fin-loss" : dim ? "text-zinc-500" : "text-zinc-100"}`}>
+          <div
+            className={`font-mono tabular-nums text-lg font-semibold ${err ? "fin-loss" : dim ? "text-zinc-500" : "text-zinc-100"}`}
+            title={exact}
+          >
             {val}
           </div>
           <div className="text-zinc-700 text-[10px] font-mono mt-1">{sub}</div>

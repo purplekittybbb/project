@@ -9,6 +9,7 @@ import { HomepageToolsSection } from "@/components/marketing/homepage-tools-sect
 import { IntegrationBanner } from "@/components/marketing/integration-banner";
 import { PricingPreview } from "@/components/marketing/pricing-preview";
 import { SocialProofBand } from "@/components/marketing/social-proof-band";
+import { TestimonialsSection } from "@/components/marketing/testimonials-section";
 import { Hero } from "@/components/hero";
 
 export default function Page() {
@@ -18,6 +19,7 @@ export default function Page() {
       <SocialProofBand />
       <IntegrationBanner />
       <HomepageToolsSection />
+      <TestimonialsSection />
       <PricingPreview />
     </MarketingPage>
   );

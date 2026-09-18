@@ -11,6 +11,7 @@
  */
 
 import type { SkuMargin } from "@/lib/domain/margin-engine";
+import { fmtCompactMoney } from "@/lib/format/compact";
 
 export interface DashboardSummaryHeaderProps {
   skus: SkuMargin[];
@@ -166,8 +167,10 @@ export function DashboardSummaryHeader({ skus, currency }: DashboardSummaryHeade
         <span
           className="text-[20px] font-mono tabular-nums font-medium"
           style={{ color: "var(--tm-ink)", opacity: 0.75 }}
+          title={fmtMoney(totalLossMoney, currency)}
         >
-          {fmtMoney(totalLossMoney, currency)}
+          {/* PDF §5.2 — tek-bakış özet: milyon+ kompakt (tam değer title'da). */}
+          {fmtCompactMoney(totalLossMoney, currency)}
         </span>
       </div>
 
