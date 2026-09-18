@@ -42,6 +42,62 @@ function StatusBadge({ status }: { status: CashFlowEntry["status"] }) {
   );
 }
 
+// ─── Payment journey (PDF §6.1: para adım adım, kaybolmuş hissi vermez) ────────
+
+function PaymentJourney({ overdue }: { overdue: boolean }) {
+  // 3 adım: Satış (tamamlandı) → Hakediş (aktif) → Ödeme (bekliyor).
+  const steps: { label: string; state: "done" | "active" | "warn" | "pending" }[] = [
+    { label: "Satış yapıldı", state: "done" },
+    { label: overdue ? "Hakediş gecikti" : "Hakediş sürüyor", state: overdue ? "warn" : "active" },
+    { label: "Ödeme", state: "pending" },
+  ];
+  const dotColor = (s: string) =>
+    s === "done"
+      ? "var(--tm-ledger-green, #3f9668)"
+      : s === "active"
+        ? "var(--tm-copper)"
+        : s === "warn"
+          ? "#d19a3e"
+          : "transparent";
+  return (
+    <div className="flex items-center gap-1 pl-5" aria-label="Ödeme yolculuğu">
+      {steps.map((s, i) => (
+        <div key={s.label} className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+              style={{
+                background: dotColor(s.state),
+                border: s.state === "pending" ? "1.5px solid #3f3f46" : "none",
+                boxShadow: s.state === "active" ? "0 0 0 3px color-mix(in srgb, var(--tm-copper) 25%, transparent)" : "none",
+              }}
+              aria-hidden="true"
+            />
+            <span
+              className="text-[10px] font-mono whitespace-nowrap"
+              style={{
+                color:
+                  s.state === "done"
+                    ? "var(--tm-ledger-green, #3f9668)"
+                    : s.state === "active"
+                      ? "#e4e4e7"
+                      : s.state === "warn"
+                        ? "#d19a3e"
+                        : "#71717a",
+              }}
+            >
+              {s.label}
+            </span>
+          </div>
+          {i < steps.length - 1 && (
+            <span className="w-5 h-px shrink-0" style={{ background: "#3f3f46" }} aria-hidden="true" />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Summary row ─────────────────────────────────────────────────────────────
 
 interface SummaryProps {
@@ -212,25 +268,28 @@ export function CashFlowPanel({ tenantId, channel, currency }: Props) {
         </p>
       </div>
 
-      {/* PDF §6.1 — zaman damgalı, şeffaf para durumu bandı */}
+      {/* PDF §6.1 — zaman damgalı, şeffaf para durumu bandı + ödeme yolculuğu adımları */}
       {nextPending && (
-        <div className="flex items-start gap-3 border border-zinc-800 bg-zinc-900/30 px-4 py-3">
-          <span
-            className="mt-1.5 inline-block w-2 h-2 rounded-full shrink-0"
-            style={{ background: "var(--tm-copper)" }}
-            aria-hidden="true"
-          />
-          <p className="text-[13px] text-zinc-300 leading-relaxed">
-            Bir sonraki ödemeniz{" "}
-            <span className="font-mono tabular-nums text-zinc-100">
-              {money(nextPending.expectedPayout, currency)}
-            </span>{" "}
-            —{" "}
-            <span className="text-zinc-100">{nextPending.dateLabel}</span> tarihinde
-            {nextPending.daysFromToday > 0 ? ` (${nextPending.daysFromToday} gün sonra)` : ""}{" "}
-            hesabınıza geçmesi bekleniyor.
-            <span className="text-zinc-500"> Paranız adım adım takip ediliyor.</span>
-          </p>
+        <div className="border border-zinc-800 bg-zinc-900/30 px-4 py-3.5 space-y-3">
+          <div className="flex items-start gap-3">
+            <span
+              className="mt-1.5 inline-block w-2 h-2 rounded-full shrink-0"
+              style={{ background: "var(--tm-copper)" }}
+              aria-hidden="true"
+            />
+            <p className="text-[13px] text-zinc-300 leading-relaxed">
+              Bir sonraki ödemeniz{" "}
+              <span className="font-mono tabular-nums text-zinc-100">
+                {money(nextPending.expectedPayout, currency)}
+              </span>{" "}
+              —{" "}
+              <span className="text-zinc-100">{nextPending.dateLabel}</span> tarihinde
+              {nextPending.daysFromToday > 0 ? ` (${nextPending.daysFromToday} gün sonra)` : ""}{" "}
+              hesabınıza geçmesi bekleniyor.
+              <span className="text-zinc-500"> Paranız adım adım takip ediliyor.</span>
+            </p>
+          </div>
+          <PaymentJourney overdue={nextPending.status === "overdue"} />
         </div>
       )}
 

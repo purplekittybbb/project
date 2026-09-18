@@ -358,14 +358,20 @@
     padding-inline: 1.5rem;
     font-size: 0.875rem;
     font-weight: 500;
+    /* PDF §4 — modern teknoloji imajı için hafif degrade (düz renk yerine). */
     background-color: var(--tm-copper);
+    background-image: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--tm-copper) 100%, white 8%),
+      var(--tm-copper)
+    );
     color: var(--tm-paper);
     border-radius: var(--tm-r-ui);
-    transition: opacity 0.2s ease;
+    transition: opacity 0.2s ease, filter 0.2s ease;
   }
 
   .tm-btn-primary:hover {
-    opacity: 0.9;
+    filter: brightness(1.05);
   }
 
   .tm-btn-primary:disabled {

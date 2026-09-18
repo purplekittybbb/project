@@ -67,6 +67,21 @@ const SIGNAL_LABELS: Record<string, string> = {
   priceSignal: "Fiyat konumu",
 };
 
+// PDF §7.2 — her faktörün etki yönü/rengi ve büyüklüğü (feature importance).
+function factorMeta(f: { role: "base" | "multiplier"; factor: number }): {
+  label: string;
+  color: string;
+  importance: number;
+} {
+  if (f.role === "base") {
+    return { label: "temel aralığı belirledi", color: "var(--tm-copper)", importance: 1 };
+  }
+  const imp = Math.abs(f.factor - 1);
+  if (f.factor > 1) return { label: `artırdı ×${f.factor.toFixed(2)}`, color: "var(--tm-ledger-green)", importance: imp };
+  if (f.factor < 1) return { label: `azalttı ×${f.factor.toFixed(2)}`, color: "var(--tm-alert-clay)", importance: imp };
+  return { label: "etkisiz", color: "color-mix(in srgb, var(--tm-ink) 40%, transparent)", importance: 0 };
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function DemandEstimateCard({ estimate, sku, last30Units, className }: DemandEstimateCardProps) {
@@ -180,34 +195,68 @@ export function DemandEstimateCard({ estimate, sku, last30Units, className }: De
               {estimate.explanation}
             </p>
 
-            {/* PDF §7.2 Seviye 3 — "Nasıl?": tahmini oluşturan gerçek sinyaller. */}
-            {estimate.signalsUsed && estimate.signalsUsed.length > 0 && (
+            {/* PDF §7.2 Seviye 3 — "Nasıl?": ağırlıklı faktör önem grafiği. */}
+            {estimate.factors && estimate.factors.length > 0 ? (
               <div>
                 <div
-                  className="text-[10px] uppercase tracking-[0.12em] font-sans mb-1"
+                  className="text-[10px] uppercase tracking-[0.12em] font-sans mb-1.5"
                   style={{ color: "var(--tm-ink)", opacity: 0.4 }}
                 >
-                  Kullanılan sinyaller
+                  Faktör ağırlıkları
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {estimate.signalsUsed.map((s) => (
-                    <span
-                      key={s}
-                      className="text-[10px] font-sans"
-                      style={{
-                        color: "var(--tm-ink)",
-                        opacity: 0.7,
-                        background: "color-mix(in srgb, var(--tm-ink) 6%, var(--tm-paper))",
-                        border: "1px solid color-mix(in srgb, var(--tm-ink) 12%, transparent)",
-                        borderRadius: "var(--tm-r-data, 2px)",
-                        padding: "1px 6px",
-                      }}
-                    >
-                      {SIGNAL_LABELS[s] ?? s}
-                    </span>
-                  ))}
+                <div className="space-y-1.5">
+                  {(() => {
+                    const metas = estimate.factors.map(factorMeta);
+                    const maxImp = Math.max(0.0001, ...metas.map((m) => m.importance));
+                    return estimate.factors.map((f, i) => {
+                      const m = metas[i];
+                      const widthPct = Math.max(6, (m.importance / maxImp) * 100);
+                      return (
+                        <div key={f.signalName} className="flex items-center gap-2 text-[10px]">
+                          <span className="w-28 shrink-0 font-sans" style={{ color: "var(--tm-ink)", opacity: 0.7 }}>
+                            {SIGNAL_LABELS[f.signalName] ?? f.signalName}
+                          </span>
+                          <div className="flex-1 h-1.5 rounded-full" style={{ background: "color-mix(in srgb, var(--tm-ink) 8%, transparent)" }}>
+                            <div className="h-full rounded-full" style={{ width: `${widthPct}%`, background: m.color }} />
+                          </div>
+                          <span className="w-24 shrink-0 text-right font-mono" style={{ color: m.color }}>
+                            {m.label}
+                          </span>
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
+            ) : (
+              estimate.signalsUsed && estimate.signalsUsed.length > 0 && (
+                <div>
+                  <div
+                    className="text-[10px] uppercase tracking-[0.12em] font-sans mb-1"
+                    style={{ color: "var(--tm-ink)", opacity: 0.4 }}
+                  >
+                    Kullanılan sinyaller
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {estimate.signalsUsed.map((s) => (
+                      <span
+                        key={s}
+                        className="text-[10px] font-sans"
+                        style={{
+                          color: "var(--tm-ink)",
+                          opacity: 0.7,
+                          background: "color-mix(in srgb, var(--tm-ink) 6%, var(--tm-paper))",
+                          border: "1px solid color-mix(in srgb, var(--tm-ink) 12%, transparent)",
+                          borderRadius: "var(--tm-r-data, 2px)",
+                          padding: "1px 6px",
+                        }}
+                      >
+                        {SIGNAL_LABELS[s] ?? s}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )
             )}
           </div>
         )}

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MARKETING_NAV } from "@/lib/marketing/content";
 import { SITE_NAME } from "@/lib/seo";
+import { companyFooterLine } from "@/lib/legal/company";
 
 const companyLinks = [
   { label: "Giriş", href: "/login" },
@@ -71,6 +72,16 @@ export function SiteFooter() {
         <FooterColumn title="Şirket" links={companyLinks} />
         <FooterColumn title="Yasal" links={legalLinks} />
       </div>
+
+      {/* PDF §2 — ticaret unvanı + MERSİS yasal satırı; lib/legal/company.ts
+          doldurulunca görünür (boşken gizli, sahte bilgi yazılmaz). */}
+      {companyFooterLine() && (
+        <div className="border-t border-border">
+          <div className="mx-auto max-w-6xl px-6 py-3 lg:px-8">
+            <p className="text-[11px] text-muted-foreground">{companyFooterLine()}</p>
+          </div>
+        </div>
+      )}
 
       <div className="border-t border-border">
         <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-2 px-6 py-6 sm:flex-row sm:items-center lg:px-8">

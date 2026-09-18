@@ -1,6 +1,7 @@
 import { MarketingPage } from "@/components/marketing/marketing-page";
 import { Reveal } from "@/components/reveal";
 import { SITE_NAME, MARKETING_MARKETPLACE_LIST_TR } from "@/lib/seo";
+import { COMPANY_INFO, filledCompanyFields } from "@/lib/legal/company";
 
 export default function HakkimizdaPage() {
   return (
@@ -27,17 +28,26 @@ export default function HakkimizdaPage() {
 
           <div className="mt-12 border-t border-border pt-8">
             <h2 className="font-heading text-lg font-semibold tracking-tight text-foreground">
-              İletişim
+              İletişim ve Şirket Bilgileri
             </h2>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Sorularınız, iş birliği talepleriniz veya KVKK başvurularınız için:{" "}
-              <strong className="text-foreground">destek@truemargin.app</strong>
+              <strong className="text-foreground">{COMPANY_INFO.email}</strong>
             </p>
-            {/* TODO(şirket bilgisi): Ticaret unvanı, açık adres ve MERSİS/vergi
-                numarası — bu, gerçek tüzel kişilik bilgileri elde edilene kadar
-                bilerek boş bırakıldı; sahte bir kayıt numarası veya adres
-                yazmak, gerçek şirket bilgisi yazmaktan daha kötü bir güven
-                sorunu yaratır. Gerçek bilgiler eklendiğinde bu not silinebilir. */}
+
+            {/* PDF §2 — fiziksel adres + ticaret unvanı + MERSİS güven verir.
+                Değerler lib/legal/company.ts'te; doldurulunca otomatik görünür,
+                boşken gösterilmez (sahte bilgi yazılmaz). */}
+            {filledCompanyFields().length > 0 && (
+              <dl className="mt-6 grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[auto_1fr]">
+                {filledCompanyFields().map((f) => (
+                  <div key={f.label} className="sm:contents">
+                    <dt className="text-xs uppercase tracking-wide text-muted-foreground/70">{f.label}</dt>
+                    <dd className="text-sm text-foreground">{f.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
           </div>
         </Reveal>
       </section>

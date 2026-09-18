@@ -57,6 +57,18 @@ export interface Multiplier {
   signalName: string;
 }
 
+/**
+ * PDF §7.2 Seviye 3 — "feature importance": tahmini oluşturan her faktörün
+ * ağırlığı. `role: "base"` aralığı belirleyen ana sinyal; `role: "multiplier"`
+ * çarpan sinyaller (factor>1 artırır, <1 azaltır, =1 nötr). Etki büyüklüğü
+ * |factor − 1| ile ölçülür.
+ */
+export interface DemandFactor {
+  signalName: string;
+  factor: number;
+  role: "base" | "multiplier";
+}
+
 export interface DemandRangeResult {
   /** Units/month lower bound, rounded to nearest 5. */
   rangeLow: number;
@@ -68,6 +80,8 @@ export interface DemandRangeResult {
   confidenceLevel: "high" | "medium" | "low";
   /** Names of signals that contributed to this estimate. */
   signalsUsed: string[];
+  /** PDF §7.2 — ağırlıklı faktörler (feature importance). */
+  factors: DemandFactor[];
   /** Turkish human-readable explanation. */
   explanation: string;
 }
@@ -255,12 +269,22 @@ export function estimateDemand(input: DemandInput): DemandRangeResult {
   // ── Step 6: Turkish explanation ───────────────────────────────────────────
   const explanation = buildTurkishExplanation(signalsUsed, rangeLow, rangeHigh, confidenceLevel);
 
+  // ── Step 7: weighted factors (PDF §7.2 feature importance) ────────────────
+  const factors: DemandFactor[] = [];
+  if (input.stockDelta) {
+    factors.push({ signalName: "stockDelta", factor: 1, role: "base" });
+  }
+  for (const m of multipliers) {
+    factors.push({ signalName: m.signalName, factor: m.factor, role: "multiplier" });
+  }
+
   return {
     rangeLow,
     rangeHigh,
     confidenceScore,
     confidenceLevel,
     signalsUsed,
+    factors,
     explanation,
   };
 }

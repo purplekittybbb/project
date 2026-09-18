@@ -84,6 +84,7 @@ export async function loadDemandEstimates(sku?: string): Promise<StoredDemandEst
     confidenceScore: Number(r.confidence_score),
     confidenceLevel: r.confidence_level as "high" | "medium" | "low",
     signalsUsed: (r.signals_used as string[]) ?? [],
+    factors: [], // DB'de saklanmıyor; ağırlıklı faktörler yalnızca taze tahminde
     explanation: String(r.explanation ?? ""),
     estimatedAt: String(r.estimated_at),
   }));
@@ -119,6 +120,7 @@ export async function loadLatestDemandEstimate(
     confidenceScore: Number(r.confidence_score),
     confidenceLevel: r.confidence_level as "high" | "medium" | "low",
     signalsUsed: (r.signals_used as string[]) ?? [],
+    factors: [], // DB'de saklanmıyor; ağırlıklı faktörler yalnızca taze tahminde
     explanation: String(r.explanation ?? ""),
     estimatedAt: String(r.estimated_at),
   };
