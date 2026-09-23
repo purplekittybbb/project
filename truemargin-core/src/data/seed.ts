@@ -85,7 +85,7 @@ export function deriveUnderwritingInputs(seller: SeededSeller): UnderwritingInpu
 
   const revenueWeightedReturn =
     txs.reduce((a, t) => a + t.fees.returnsAllocated, 0) /
-    Math.max(1, agg.cogs);
+    Math.max(1, agg.grossRevenue);
 
   return {
     trueMarginPct,

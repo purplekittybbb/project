@@ -10,6 +10,7 @@ import {
 interface MobileNavProps {
   open: boolean;
   onClose: () => void;
+  signedIn?: boolean;
 }
 
 function MobileSection({
@@ -46,7 +47,7 @@ function MobileSection({
   );
 }
 
-export function MobileNav({ open, onClose }: MobileNavProps) {
+export function MobileNav({ open, onClose, signedIn = false }: MobileNavProps) {
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -93,20 +94,32 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
         </div>
 
         <div className="flex flex-col gap-2 px-4 py-4">
-          <Link
-            href="/login"
-            onClick={onClose}
-            className="inline-flex h-10 items-center justify-center border border-border text-sm text-foreground"
-          >
-            Üye Girişi
-          </Link>
-          <Link
-            href="/signup"
-            onClick={onClose}
-            className="inline-flex h-10 items-center justify-center bg-[var(--tm-copper)] text-sm font-medium text-[var(--tm-paper)]"
-          >
-            Kaydol
-          </Link>
+          {signedIn ? (
+            <Link
+              href="/dashboard"
+              onClick={onClose}
+              className="inline-flex h-10 items-center justify-center bg-[var(--tm-copper)] text-sm font-medium text-[var(--tm-paper)]"
+            >
+              Panele git
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                onClick={onClose}
+                className="inline-flex h-10 items-center justify-center border border-border text-sm text-foreground"
+              >
+                Üye Girişi
+              </Link>
+              <Link
+                href="/signup"
+                onClick={onClose}
+                className="inline-flex h-10 items-center justify-center bg-[var(--tm-copper)] text-sm font-medium text-[var(--tm-paper)]"
+              >
+                Kaydol
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -30,6 +30,9 @@ export type ScrapeJobPayload = {
   keyword: string;
   targetTitle?: string;
   reason?: "rate_limit_429" | "slot_full" | "cache_miss" | "manual";
+  /** Subject that was charged at enqueue — refunds MUST use this, not poll-time auth. */
+  quotaSubjectType?: "ip" | "user";
+  quotaSubjectKey?: string;
 };
 
 /** Payload stored on the DLQ after retries are exhausted. */

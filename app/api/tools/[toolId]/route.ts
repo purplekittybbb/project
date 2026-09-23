@@ -7,6 +7,8 @@ import {
   buildRateLimitSubject,
   checkAndIncrementToolUsage,
   refundToolUsage,
+  refundToolUsageOnce,
+  type RateLimitSubject,
 } from "@/lib/tools/guest-rate-limit";
 import { isScraperToolId, type StandaloneToolId } from "@/lib/tools/registry";
 import { resolveQueuedScrapeJob } from "@/lib/tools/resolve-queued-job";
@@ -43,11 +45,6 @@ async function getOptionalUser(): Promise<{ userId: string | null; supabase: Sup
   return { userId: data.user?.id ?? null, supabase };
 }
 
-/**
- * True when a signed-in user has an active/trialing subscription.
- * Best-effort: any failure degrades to `false` (free-tier limit), never
- * throws — this must never block a standalone-tool query from running.
- */
 async function isPaidUser(supabase: SupabaseClient | null, userId: string | null): Promise<boolean> {
   if (!supabase || !userId) return false;
   try {
@@ -64,9 +61,18 @@ function extractQueuedJobId(data: unknown): string | null {
   return typeof jobId === "string" && jobId.length > 0 ? jobId : null;
 }
 
+async function resolveRefundSubject(
+  preferred: RateLimitSubject | null,
+  req: Request,
+): Promise<RateLimitSubject> {
+  if (preferred) return preferred;
+  const { userId } = await getOptionalUser();
+  return buildRateLimitSubject(req.headers, userId);
+}
+
 /**
  * Poll an enqueued scrape job. No rate-limit increment — the POST that created
- * the job already held a quota unit. Permanent failures refund.
+ * the job already held a quota unit. Permanent failures refund once (idempotent).
  */
 export async function GET(req: Request, context: RouteContext) {
   const { toolId: rawToolId } = await context.params;
@@ -76,7 +82,9 @@ export async function GET(req: Request, context: RouteContext) {
     return NextResponse.json({ error: "Bilinmeyen veya mağaza gerektiren araç." }, { status: 404 });
   }
 
-  const jobId = new URL(req.url).searchParams.get("jobId")?.trim();
+  const url = new URL(req.url);
+  const jobId = url.searchParams.get("jobId")?.trim();
+  const abandon = url.searchParams.get("abandon") === "1";
   if (!jobId) {
     return NextResponse.json(
       { error: "jobId gerekli. Önce POST ile sorgu gönderin." },
@@ -84,20 +92,21 @@ export async function GET(req: Request, context: RouteContext) {
     );
   }
 
-  const resolved = await resolveQueuedScrapeJob(toolId, jobId);
-  if (resolved.status === "error") {
-    if (resolved.shouldRefund) {
-      const { userId } = await getOptionalUser();
-      const subject = buildRateLimitSubject(req.headers, userId);
-      await refundToolUsage(toolId, subject);
-    }
-    return NextResponse.json({ error: resolved.error }, { status: resolved.httpStatus });
+  let resolved;
+  try {
+    resolved = await resolveQueuedScrapeJob(toolId, jobId, { abandon });
+  } catch (err) {
+    console.error("[tools GET] resolve failed:", err);
+    return NextResponse.json({ error: "Kuyruk durumu okunamadı. Birazdan tekrar deneyin." }, { status: 503 });
   }
 
   if (resolved.shouldRefund) {
-    const { userId } = await getOptionalUser();
-    const subject = buildRateLimitSubject(req.headers, userId);
-    await refundToolUsage(toolId, subject);
+    const subject = await resolveRefundSubject(resolved.refundSubject, req);
+    await refundToolUsageOnce(toolId, subject, jobId);
+  }
+
+  if (resolved.status === "error") {
+    return NextResponse.json({ error: resolved.error }, { status: resolved.httpStatus });
   }
 
   return NextResponse.json(resolved.envelope, { status: 200 });
@@ -148,7 +157,26 @@ export async function POST(req: Request, context: RouteContext) {
   }
 
   const parsed = parseToolQuery(query, body.marketplace);
-  const result = await runStandaloneTool(toolId, parsed);
+
+  let result;
+  try {
+    result = await runStandaloneTool(toolId, parsed, { quotaSubject: subject });
+  } catch (err) {
+    console.error("[tools POST] run failed:", err);
+    if (quota.enforced) await refundToolUsage(toolId, subject);
+    return NextResponse.json(
+      {
+        error: "Şu an tarayamadık. Birazdan tekrar deneyin.",
+        quota: {
+          limit: quota.limit,
+          remaining: Math.min(quota.limit, quota.remaining + (quota.enforced ? 1 : 0)),
+          used: Math.max(0, quota.used - (quota.enforced ? 1 : 0)),
+          enforced: quota.enforced,
+        },
+      },
+      { status: 200 },
+    );
+  }
 
   let quotaOut = {
     limit: quota.limit,
@@ -157,9 +185,6 @@ export async function POST(req: Request, context: RouteContext) {
     enforced: quota.enforced,
   };
 
-  // Free-tier honesty: don't charge empty / blocked / preview results.
-  // In-flight queue jobs WITH jobId keep the charge (poll delivers or refunds).
-  // Slot-full queued without jobId still refunds so retries aren't free forever.
   const queuedJobId = result.mode === "queued" ? extractQueuedJobId(result.data) : null;
   const holdQuotaForJob = Boolean(queuedJobId);
   if (quota.enforced && !isUsableStandaloneResult(toolId, result) && !holdQuotaForJob) {
@@ -171,7 +196,6 @@ export async function POST(req: Request, context: RouteContext) {
     };
   }
 
-  // Always 200: cache hit, enqueue ack, or short sync fallback.
   return NextResponse.json(
     {
       ...result,

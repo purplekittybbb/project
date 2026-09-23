@@ -325,7 +325,9 @@ export function MyDataPanel({ rows, authConfigured, busy, actionError, onUpload,
                     <td className="px-3 py-2 text-zinc-500 tabular-nums">{r.sale_date}</td>
                     <td className="px-3 py-2 text-right text-zinc-400 tabular-nums">{r.units}</td>
                     <td className="px-3 py-2 text-right text-zinc-300 tabular-nums">{money(r.gross_revenue)}</td>
-                    <td className="px-3 py-2 text-right text-zinc-500 tabular-nums">{(r.return_rate * 100).toFixed(0)}%</td>
+                    <td className="px-3 py-2 text-right text-zinc-500 tabular-nums">
+                      {(r.return_rate * 100).toLocaleString("tr-TR", { maximumFractionDigits: 0 })}%
+                    </td>
                     <td className="px-3 py-2 text-right">
                       <button
                         onClick={() => onDeleteRow(r.id)}

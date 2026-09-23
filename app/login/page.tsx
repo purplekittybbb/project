@@ -7,7 +7,7 @@
 import { Suspense, useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { getSupabaseClient } from "@/lib/supabase/client";
+import { getSupabaseClient, allowUnauthedDemoBypass } from "@/lib/supabase/client";
 import { safeNextPath } from "@/lib/auth/safe-next-path";
 import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
 import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
@@ -67,27 +67,37 @@ function LoginForm() {
 
     const supabase = getSupabaseClient();
     if (!supabase) {
+      if (!allowUnauthedDemoBypass()) {
+        setLoading(false);
+        setFormError("Kimlik doğrulama yapılandırılmamış. Lütfen daha sonra tekrar deneyin.");
+        return;
+      }
       await new Promise((r) => setTimeout(r, 500));
       window.location.assign(nextPath);
       return;
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-    if (error) {
+      if (error) {
+        setFormError(
+          error.message === "Invalid login credentials"
+            ? "E-posta veya şifre kayıtlarımızla eşleşmiyor."
+            : "Giriş yapılamadı. Lütfen tekrar deneyin.",
+        );
+        return;
+      }
+
+      window.location.assign(nextPath);
+    } catch {
+      setFormError("Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.");
+    } finally {
       setLoading(false);
-      setFormError(
-        error.message === "Invalid login credentials"
-          ? "E-posta veya şifre kayıtlarımızla eşleşmiyor."
-          : error.message,
-      );
-      return;
     }
-
-    window.location.assign(nextPath);
   }
 
   if (!mounted) {

@@ -88,11 +88,23 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
-function inlineFailEnvelope(toolId: ScraperToolId): ToolRunEnvelope {
+function inlineFailEnvelope(
+  toolId: ScraperToolId,
+  input?: ParsedToolQuery,
+): ToolRunEnvelope {
   return {
     toolId,
     mode: "live",
-    data: { error: INLINE_SCRAPE_FAIL_MESSAGE },
+    data: {
+      error: INLINE_SCRAPE_FAIL_MESSAGE,
+      ...(input
+        ? {
+            keyword: input.keyword,
+            targetTitle: input.targetTitle,
+            marketplace: input.marketplace,
+          }
+        : {}),
+    },
   };
 }
 
@@ -248,6 +260,7 @@ async function cacheTop100Result(input: ParsedToolQuery, result: Top100AnalysisR
 async function tryEnqueueScrape(
   toolId: ScraperToolId,
   input: ParsedToolQuery,
+  quotaSubject?: { type: "ip" | "user"; key: string },
 ): Promise<ToolRunEnvelope | null> {
   if (!isRedisConfigured()) return null;
 
@@ -257,6 +270,9 @@ async function tryEnqueueScrape(
     keyword: input.keyword,
     targetTitle: input.targetTitle,
     reason: "cache_miss",
+    ...(quotaSubject
+      ? { quotaSubjectType: quotaSubject.type, quotaSubjectKey: quotaSubject.key }
+      : {}),
   });
 
   if (!enqueued.queued) return null;
@@ -266,6 +282,7 @@ async function tryEnqueueScrape(
 export async function runStandaloneTool(
   toolId: ScraperToolId,
   input: ParsedToolQuery,
+  opts?: { quotaSubject?: { type: "ip" | "user"; key: string } },
 ): Promise<ToolRunEnvelope> {
   const anon = anonSupabaseClient();
 
@@ -350,14 +367,21 @@ export async function runStandaloneTool(
   }
 
   // Cache miss — enqueue (preferred); never scrape inside the Vercel handler when Redis is up.
-  const queued = await tryEnqueueScrape(toolId, input);
+  const queued = await tryEnqueueScrape(toolId, input, opts?.quotaSubject);
   if (queued) return queued;
 
   // Redis unavailable — short sync scrape behind Postgres lease (≤~20s).
   const anonForSlot = anon ?? anonSupabaseClient();
   const slot = await acquireScrapeSlot(anonForSlot, input.marketplace);
   if (!slot.acquired) {
-    return buildQueuedEnvelope(toolId, 8);
+    return {
+      toolId,
+      mode: "queued",
+      data: {
+        message: "Tüm tarama slotları dolu — birkaç saniye sonra otomatik tekrar denenecek.",
+        retryAfterSeconds: 8,
+      },
+    };
   }
 
   const session = await createBrowserSession();
@@ -365,7 +389,7 @@ export async function runStandaloneTool(
 
   try {
     if (!page) {
-      return inlineFailEnvelope(toolId);
+      return inlineFailEnvelope(toolId, input);
     }
 
     const live = await withTimeout(
@@ -375,7 +399,7 @@ export async function runStandaloneTool(
     );
     return live;
   } catch {
-    return inlineFailEnvelope(toolId);
+    return inlineFailEnvelope(toolId, input);
   } finally {
     await session?.close().catch(() => {
       /* ignore */
@@ -401,7 +425,16 @@ async function runInlineScrape(
         page,
       );
       if (data.error) {
-        return { toolId, mode: "live", data: { error: INLINE_SCRAPE_FAIL_MESSAGE } };
+        return {
+          toolId,
+          mode: "live",
+          data: {
+            error: INLINE_SCRAPE_FAIL_MESSAGE,
+            keyword: input.keyword,
+            targetTitle: input.targetTitle,
+            marketplace: input.marketplace,
+          },
+        };
       }
       await cacheVisibilityResult(input, {
         rank: data.rank,
@@ -433,7 +466,16 @@ async function runInlineScrape(
         page,
       );
       if (data.error) {
-        return { toolId, mode: "live", data: { error: INLINE_SCRAPE_FAIL_MESSAGE } };
+        return {
+          toolId,
+          mode: "live",
+          data: {
+            error: INLINE_SCRAPE_FAIL_MESSAGE,
+            keyword: input.keyword,
+            targetTitle: input.targetTitle,
+            marketplace: input.marketplace,
+          },
+        };
       }
       await cacheVisibilityResult(input, {
         rank: data.rank,

@@ -488,10 +488,6 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // are just browsing the demo, not on any trial. Keep it null (hidden) in
   // demoMode; it stays real for signed-in users on the actual dashboard.
   const [trialDaysLeft, setTrialDaysLeft] = useState<number | null>(null);
-  useEffect(() => {
-    if (demoMode) return;
-    setTrialDaysLeft(getTrialDaysLeft());
-  }, [demoMode]);
 
   // Marketplaces the user connected during onboarding (client-only localStorage).
   // Read after mount to avoid hydration mismatch.
@@ -541,7 +537,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           } else if (c.lastSyncedAt) {
             fromServer[c.marketplace] = {
               ok: true,
-              message: `Son senkron: ${new Date(c.lastSyncedAt).toLocaleString()}`,
+              message: `Son senkron: ${new Date(c.lastSyncedAt).toLocaleString("tr-TR", {
+                dateStyle: "short",
+                timeStyle: "short",
+              })}`,
             };
           }
         }
@@ -637,6 +636,20 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   }
   const [billingStatus, setBillingStatus] = useState<BillingStatusView | null>(null);
   const [billingStatusError, setBillingStatusError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (demoMode) return;
+    const fromServer = billingStatus?.subscription?.trialEnd;
+    if (fromServer) {
+      const endMs = new Date(fromServer).getTime();
+      if (!Number.isNaN(endMs)) {
+        const days = Math.max(0, Math.ceil((endMs - Date.now()) / 86_400_000));
+        setTrialDaysLeft(days);
+        return;
+      }
+    }
+    setTrialDaysLeft(getTrialDaysLeft());
+  }, [demoMode, billingStatus?.subscription?.trialEnd]);
 
   async function loadBillingStatus() {
     if (!authConfigured) return;
@@ -904,7 +917,18 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const netContribution = live.netContribution;
 
   const belief = view.perceivedMarginBelief;
-  const ptsDiff = Math.abs(belief - marginPercent).toFixed(1);
+  // Compare belief to engine true margin (not the live ad-spend slider) for honest copy.
+  const ptsDelta = belief - view.trueMarginPct;
+  const ptsDiff = Math.abs(ptsDelta).toLocaleString("tr-TR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+  const ptsDiffLabel =
+    Math.abs(ptsDelta) < 0.05
+      ? "fark yok"
+      : ptsDelta > 0
+        ? `${ptsDiff} puan yüksek`
+        : `${ptsDiff} puan düşük`;
 
   const commission = w.commission;
   const vat = w.vat;
@@ -1115,7 +1139,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   }, [tenant, channel]);
 
   const renderCostRow = (label: string, value: number) => {
-    const pct = (value / grossRev) * 100;
+    const pct = grossRev > 0 ? (value / grossRev) * 100 : 0;
     return (
       <div className="flex items-center justify-between py-2 group">
         <div className="w-24 lg:w-32 text-zinc-500 shrink-0">{label}</div>
@@ -1216,7 +1240,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const trialStillActive =
     billingStatus?.subscription?.status === "trialing" &&
     (!billingStatus.subscription.trialEnd || new Date(billingStatus.subscription.trialEnd).getTime() > Date.now());
+  // Infra/billing fetch failure must not silently revoke Pro — treat as unknown.
+  const billingUnknown = billingStatusLoaded && !!billingStatusError && !billingStatus;
   const hasProAccess =
+    billingUnknown ||
     trialStillActive ||
     (billingStatus?.paidPlan?.status === "active" && billingStatus.paidPlan.planId === "pro");
 
@@ -1527,6 +1554,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   marginPercent={marginPercent}
                   belief={belief}
                   ptsDiff={ptsDiff}
+                  ptsDiffLabel={ptsDiffLabel}
                   netContribution={netContribution}
                   grossRev={grossRev}
                   commission={commission}
@@ -2000,9 +2028,12 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               manipulating currentTab. */}
           {currentTab === "Financing" && !authConfigured && fin && (
             <div className="max-w-[1200px] mx-auto px-8 py-12 md:py-20">
-              <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-12 border-l border-zinc-800 pl-4">
+              <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-2 border-l border-zinc-800 pl-4">
                 {t("financing.activeCreditLine", { seller: view.label })}
               </h2>
+              <p className="mb-12 pl-4 text-[11px] text-zinc-600 font-mono">
+                Trendyol portföy modeli — kanal seçicisinden bağımsız (demo underwriting)
+              </p>
 
               <div className="grid gap-16 lg:grid-cols-2 mb-20">
                 {/* LEFT: the unlock */}
@@ -2104,7 +2135,9 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">{t("financing.marketplaceConnectors")}</div>
                   </div>
                   <div className="bg-zinc-950 p-4 lg:p-6">
-                    <div className="text-2xl font-mono tabular-nums text-zinc-100">{portfolio.gmvCoveragePct.toFixed(0)}%</div>
+                    <div className="text-2xl font-mono tabular-nums text-zinc-100">
+                      {portfolio.gmvCoveragePct == null ? "—" : `${portfolio.gmvCoveragePct.toFixed(0)}%`}
+                    </div>
                     <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">{t("financing.gmvCoverage")}</div>
                   </div>
                 </div>

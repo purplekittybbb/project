@@ -146,8 +146,14 @@ export function ProfitCalculator() {
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Komisyon oranı ({category}): {result ? `%${result.commissionRatePct.toFixed(1)}` : "—"} ·
-          Temsilî oranlar — panel sözleşmenizle doğrulayın.
+          Komisyon oranı ({category}):{" "}
+          {result
+            ? `%${result.commissionRatePct.toLocaleString("tr-TR", {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+              })}`
+            : "—"}{" "}
+          · Temsilî oranlar — panel sözleşmenizle doğrulayın.
         </p>
       </form>
 

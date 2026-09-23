@@ -11,7 +11,11 @@ export function fmtTry(value: number): string {
 
 export function fmtPct(value: number, digits = 1): string {
   const sign = value >= 0 ? "+" : "−";
-  return `${sign}${Math.abs(value).toFixed(digits)}%`;
+  const body = Math.abs(value).toLocaleString("tr-TR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+  return `${sign}${body}%`;
 }
 
 export function fmtInt(value: number): string {

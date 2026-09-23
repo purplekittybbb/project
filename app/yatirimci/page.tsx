@@ -17,8 +17,8 @@ export const metadata = {
 export default function YatirimciPage() {
   const m = getPortfolioMetrics();
   const benches = getBenchmarkRows();
-  const pct = (n: number) =>
-    `${n.toLocaleString("tr-TR", { maximumFractionDigits: 1 })}%`;
+  const pct = (n: number | null) =>
+    n == null ? "—" : `${n.toLocaleString("tr-TR", { maximumFractionDigits: 1 })}%`;
 
   return (
     <MarketingPage>

@@ -156,3 +156,37 @@ export async function refundToolUsage(
     { onConflict: "day,tool_id,subject_key,subject_type" },
   );
 }
+
+/**
+ * Idempotent refund keyed by (toolId, refundKey) — e.g. BullMQ jobId.
+ * Uses Redis SET NX when available; falls back to always-refund if Redis is down
+ * (rare; better to over-refund than strand the guest).
+ * Returns whether a refund was actually applied this call.
+ */
+export async function refundToolUsageOnce(
+  toolId: StandaloneToolId,
+  subject: RateLimitSubject,
+  refundKey: string,
+  client?: SupabaseClient | null,
+): Promise<boolean> {
+  const key = refundKey.trim();
+  if (!key) {
+    await refundToolUsage(toolId, subject, client);
+    return true;
+  }
+
+  try {
+    const { createRedisConnection } = await import("@/lib/queue");
+    const redis = createRedisConnection();
+    if (redis) {
+      const ok = await redis.set(`tm:quota-refund:${toolId}:${key}`, "1", "EX", 86_400, "NX");
+      await redis.quit().catch(() => undefined);
+      if (ok !== "OK") return false;
+    }
+  } catch {
+    // Redis unavailable — proceed with refund (prefer guest honesty).
+  }
+
+  await refundToolUsage(toolId, subject, client);
+  return true;
+}

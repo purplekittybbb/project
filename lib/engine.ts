@@ -249,14 +249,8 @@ export interface SettlementVerification {
   currency: string;
   marketplaceLabel: string;
   /**
-   * False whenever `actualPayout` came from the representative SETTLEMENT_GAP_RATES
-   * model rather than a real settlement file. Today NO adapter or CSV column ingests
-   * an actual-paid-out figure distinct from the engine's own expected-payout
-   * calculation — so this is true ONLY for the 3 seed demo sellers (whose gap rates
-   * are an explicit, disclosed model of real-world Trendyol settlement discrepancy
-   * patterns), and always false for a real signed-in user. Per the no-silent-precision
-   * rule, a false value must never render as a bare "tam ödedi ✓" — the UI has to
-   * say this figure is modeled/representative, not a verified reconciliation.
+   * True only when actualPayout came from an ingested settlement file.
+   * Seed SETTLEMENT_GAP_RATES are a disclosed model — never "verified".
    */
   isRealSettlementData: boolean;
 }
@@ -271,8 +265,10 @@ export function computeSettlementVerification(
     0,
     w.grossRevenue - w.commission - w.vat - w.paymentFees - w.returnsAllocated
   );
-  const isRealSettlementData = Object.prototype.hasOwnProperty.call(SETTLEMENT_GAP_RATES, tenantId);
-  const gapRate = SETTLEMENT_GAP_RATES[tenantId] ?? 0;
+  const usesModeledGap = Object.prototype.hasOwnProperty.call(SETTLEMENT_GAP_RATES, tenantId);
+  // Modeled seed gaps are NOT real settlement data.
+  const isRealSettlementData = false;
+  const gapRate = usesModeledGap ? SETTLEMENT_GAP_RATES[tenantId]! : 0;
   const actualPayout = Math.round(expectedPayout * (1 - gapRate));
   const gap = Math.round(expectedPayout - actualPayout);
   return {
@@ -790,7 +786,8 @@ export function getBacktest(): { report: BacktestReport; ledgerSize: number; led
 export interface PortfolioMetrics {
   designPartners: number;
   marketplacesConnected: number;
-  gmvCoveragePct: number;
+  /** null until real ingested GMV / connector coverage is measured. */
+  gmvCoveragePct: number | null;
   takeRateMinPct: number;
   takeRateMaxPct: number;
   chargeOffOursPct: number;
@@ -820,8 +817,9 @@ export function getPortfolioMetrics(): PortfolioMetrics {
 
   return {
     designPartners: SELLERS.length,
-    marketplacesConnected: MARKETPLACES.length,
-    gmvCoveragePct: 100, // all transactions for onboarded sellers flow through connected adapters
+    // Live sync adapters today: Trendyol, Hepsiburada, N11 (Amazon/Shopify planned).
+    marketplacesConnected: 3,
+    gmvCoveragePct: null,
     takeRateMinPct: approvedTakeRates.length ? Math.min(...approvedTakeRates) : 0,
     takeRateMaxPct: approvedTakeRates.length ? Math.max(...approvedTakeRates) : 0,
     chargeOffOursPct: report.trueMargin.chargeOffRate * 100,
@@ -837,7 +835,8 @@ export function getPortfolioMetrics(): PortfolioMetrics {
  *  cited in the investor memo (Lendflow 2025 embedded-lending benchmark). */
 export function getBenchmarkRows(): BenchmarkRow[] {
   const m = getPortfolioMetrics();
-  const pct1 = (n: number) => `${n.toFixed(1)}%`;
+  const pct1 = (n: number) =>
+    `${n.toLocaleString("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
   return [
     {
       label: "Charge-off rate",
@@ -853,13 +852,13 @@ export function getBenchmarkRows(): BenchmarkRow[] {
     },
     {
       label: "Take-rate band",
-      ours: `${m.takeRateMinPct.toFixed(1)}–${m.takeRateMaxPct.toFixed(1)}%`,
+      ours: `${m.takeRateMinPct.toLocaleString("tr-TR", { maximumFractionDigits: 1 })}–${m.takeRateMaxPct.toLocaleString("tr-TR", { maximumFractionDigits: 1 })}%`,
       target: "3–6%",
       meetsTarget: m.takeRateMinPct >= 3 - 1e-6 && m.takeRateMaxPct <= 6 + 1e-6,
     },
     {
       label: "Decision latency",
-      ours: `${m.decisionLatencyMs.toFixed(1)}ms`,
+      ours: `${m.decisionLatencyMs.toLocaleString("tr-TR", { maximumFractionDigits: 1 })}ms`,
       target: "< 2s",
       meetsTarget: m.decisionLatencyMs < 2000,
     },
@@ -890,7 +889,17 @@ const SETTLEMENT_DELAY_DAYS: Record<Marketplace, number> = {
   shopify:     2, // Shopify Payments payout cycle (no marketplace settlement delay — it's the seller's own store)
 };
 
-export type CashFlowStatus = "received" | "pending" | "overdue";
+export type CashFlowStatus = "received" | "pending" | "dueSoon" | "overdue";
+
+/** Calendar date YYYY-MM-DD in Europe/Istanbul (not UTC). */
+export function todayInIstanbul(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Istanbul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
 
 export interface CashFlowEntry {
   /** Estimated bank credit date (ISO). */
@@ -939,7 +948,7 @@ function diffDays(isoA: string, isoB: string): number {
 export function getCashFlowProjection(
   tenantId: string,
   channel: Channel,
-  today = new Date().toISOString().slice(0, 10)
+  today = todayInIstanbul()
 ): CashFlowEntry[] {
   const seller = findSeller(tenantId);
   if (!seller) return [];
@@ -947,8 +956,10 @@ export function getCashFlowProjection(
   const txs = transactionsForChannel(seller, channel);
   if (txs.length === 0) return [];
 
-  const isRealSettlementData = Object.prototype.hasOwnProperty.call(SETTLEMENT_GAP_RATES, tenantId);
-  const gapRate = SETTLEMENT_GAP_RATES[tenantId] ?? 0;
+  // Seed modeled gaps are representative — never labeled as verified settlement data.
+  const usesModeledGap = Object.prototype.hasOwnProperty.call(SETTLEMENT_GAP_RATES, tenantId);
+  const isRealSettlementData = false;
+  const gapRate = usesModeledGap ? SETTLEMENT_GAP_RATES[tenantId]! : 0;
 
   // Group by expected settlement date + marketplace
   const buckets = new Map<string, Transaction[]>();
@@ -983,8 +994,8 @@ export function getCashFlowProjection(
       isPast
         ? "received"
         : daysFromToday <= 3
-        ? "overdue"   // ≤3 days out → alert pending
-        : "pending";
+          ? "dueSoon"
+          : "pending";
 
     entries.push({
       settlementDate,

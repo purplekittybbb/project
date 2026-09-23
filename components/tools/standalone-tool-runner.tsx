@@ -86,8 +86,9 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
     const payload = (json.data ?? json) as Record<string, unknown>;
     const scrapeError =
       typeof payload.error === "string" && payload.error.trim().length > 0 ? payload.error : null;
+    // Panel owns scrape failures (shows keyword + honest message). Outer alert is for HTTP/network only.
     if (scrapeError) {
-      setError(scrapeError);
+      setError(null);
     } else {
       setError(null);
     }
@@ -97,11 +98,15 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
     setLoading(false);
   }
 
-  async function pollJobOnce(jobId: string): Promise<"continue" | "done"> {
-    const res = await fetch(`/api/tools/${toolId}?jobId=${encodeURIComponent(jobId)}`, {
+  async function pollJobOnce(jobId: string, abandon = false): Promise<"continue" | "done"> {
+    const qs = new URLSearchParams({ jobId });
+    if (abandon) qs.set("abandon", "1");
+    const res = await fetch(`/api/tools/${toolId}?${qs.toString()}`, {
       method: "GET",
     });
     const json = (await res.json()) as ToolApiJson;
+
+    if (json.quota) setQuota(json.quota);
 
     if (!res.ok) {
       setQueueStatus(null);
@@ -112,7 +117,7 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
       return "done";
     }
 
-    if (json.mode === "queued") {
+    if (json.mode === "queued" && !abandon) {
       const msg =
         (typeof json.data?.message === "string" && json.data.message) ||
         "Sonucun hazırlanıyor…";
@@ -134,11 +139,15 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
       if (stopped || cancelledRef.current) return;
       const started = pollStartedAt.current ?? Date.now();
       if (Date.now() - started > MAX_POLL_MS) {
-        setQueueStatus(null);
-        setPollJobId(null);
-        pollStartedAt.current = null;
-        setError("Tarama beklenenden uzun sürdü. Birazdan tekrar deneyin.");
-        setLoading(false);
+        try {
+          await pollJobOnce(pollJobId, true);
+        } catch {
+          setQueueStatus(null);
+          setPollJobId(null);
+          pollStartedAt.current = null;
+          setError("Tarama beklenenden uzun sürdü. Birazdan tekrar deneyin.");
+          setLoading(false);
+        }
         return;
       }
       try {
@@ -167,6 +176,13 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
 
   /** Slot-full without jobId — quietly re-POST a few times. */
   const MAX_QUEUE_RETRIES = 5;
+  const slotRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (slotRetryTimer.current) clearTimeout(slotRetryTimer.current);
+    };
+  }, []);
 
   async function runQuery(attempt: number) {
     try {
@@ -208,7 +224,8 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
           (typeof json.data?.message === "string" && json.data.message) ||
             "Şu anda yoğunluk var, sırada bekleniyor…",
         );
-        setTimeout(() => void runQuery(attempt + 1), wait * 1000);
+        if (slotRetryTimer.current) clearTimeout(slotRetryTimer.current);
+        slotRetryTimer.current = setTimeout(() => void runQuery(attempt + 1), wait * 1000);
         return;
       }
 

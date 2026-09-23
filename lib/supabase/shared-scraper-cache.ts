@@ -86,5 +86,9 @@ export function upsertSharedTop100Scan(
   keyword: string,
   result: Top100AnalysisResult,
 ): Promise<{ error: string | null }> {
+  const items = result.items ?? [];
+  if (!items.some((item) => item.price > 0)) {
+    return Promise.resolve({ error: "refused: no usable price > 0 — cache write skipped" });
+  }
   return upsertCached(supabase, "shared_top100_scans", marketplace, keyword, result);
 }

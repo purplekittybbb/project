@@ -13,9 +13,9 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { getSupabaseClient } from "@/lib/supabase/client";
+import { allowUnauthedDemoBypass, getSupabaseClient } from "@/lib/supabase/client";
 
-type Status = "checking" | "authed" | "guest";
+type Status = "checking" | "authed" | "guest" | "misconfigured";
 
 function loginUrlFor(pathname: string | null): string {
   if (!pathname || pathname === "/login" || pathname === "/signup") return "/login";
@@ -31,7 +31,11 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     const supabase = getSupabaseClient();
 
     if (!supabase) {
-      setStatus("authed");
+      if (allowUnauthedDemoBypass()) {
+        setStatus("authed");
+      } else {
+        setStatus("misconfigured");
+      }
       return;
     }
 
@@ -74,6 +78,16 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
           <span className="inline-block w-1.5 h-1.5 bg-muted-foreground rounded-full animate-pulse" />
           Oturum doğrulanıyor…
         </div>
+      </div>
+    );
+  }
+
+  if (status === "misconfigured") {
+    return (
+      <div className="min-h-screen w-full bg-background flex items-center justify-center px-6">
+        <p className="max-w-md text-center text-sm text-muted-foreground">
+          Kimlik doğrulama yapılandırılmamış. Lütfen daha sonra tekrar deneyin.
+        </p>
       </div>
     );
   }

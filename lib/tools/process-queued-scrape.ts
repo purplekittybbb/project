@@ -18,7 +18,7 @@ import type { ToolMarketplace } from "@/lib/tools/parse-query";
 
 function asMarketplace(value: string): ToolMarketplace {
   if (value === "hepsiburada" || value === "n11" || value === "trendyol") return value;
-  return "trendyol";
+  throw new Error(`Geçersiz pazaryeri: ${value}`);
 }
 
 /**
@@ -30,12 +30,15 @@ export async function processQueuedScrape(payload: ScrapeJobPayload): Promise<vo
   const keyword = payload.keyword;
   const targetTitle = payload.targetTitle?.trim() || keyword;
 
+  const svc = createServiceRoleClient();
+  if (!svc) {
+    throw new Error("Service-role client unavailable — cannot persist scrape cache");
+  }
+
   const session = await createBrowserSession();
   if (!session?.page) {
     throw new Error("Browser session unavailable");
   }
-
-  const svc = createServiceRoleClient();
 
   try {
     switch (payload.toolId) {
@@ -45,18 +48,17 @@ export async function processQueuedScrape(payload: ScrapeJobPayload): Promise<vo
           session.page,
         );
         if (data.error) throw new Error(data.error);
-        if (svc) {
-          await upsertSharedVisibilityScan(svc, {
-            marketplace,
-            keyword,
-            sku: null,
-            rank: data.rank ?? null,
-            page: data.page ?? null,
-            isIndexed: data.isIndexed,
-            isOnFirstPage: data.isOnFirstPage,
-            searchResultCount: data.results.length,
-          });
-        }
+        const { error } = await upsertSharedVisibilityScan(svc, {
+          marketplace,
+          keyword,
+          sku: null,
+          rank: data.rank ?? null,
+          page: data.page ?? null,
+          isIndexed: data.isIndexed,
+          isOnFirstPage: data.isOnFirstPage,
+          searchResultCount: data.results.length,
+        });
+        if (error) throw new Error(`Cache write failed: ${error}`);
         break;
       }
       case "index-check": {
@@ -65,17 +67,16 @@ export async function processQueuedScrape(payload: ScrapeJobPayload): Promise<vo
           session.page,
         );
         if (data.error) throw new Error(data.error);
-        if (svc) {
-          await upsertSharedVisibilityScan(svc, {
-            marketplace,
-            keyword,
-            sku: null,
-            rank: data.rank ?? null,
-            page: null,
-            isIndexed: data.isIndexed,
-            isOnFirstPage: data.isOnFirstPage,
-          });
-        }
+        const { error } = await upsertSharedVisibilityScan(svc, {
+          marketplace,
+          keyword,
+          sku: null,
+          rank: data.rank ?? null,
+          page: null,
+          isIndexed: data.isIndexed,
+          isOnFirstPage: data.isOnFirstPage,
+        });
+        if (error) throw new Error(`Cache write failed: ${error}`);
         break;
       }
       case "price-track": {
@@ -86,9 +87,8 @@ export async function processQueuedScrape(payload: ScrapeJobPayload): Promise<vo
         if (!shouldCachePriceTrackResult(data)) {
           throw new Error(data.error ?? "Sonuç bulunamadı veya bot engeline takıldı");
         }
-        if (svc) {
-          await upsertSharedPriceTrackScan(svc, marketplace, keyword, data);
-        }
+        const { error } = await upsertSharedPriceTrackScan(svc, marketplace, keyword, data);
+        if (error) throw new Error(`Cache write failed: ${error}`);
         break;
       }
       case "top100": {
@@ -99,9 +99,8 @@ export async function processQueuedScrape(payload: ScrapeJobPayload): Promise<vo
         if (data.error || !data.items.some((item) => item.price > 0)) {
           throw new Error(data.error ?? "Sonuç bulunamadı veya bot engeline takıldı");
         }
-        if (svc) {
-          await upsertSharedTop100Scan(svc, marketplace, keyword, data);
-        }
+        const { error } = await upsertSharedTop100Scan(svc, marketplace, keyword, data);
+        if (error) throw new Error(`Cache write failed: ${error}`);
         break;
       }
       default: {

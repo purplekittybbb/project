@@ -13,7 +13,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { getSupabaseClient } from "@/lib/supabase/client";
+import { getSupabaseClient, allowUnauthedDemoBypass } from "@/lib/supabase/client";
 import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
 import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
 import { FIELD_ERROR_BORDER } from "@/lib/design/financial-ui";
@@ -155,55 +155,56 @@ export default function SignupPage() {
     setNotice("");
     if (!validateAll()) return;
     setLoading(true);
+    try {
+      const supabase = getSupabaseClient();
 
-    const supabase = getSupabaseClient();
+      // Demo fallback only when explicitly enabled (never in production).
+      if (!supabase) {
+        if (!allowUnauthedDemoBypass()) {
+          setFormError("Kimlik doğrulama yapılandırılmamış. Lütfen daha sonra tekrar deneyin.");
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 600));
+        window.location.assign("/connect");
+        return;
+      }
 
-    // Demo fallback: no Supabase keys configured → keep the app usable.
-    if (!supabase) {
-      await new Promise((r) => setTimeout(r, 600));
-      window.location.assign("/connect");
-      return;
-    }
-
-    const { data, error } = await supabase.auth.signUp({
-      email: form.email.trim(),
-      password: form.password,
-      options: {
-        data: {
-          full_name: form.fullName.trim(),
-          company: form.company.trim(),
+      const { data, error } = await supabase.auth.signUp({
+        email: form.email.trim(),
+        password: form.password,
+        options: {
+          data: {
+            full_name: form.fullName.trim(),
+            company: form.company.trim(),
+          },
         },
-      },
-    });
+      });
 
-    if (error) {
+      if (error) {
+        setFormError(
+          /already registered|already exists/i.test(error.message)
+            ? "Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin."
+            : "Kayıt tamamlanamadı. Lütfen tekrar deneyin.",
+        );
+        return;
+      }
+
+      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        setFormError("Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin.");
+        return;
+      }
+
+      if (!data.session) {
+        setNotice("Hesap oluşturuldu. E-postanızdaki onay bağlantısına tıklayıp ardından giriş yapın.");
+        return;
+      }
+
+      window.location.assign("/connect");
+    } catch {
+      setFormError("Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.");
+    } finally {
       setLoading(false);
-      setFormError(
-        /already registered|already exists/i.test(error.message)
-          ? "Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin."
-          : error.message
-      );
-      return;
     }
-
-    // Supabase obfuscates an already-registered email as a "successful" signUp
-    // with an empty identities array (no email is actually sent). Detect it and
-    // tell the user to sign in, instead of falsely claiming a new account.
-    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-      setLoading(false);
-      setFormError("Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin.");
-      return;
-    }
-
-    // If email confirmation is required, no session is returned yet.
-    if (!data.session) {
-      setLoading(false);
-      setNotice("Hesap oluşturuldu. E-postanızdaki onay bağlantısına tıklayıp ardından giriş yapın.");
-      return;
-    }
-
-    // New accounts always go through /connect first.
-    window.location.assign("/connect");
   }
 
   return (

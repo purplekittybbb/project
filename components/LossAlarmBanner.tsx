@@ -48,7 +48,7 @@ export function LossAlarmBanner({ lossSkuCount, totalRisk, currency }: LossAlarm
       />
       <p className="text-[13px] leading-snug" style={{ color: "var(--tm-alert-clay)" }}>
         <strong className="font-semibold">
-          {lossSkuCount} ürün{lossSkuCount > 1 ? " zarar ediyor" : " zarar ediyor"}.
+          {lossSkuCount} ürün zarar ediyor.
         </strong>{" "}
         Toplam risk:{" "}
         <strong className="tnum">{fmtMoney(totalRisk, currency)}</strong>.{" "}

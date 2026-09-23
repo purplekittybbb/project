@@ -17,6 +17,7 @@ export interface FinancialSummaryWidgetProps {
   marginPercent: number;
   belief: number;
   ptsDiff: string;
+  ptsDiffLabel?: string;
   netContribution: number;
   grossRev: number;
   commission: number;
@@ -93,6 +94,7 @@ export function FinancialSummaryWidget({
   marginPercent,
   belief,
   ptsDiff,
+  ptsDiffLabel,
   netContribution,
   grossRev,
   commission,
@@ -134,7 +136,7 @@ export function FinancialSummaryWidget({
             Satıcının sandığı <span className="text-zinc-200">{belief.toFixed(1)}%</span>
           </span>
           <span className="w-1 h-1 bg-zinc-800 rounded-none" />
-          <span className={finLossClass()}>{ptsDiff} puan düşük</span>
+          <span className={finLossClass()}>{ptsDiffLabel ?? `${ptsDiff} puan düşük`}</span>
         </div>
 
         <div className="mt-6 lg:mt-8 flex items-baseline gap-3 border-l-2 border-zinc-800 pl-4">

@@ -19,5 +19,12 @@ describe("safeNextPath", () => {
     expect(safeNextPath("//evil.com")).toBe("/connect");
     expect(safeNextPath("https://evil.com")).toBe("/connect");
     expect(safeNextPath("/\\evil")).toBe("/connect");
+    expect(safeNextPath("/%2F%2Fevil.com")).toBe("/connect");
+    expect(safeNextPath("/%5C%5Cevil.com")).toBe("/connect");
+  });
+
+  it("blocks auth redirect loops", () => {
+    expect(safeNextPath("/login")).toBe("/connect");
+    expect(safeNextPath("/signup?x=1")).toBe("/connect");
   });
 });

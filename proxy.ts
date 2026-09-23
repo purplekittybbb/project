@@ -10,7 +10,9 @@
  *      subscription (status = 'active' | 'trialing').
  *
  * GRACEFUL DEGRADATION:
- *   - If Supabase is not configured → pass through (dev/preview environments).
+ *   - If Supabase is not configured:
+ *       production → block protected routes (never fail-open)
+ *       DEMO_MODE=true (non-prod) → pass through for local/investor demos
  *   - If the iyzico_subscriptions table doesn't exist (0021 unapplied) →
  *     pass through (subscription check silently degrades to open access).
  *
@@ -48,7 +50,7 @@ const PUBLIC_PREFIXES = [
   "/admin",
   "/api/auth",
   "/api/tools",
-  "/api/billing/iyzico",
+  "/api/billing/iyzico/callback",
   "/_next",
   "/favicon",
   "/icons",
@@ -87,7 +89,19 @@ export async function proxy(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!supabaseUrl || !supabaseAnon) return NextResponse.next();
+  if (!supabaseUrl || !supabaseAnon) {
+    const demoBypass =
+      process.env.NODE_ENV !== "production" &&
+      (process.env.DEMO_MODE === "true" || process.env.DEMO_MODE_ENABLED === "1");
+    if (demoBypass) return NextResponse.next();
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "Kimlik doğrulama yapılandırılmamış." },
+        { status: 503 },
+      );
+    }
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
 
   const response = NextResponse.next({
     request: { headers: request.headers },

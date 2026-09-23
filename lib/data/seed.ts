@@ -155,9 +155,9 @@ export function deriveUnderwritingInputsFromTransactions(
   const totalUnits = txs.reduce((a, t) => a + t.units, 0);
   const stockVelocity = totalUnits / months;
 
-  const revenueWeightedReturn =
-    txs.reduce((a, t) => a + t.fees.returnsAllocated, 0) /
-    Math.max(1, agg.cogs);
+  const grossRevenue = Math.max(1, agg.grossRevenue);
+  const returnRateFromRevenue =
+    txs.reduce((a, t) => a + t.fees.returnsAllocated, 0) / grossRevenue;
 
   return {
     trueMarginPct,
@@ -165,7 +165,8 @@ export function deriveUnderwritingInputsFromTransactions(
     monthlyRevenue,
     revenueVolatility,
     stockVelocity,
-    returnRate: Math.min(0.5, revenueWeightedReturn),
+    // Return rate = returns / revenue (not / COGS) — underwriting thresholds expect a rate.
+    returnRate: Math.min(0.5, returnRateFromRevenue),
     tenureMonths,
   };
 }

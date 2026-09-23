@@ -14,11 +14,27 @@ import { loadSharedVisibilityScan } from "@/lib/supabase/shared-visibility";
 import type { ToolRunEnvelope } from "@/lib/tools/run-standalone";
 import type { StandaloneToolId } from "@/lib/tools/registry";
 import type { ToolMarketplace } from "@/lib/tools/parse-query";
+import type { RateLimitSubject } from "@/lib/tools/guest-rate-limit";
 
 type ScraperToolId = Exclude<StandaloneToolId, "profit-calc">;
 
 const QUEUE_POLL_MESSAGE =
   "Sonucun hazırlanıyor… Pazaryeri taranıyor; birkaç saniye içinde güncellenecek.";
+
+export type ResolveQueuedResult =
+  | {
+      status: "ok";
+      envelope: ToolRunEnvelope;
+      shouldRefund: boolean;
+      refundSubject: RateLimitSubject | null;
+    }
+  | {
+      status: "error";
+      error: string;
+      httpStatus: number;
+      shouldRefund: boolean;
+      refundSubject: RateLimitSubject | null;
+    };
 
 function anonClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -27,9 +43,16 @@ function anonClient(): SupabaseClient | null {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-function asMarketplace(value: string): ToolMarketplace {
+function asMarketplace(value: string): ToolMarketplace | null {
   if (value === "hepsiburada" || value === "n11" || value === "trendyol") return value;
-  return "trendyol";
+  return null;
+}
+
+function subjectFromPayload(payload: ScrapeJobPayload): RateLimitSubject | null {
+  if (payload.quotaSubjectType && payload.quotaSubjectKey) {
+    return { type: payload.quotaSubjectType, key: payload.quotaSubjectKey };
+  }
+  return null;
 }
 
 function queuedEnvelope(toolId: ScraperToolId, jobId: string, retryAfterSeconds = 3): ToolRunEnvelope {
@@ -44,12 +67,19 @@ function queuedEnvelope(toolId: ScraperToolId, jobId: string, retryAfterSeconds 
   };
 }
 
-function failedEnvelope(toolId: ScraperToolId, message: string): ToolRunEnvelope {
+function failedEnvelope(toolId: ScraperToolId, message: string, payload?: ScrapeJobPayload): ToolRunEnvelope {
   return {
     toolId,
     mode: "live",
     data: {
       error: message,
+      ...(payload
+        ? {
+            keyword: payload.keyword,
+            targetTitle: payload.targetTitle ?? payload.keyword,
+            marketplace: payload.marketplace,
+          }
+        : {}),
     },
   };
 }
@@ -57,17 +87,23 @@ function failedEnvelope(toolId: ScraperToolId, message: string): ToolRunEnvelope
 async function loadCachedResult(
   toolId: ScraperToolId,
   payload: ScrapeJobPayload,
+  finishedOn: number | null,
 ): Promise<ToolRunEnvelope | null> {
   const anon = anonClient();
   if (!anon) return null;
 
   const marketplace = asMarketplace(payload.marketplace);
+  if (!marketplace) return null;
+
   const keyword = payload.keyword;
   const targetTitle = payload.targetTitle?.trim() || keyword;
+  // Reject cache older than job finish (stale pre-existing row must not count as this job's result).
+  const minScrapedMs = finishedOn ? finishedOn - 5_000 : 0;
 
   if (toolId === "visibility" || toolId === "index-check") {
     const cached = await loadSharedVisibilityScan(anon, marketplace, keyword, undefined);
     if (!cached) return null;
+    if (minScrapedMs > 0 && new Date(cached.scrapedAt).getTime() < minScrapedMs) return null;
     if (toolId === "visibility") {
       return {
         toolId,
@@ -106,6 +142,7 @@ async function loadCachedResult(
   if (toolId === "price-track") {
     const cached = await loadSharedPriceTrackScan(anon, marketplace, keyword);
     if (!cached || !hasUsablePrices(cached.result)) return null;
+    if (minScrapedMs > 0 && new Date(cached.scrapedAt).getTime() < minScrapedMs) return null;
     return { toolId, mode: "cached", data: cached.result };
   }
 
@@ -113,6 +150,7 @@ async function loadCachedResult(
     const cached = await loadSharedTop100Scan(anon, marketplace, keyword);
     const items = cached?.result?.items ?? [];
     if (!cached || !items.some((item) => item.price > 0)) return null;
+    if (minScrapedMs > 0 && new Date(cached.scrapedAt).getTime() < minScrapedMs) return null;
     return { toolId, mode: "cached", data: cached.result };
   }
 
@@ -121,14 +159,13 @@ async function loadCachedResult(
 
 /**
  * Poll status for an enqueued scrape. Safe for Vercel handlers (no browser).
+ * @param abandon — client gave up (poll timeout); refund if job still unfinished/failed.
  */
 export async function resolveQueuedScrapeJob(
   toolId: ScraperToolId,
   jobId: string,
-): Promise<
-  | { status: "ok"; envelope: ToolRunEnvelope; shouldRefund: boolean }
-  | { status: "error"; error: string; httpStatus: number; shouldRefund: boolean }
-> {
+  opts?: { abandon?: boolean },
+): Promise<ResolveQueuedResult> {
   const status = await getScrapeJobStatus(jobId);
 
   if (!status.ok) {
@@ -137,16 +174,22 @@ export async function resolveQueuedScrapeJob(
         status: "error",
         error: "Kuyruk şu an kullanılamıyor. Birazdan tekrar deneyin.",
         httpStatus: 503,
-        shouldRefund: true,
+        // Don't refund without a job — we can't prove a charge; abandon path uses POST refund separately.
+        shouldRefund: Boolean(opts?.abandon),
+        refundSubject: null,
       };
     }
+    // Job evicted after completion — do NOT refund (user may have already seen the result).
     return {
       status: "error",
       error: "İş bulunamadı. Lütfen sorguyu yeniden gönderin.",
       httpStatus: 404,
-      shouldRefund: true,
+      shouldRefund: false,
+      refundSubject: null,
     };
   }
+
+  const refundSubject = subjectFromPayload(status.payload);
 
   if (status.payload.toolId !== toolId) {
     return {
@@ -154,38 +197,60 @@ export async function resolveQueuedScrapeJob(
       error: "İş bu araçla eşleşmiyor.",
       httpStatus: 400,
       shouldRefund: false,
+      refundSubject,
+    };
+  }
+
+  if (!asMarketplace(status.payload.marketplace)) {
+    return {
+      status: "ok",
+      envelope: failedEnvelope(toolId, "Şu an tarayamadık. Birazdan tekrar deneyin.", status.payload),
+      shouldRefund: true,
+      refundSubject,
     };
   }
 
   if (status.state === "failed") {
     return {
       status: "ok",
+      envelope: failedEnvelope(toolId, "Şu an tarayamadık. Birazdan tekrar deneyin.", status.payload),
+      shouldRefund: true,
+      refundSubject,
+    };
+  }
+
+  if (opts?.abandon && status.state !== "completed") {
+    return {
+      status: "ok",
       envelope: failedEnvelope(
         toolId,
-        "Şu an tarayamadık. Birazdan tekrar deneyin.",
+        "Tarama beklenenden uzun sürdü. Birazdan tekrar deneyin.",
+        status.payload,
       ),
       shouldRefund: true,
+      refundSubject,
     };
   }
 
   if (status.state === "completed") {
-    const cached = await loadCachedResult(toolId, status.payload);
+    const cached = await loadCachedResult(toolId, status.payload, status.finishedOn);
     if (cached) {
-      return { status: "ok", envelope: cached, shouldRefund: false };
+      return { status: "ok", envelope: cached, shouldRefund: false, refundSubject };
     }
-    // Worker finished but cache not visible yet — brief grace poll.
     const finishedAgeMs = status.finishedOn ? Date.now() - status.finishedOn : 0;
-    if (finishedAgeMs > 15_000) {
+    if (finishedAgeMs > 15_000 || opts?.abandon) {
       return {
         status: "ok",
-        envelope: failedEnvelope(toolId, "Şu an tarayamadık. Birazdan tekrar deneyin."),
+        envelope: failedEnvelope(toolId, "Şu an tarayamadık. Birazdan tekrar deneyin.", status.payload),
         shouldRefund: true,
+        refundSubject,
       };
     }
     return {
       status: "ok",
       envelope: queuedEnvelope(toolId, jobId, 2),
       shouldRefund: false,
+      refundSubject,
     };
   }
 
@@ -193,5 +258,6 @@ export async function resolveQueuedScrapeJob(
     status: "ok",
     envelope: queuedEnvelope(toolId, jobId, 3),
     shouldRefund: false,
+    refundSubject,
   };
 }

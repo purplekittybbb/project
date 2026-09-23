@@ -20,10 +20,11 @@ const PROFIT = "#0B7A4B";
 const EROSION = "#B4432E";
 
 function money(n: number, currency: string) {
-  const s = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(n));
+  const s = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 }).format(Math.round(n));
   return currency === "USD" ? `$${s}` : `₺${s}`;
 }
-const pct1 = (n: number) => `${n.toFixed(1)}%`;
+const pct1 = (n: number) =>
+  `${n.toLocaleString("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 
 export default function FinancingPage({ params }: { params: Promise<{ tenantId: string }> }) {
   const { tenantId: routeTenant } = use(params);

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DISCOVER_NAV,
   PRODUCTS_NAV,
@@ -13,9 +13,28 @@ import {
   NavDropdownLink,
   NavDropdownSection,
 } from "@/components/marketing/nav-dropdown";
+import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
 
 export function SiteNav() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthConfigured()) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    let active = true;
+    supabase.auth.getUser().then(({ data }) => {
+      if (active) setSignedIn(Boolean(data.user));
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (active) setSignedIn(Boolean(session?.user));
+    });
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-sm">
@@ -62,18 +81,29 @@ export function SiteNav() {
 
         <div className="flex items-center gap-1 sm:gap-2">
           <div className="hidden items-center gap-1 sm:flex sm:gap-2">
-            <Link
-              href="/login"
-              className="inline-flex h-10 items-center justify-center px-3 text-sm text-muted-foreground transition-colors hover:text-foreground sm:px-4"
-            >
-              Üye Girişi
-            </Link>
-            <Link
-              href="/signup"
-              className="inline-flex h-10 items-center justify-center bg-[var(--tm-copper)] px-4 text-sm font-medium text-[var(--tm-paper)] transition-opacity hover:opacity-90 sm:px-5"
-            >
-              Kaydol
-            </Link>
+            {signedIn ? (
+              <Link
+                href="/dashboard"
+                className="inline-flex h-10 items-center justify-center bg-[var(--tm-copper)] px-4 text-sm font-medium text-[var(--tm-paper)] transition-opacity hover:opacity-90 sm:px-5"
+              >
+                Panele git
+              </Link>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="inline-flex h-10 items-center justify-center px-3 text-sm text-muted-foreground transition-colors hover:text-foreground sm:px-4"
+                >
+                  Üye Girişi
+                </Link>
+                <Link
+                  href="/signup"
+                  className="inline-flex h-10 items-center justify-center bg-[var(--tm-copper)] px-4 text-sm font-medium text-[var(--tm-paper)] transition-opacity hover:opacity-90 sm:px-5"
+                >
+                  Kaydol
+                </Link>
+              </>
+            )}
           </div>
 
           <button
@@ -99,7 +129,7 @@ export function SiteNav() {
       </nav>
 
       <div id="mobile-nav-panel">
-        <MobileNav open={mobileOpen} onClose={() => setMobileOpen(false)} />
+        <MobileNav open={mobileOpen} onClose={() => setMobileOpen(false)} signedIn={signedIn} />
       </div>
     </header>
   );

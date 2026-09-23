@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { bearerToken, userScopedClient } from "@/lib/billing/auth";
+import { bearerToken, requireBillingActor } from "@/lib/billing/auth";
 import { getStripe } from "@/lib/billing/stripe-server";
 import { isStripeLiveEnabled } from "@/lib/billing/is-stripe-live-enabled";
+import { isDemoBillingCustomer } from "@/lib/billing/demo-trial";
 
 /**
  * POST /api/billing/setup-intent
@@ -16,28 +17,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Stripe yapılandırılmamış." }, { status: 503 });
   }
 
-  const accessToken = bearerToken(req);
-  if (!accessToken) {
-    return NextResponse.json({ error: "Oturum bulunamadı — lütfen tekrar giriş yapın." }, { status: 401 });
+  const actor = await requireBillingActor(bearerToken(req));
+  if (!actor.ok) {
+    return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
-
-  const supabase = userScopedClient(accessToken);
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase yapılandırılmamış." }, { status: 500 });
-  }
+  const { user, svc } = actor;
 
   const stripe = getStripe();
   if (!stripe) {
     return NextResponse.json({ error: "Stripe yapılandırılmamış." }, { status: 503 });
   }
 
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  const user = userData.user;
-  if (userError || !user) {
-    return NextResponse.json({ error: "Oturum geçersiz." }, { status: 401 });
-  }
-
-  const { data: existing } = await supabase
+  const { data: existing } = await svc
     .from("billing_subscriptions")
     .select("stripe_customer_id")
     .eq("user_id", user.id)
@@ -45,10 +36,11 @@ export async function POST(req: Request) {
 
   let customerId = existing?.stripe_customer_id as string | undefined;
 
-  // Every Stripe SDK call below THROWS on failure (network error, Stripe
-  // outage, rate limit, malformed key). Wrapped so such a failure becomes a
-  // clean 502 with a logged, attributable detail — never an unhandled
-  // exception surfacing as an opaque generic 500 the client can't act on.
+  // Demo trial leaves stripe_customer_id = "demo:{uuid}" — never pass that to Stripe.
+  if (customerId && isDemoBillingCustomer(customerId)) {
+    customerId = undefined;
+  }
+
   try {
     if (!customerId) {
       const customer = await stripe.customers.create({
@@ -57,13 +49,17 @@ export async function POST(req: Request) {
       });
       customerId = customer.id;
 
-      const { error: insertError } = await supabase.from("billing_subscriptions").insert({
-        user_id: user.id,
-        stripe_customer_id: customerId,
-        status: "pending",
-      });
-      if (insertError) {
-        console.error("[billing/setup-intent] billing_subscriptions insert failed:", insertError.message);
+      const { error: upsertError } = await svc.from("billing_subscriptions").upsert(
+        {
+          user_id: user.id,
+          stripe_customer_id: customerId,
+          status: "pending",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" },
+      );
+      if (upsertError) {
+        console.error("[billing/setup-intent] billing_subscriptions upsert failed:", upsertError.message);
         return NextResponse.json({ error: "Abonelik kaydı oluşturulamadı." }, { status: 502 });
       }
     }

@@ -43,6 +43,19 @@ export function isAuthConfigured(): boolean {
 }
 
 /**
+ * Unauthenticated demo bypass — ONLY when explicitly enabled and never in
+ * production. Prevents misconfigured deploys from opening /dashboard.
+ */
+export function allowUnauthedDemoBypass(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  return (
+    process.env.DEMO_MODE_ENABLED === "1" ||
+    process.env.DEMO_MODE === "true" ||
+    process.env.NEXT_PUBLIC_DEMO_MODE === "true"
+  );
+}
+
+/**
  * Fresh access token at call time — never cache in component state.
  * Validates via getUser() first so an expired local JWT is refreshed/rejected
  * before marketplace or billing API calls.

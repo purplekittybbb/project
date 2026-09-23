@@ -25,7 +25,8 @@ function money(v: number, currency: string) {
 const STATUS_CLS = {
   received: "fin-profit fin-border-profit-subtle fin-bg-profit-subtle",
   pending: "text-zinc-400   border-zinc-700       bg-zinc-900/30",
-  overdue: "text-amber-400  border-amber-800/50   bg-amber-950/20",
+  dueSoon: "text-amber-400  border-amber-800/50   bg-amber-950/20",
+  overdue: "text-red-400  border-red-800/50   bg-red-950/20",
 } as const;
 
 function StatusBadge({ status }: { status: CashFlowEntry["status"] }) {
@@ -35,7 +36,9 @@ function StatusBadge({ status }: { status: CashFlowEntry["status"] }) {
       ? t("cashFlow.statusReceived")
       : status === "pending"
         ? t("cashFlow.statusPending")
-        : t("cashFlow.statusOverdue");
+        : status === "dueSoon"
+          ? t("cashFlow.statusDueSoon", { defaultValue: t("cashFlow.statusOverdue") })
+          : t("cashFlow.statusOverdue");
   return (
     <span className={`text-[9px] font-mono tracking-widest px-1.5 py-0.5 border ${STATUS_CLS[status]}`}>
       {label}
@@ -45,11 +48,11 @@ function StatusBadge({ status }: { status: CashFlowEntry["status"] }) {
 
 // ─── Payment journey (PDF §6.1: para adım adım, kaybolmuş hissi vermez) ────────
 
-function PaymentJourney({ overdue }: { overdue: boolean }) {
+function PaymentJourney({ urgent }: { urgent: boolean }) {
   // 3 adım: Satış (tamamlandı) → Hakediş (aktif) → Ödeme (bekliyor).
   const steps: { label: string; state: "done" | "active" | "warn" | "pending" }[] = [
     { label: "Satış yapıldı", state: "done" },
-    { label: overdue ? "Hakediş gecikti" : "Hakediş sürüyor", state: overdue ? "warn" : "active" },
+    { label: urgent ? "Hakediş yaklaşıyor" : "Hakediş sürüyor", state: urgent ? "warn" : "active" },
     { label: "Ödeme", state: "pending" },
   ];
   const dotColor = (s: string) =>
@@ -297,7 +300,7 @@ export function CashFlowPanel({ tenantId, channel, currency }: Props) {
               <span className="text-zinc-500"> Paranız adım adım takip ediliyor.</span>
             </p>
           </div>
-          <PaymentJourney overdue={nextPending.status === "overdue"} />
+          <PaymentJourney urgent={nextPending.status === "dueSoon" || nextPending.status === "overdue"} />
         </div>
       )}
 

@@ -22,7 +22,7 @@ function Logo() {
 
 export default function SifreSifirlaPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">Bağlantı doğrulanıyor…</div>}>
       <SifreSifirlaContent />
     </Suspense>
   );
@@ -55,32 +55,32 @@ function SifreSifirlaContent() {
     // default true) — we just need to confirm a session actually exists
     // before letting the user submit a new password.
     let cancelled = false;
+    let sawRecovery = false;
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (cancelled) return;
-      if (event === "PASSWORD_RECOVERY" || session) {
+      if (event === "PASSWORD_RECOVERY") {
+        sawRecovery = true;
+        setReady(true);
+        setLinkInvalid(false);
+        return;
+      }
+      // Only unlock for a normal session if we already saw PASSWORD_RECOVERY
+      // (hash exchange). A stale logged-in session alone is not enough.
+      if (sawRecovery && session) {
         setReady(true);
       }
     });
-    supabase.auth.getSession().then(({ data }) => {
+    // Give the URL hash a moment to fire PASSWORD_RECOVERY.
+    const timer = setTimeout(() => {
       if (cancelled) return;
-      if (data.session) setReady(true);
-      else {
-        // Give onAuthStateChange a moment to fire from the URL hash before
-        // declaring the link invalid.
-        setTimeout(() => {
-          if (!cancelled) {
-            supabase.auth.getSession().then(({ data: d2 }) => {
-              if (cancelled) return;
-              if (d2.session) setReady(true);
-              else setLinkInvalid(true);
-              setReady(true);
-            });
-          }
-        }, 1200);
+      if (!sawRecovery) {
+        setLinkInvalid(true);
+        setReady(true);
       }
-    });
+    }, 1500);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
       sub.subscription.unsubscribe();
     };
   }, []);
@@ -106,11 +106,11 @@ function SifreSifirlaContent() {
     const { error: updateError } = await supabase.auth.updateUser({ password });
     setLoading(false);
     if (updateError) {
-      setError(updateError.message);
+      setError("Şifre güncellenemedi. Bağlantı süresi dolmuş olabilir — yeniden deneyin.");
       return;
     }
     setDone(true);
-    setTimeout(() => router.push("/dashboard"), 1800);
+    setTimeout(() => router.push("/connect"), 1800);
   }
 
   return (

@@ -159,7 +159,10 @@ export function ConnectedStores({
                       )}
                       {!status && meta?.lastSyncedAt && (
                         <div className="text-[11px] font-mono mt-0.5 text-zinc-600">
-                          Son senkron: {new Date(meta.lastSyncedAt).toLocaleString()}
+                          Son senkron: {new Date(meta.lastSyncedAt).toLocaleString("tr-TR", {
+                            dateStyle: "short",
+                            timeStyle: "short",
+                          })}
                         </div>
                       )}
                     </div>

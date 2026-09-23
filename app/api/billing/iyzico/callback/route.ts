@@ -29,6 +29,40 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const runtime = "nodejs";
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function paymentSuccessHtml(token: string, message: string): Response {
+  const safeToken = JSON.stringify(token);
+  const safeMessage = escapeHtml(message);
+  return new Response(
+    `<html><body>
+      <p>${safeMessage}</p>
+      <script>
+        if (window.parent !== window) {
+          window.parent.postMessage({ type: "IYZICO_PAYMENT_SUCCESS", token: ${safeToken} }, window.location.origin);
+        } else { window.location.href = "/dashboard"; }
+      </script>
+    </body></html>`,
+    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
+}
+
+function paymentErrorHtml(message: string, detail?: string): Response {
+  const safeMessage = escapeHtml(message);
+  const safeDetail = detail ? `<p>${escapeHtml(detail)}</p>` : "";
+  return new Response(
+    `<html><body><p>${safeMessage}</p>${safeDetail}</body></html>`,
+    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
+}
+
 export async function POST(req: Request) {
   // ── Parse form body from iyzico ──────────────────────────────────────────
   let token: string | null = null;
@@ -43,12 +77,12 @@ export async function POST(req: Request) {
       token = body.token ?? null;
     }
   } catch {
-    return NextResponse.json({ error: "Invalid callback body" }, { status: 400 });
+    return NextResponse.json({ error: "Geçersiz callback gövdesi." }, { status: 400 });
   }
 
   if (!token) {
     console.error("[iyzico/callback] No token received in callback.");
-    return NextResponse.json({ error: "No token in callback" }, { status: 400 });
+    return NextResponse.json({ error: "Callback'te token yok." }, { status: 400 });
   }
 
   // ── Supabase client (service role for server-side writes) ─────────────────
@@ -56,16 +90,12 @@ export async function POST(req: Request) {
 
   if (!supabase) {
     console.error("[iyzico/callback] Supabase service role not configured.");
-    return new Response(
-      `<html><body><p>Ödeme alındı fakat kayıt hatası oluştu. Lütfen destek ile iletişime geçin.</p></body></html>`,
-      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
+    return paymentErrorHtml(
+      "Ödeme alındı fakat kayıt hatası oluştu. Lütfen destek ile iletişime geçin.",
     );
   }
 
   // ── Idempotency check: has this payment token already been processed? ──────
-  // iyzico may re-deliver the same callback. The unique index on
-  // iyzico_payment_token (migration 0023) prevents duplicates at the DB level,
-  // but we short-circuit here to avoid unnecessary iyzico API calls.
   const { data: existingByToken } = await supabase
     .from("iyzico_subscriptions")
     .select("id, user_id")
@@ -74,17 +104,7 @@ export async function POST(req: Request) {
 
   if (existingByToken) {
     console.log("[iyzico/callback] Token already processed (idempotent no-op): %s", token);
-    return new Response(
-      `<html><body>
-        <p>Aboneliğiniz zaten aktif.</p>
-        <script>
-          if (window.parent !== window) {
-            window.parent.postMessage({ type: "IYZICO_PAYMENT_SUCCESS", token: "${token.replace(/"/g, "")}" }, window.location.origin);
-          } else { window.location.href = "/dashboard"; }
-        </script>
-      </body></html>`,
-      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
-    );
+    return paymentSuccessHtml(token, "Aboneliğiniz zaten aktif.");
   }
 
   // ── Retrieve payment result from iyzico ──────────────────────────────────
@@ -100,14 +120,14 @@ export async function POST(req: Request) {
 
   if (paymentResult.status !== "success" || paymentResult.paymentStatus !== "SUCCESS") {
     console.error("[iyzico/callback] Payment failed:", paymentResult.errorMessage ?? paymentResult.paymentStatus);
-    return new Response(
-      `<html><body><p>Ödeme başarısız. Lütfen tekrar deneyin.</p><p>${paymentResult.errorMessage ?? ""}</p></body></html>`,
-      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
+    return paymentErrorHtml(
+      "Ödeme başarısız. Lütfen tekrar deneyin.",
+      paymentResult.errorMessage ?? undefined,
     );
   }
 
   // ── Extract userId and planId from basketId / buyerId ────────────────────
-  const rawBuyerId  = paymentResult.buyerId  ?? null;
+  const rawBuyerId = paymentResult.buyerId ?? null;
   const rawBasketId = paymentResult.basketId ?? null;
 
   let resolvedUserId: string | null = rawBuyerId;
@@ -126,63 +146,54 @@ export async function POST(req: Request) {
     }
   }
 
-  console.log("[iyzico/callback] Payment successful. token=%s userId=%s planId=%s paymentId=%s",
-    token, resolvedUserId, resolvedPlanId, paymentResult.paymentId);
+  console.log(
+    "[iyzico/callback] Payment successful. token=%s userId=%s planId=%s paymentId=%s",
+    token,
+    resolvedUserId,
+    resolvedPlanId,
+    paymentResult.paymentId,
+  );
 
   if (!resolvedUserId || !resolvedPlanId) {
     console.error("[iyzico/callback] Could not resolve userId or planId.", { rawBuyerId, rawBasketId });
-    return new Response(
-      `<html><body><p>Ödeme alındı. Aboneliğiniz kısa süre içinde aktif edilecek.</p></body></html>`,
-      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
+    return paymentErrorHtml(
+      "Ödeme alındı. Aboneliğiniz kısa süre içinde aktif edilecek — destek gerekirse yazın.",
     );
   }
 
   // ── Write subscription record ────────────────────────────────────────────
-  const now       = new Date().toISOString();
+  const now = new Date().toISOString();
   const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const { error: upsertError } = await supabase
-    .from("iyzico_subscriptions")
-    .upsert(
-      {
-        user_id:              resolvedUserId,
-        plan_id:              resolvedPlanId,
-        status:               "active",
-        iyzico_payment_token: token,
-        current_period_start: now,
-        current_period_end:   periodEnd,
-        // Clear any billing issue from a previous failed renewal
-        billing_issue_at:     null,
-        grace_period_end:     null,
-        // Clear cancelled_at on renewal (user re-subscribed)
-        cancelled_at:         null,
-        updated_at:           now,
-      },
-      { onConflict: "user_id" }
-    );
+  const { error: upsertError } = await supabase.from("iyzico_subscriptions").upsert(
+    {
+      user_id: resolvedUserId,
+      plan_id: resolvedPlanId,
+      status: "active",
+      iyzico_payment_token: token,
+      current_period_start: now,
+      current_period_end: periodEnd,
+      billing_issue_at: null,
+      grace_period_end: null,
+      cancelled_at: null,
+      updated_at: now,
+    },
+    { onConflict: "user_id" },
+  );
 
   if (upsertError) {
-    // If it's a unique-constraint violation on iyzico_payment_token, treat as idempotent
     if (upsertError.code === "23505") {
       console.log("[iyzico/callback] Unique-constraint idempotency catch for token: %s", token);
-    } else {
-      console.error("[iyzico/callback] Failed to write subscription record:", upsertError.message);
+      return paymentSuccessHtml(token, "Aboneliğiniz zaten aktif.");
     }
-  } else {
-    console.log("[iyzico/callback] Subscription record created/updated for user:", resolvedUserId);
+    console.error("[iyzico/callback] Failed to write subscription record:", upsertError.message);
+    return paymentErrorHtml(
+      "Ödeme alındı fakat abonelik kaydı oluşturulamadı. Lütfen destek ile iletişime geçin.",
+    );
   }
 
-  return new Response(
-    `<html><body>
-      <p>Aboneliğiniz başarıyla oluşturuldu. Dashboard'a yönlendiriliyorsunuz...</p>
-      <script>
-        if (window.parent !== window) {
-          window.parent.postMessage({ type: "IYZICO_PAYMENT_SUCCESS", token: "${token.replace(/"/g, "")}" }, window.location.origin);
-        } else { window.location.href = "/dashboard"; }
-      </script>
-    </body></html>`,
-    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
-  );
+  console.log("[iyzico/callback] Subscription record created/updated for user:", resolvedUserId);
+  return paymentSuccessHtml(token, "Aboneliğiniz başarıyla oluşturuldu. Dashboard'a yönlendiriliyorsunuz...");
 }
 
 // ── Subscription management helpers (exported for API routes) ─────────────────

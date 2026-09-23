@@ -58,23 +58,22 @@ export async function POST(req: Request) {
 
   // ── Parse body ──────────────────────────────────────────────────────────
   let planId: "starter" | "pro";
-  let callbackUrl: string;
   try {
     const body = (await req.json()) as { planId?: string; callbackUrl?: string };
     if (body.planId !== "starter" && body.planId !== "pro") {
       return NextResponse.json(
-        { error: "planId must be 'starter' or 'pro'" },
-        { status: 400 }
+        { error: "planId 'starter' veya 'pro' olmalı." },
+        { status: 400 },
       );
     }
-    if (!body.callbackUrl) {
-      return NextResponse.json({ error: "callbackUrl is required" }, { status: 400 });
-    }
     planId = body.planId;
-    callbackUrl = body.callbackUrl;
+    // Ignore client callbackUrl — derive server-side to prevent token exfiltration.
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json({ error: "Geçersiz istek gövdesi." }, { status: 400 });
   }
+
+  const requestOrigin = new URL(req.url).origin;
+  const callbackUrl = `${requestOrigin}/api/billing/iyzico/callback`;
 
   const plan = IYZICO_PLANS[planId];
 

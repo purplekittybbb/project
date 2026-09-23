@@ -287,7 +287,7 @@ function ConnectFlow() {
             <h1 className="font-heading text-[22px] font-semibold tracking-tight mb-2">Ücretsiz denemeyi başlatın</h1>
             <div className="inline-flex items-center gap-2 fin-border-profit-subtle fin-bg-profit-subtle border px-3 py-1 mb-6 rounded-[var(--tm-r-data)]">
               <span className="w-1.5 h-1.5 fin-dot-profit rounded-full" />
-              <span className="text-[12px] font-medium fin-profit">1 ay ücretsiz — bugün ücret yok</span>
+              <span className="text-[12px] font-medium fin-profit">{TRIAL_DAYS} gün ücretsiz — bugün ücret yok</span>
             </div>
             <div className="border border-[var(--tm-mist)] bg-card rounded-[var(--tm-r-ui)] p-5">
               <div className="flex items-baseline justify-between mb-4">

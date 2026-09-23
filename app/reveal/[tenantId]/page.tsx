@@ -2,15 +2,7 @@
 
 /**
  * REVEAL SCREEN — /reveal/[tenantId]
- *
- * The "money moment": a seller's perceived margin erodes to its true margin once the
- * full fee waterfall is deducted. Ported into the merged app, fed live by the engine
- * through lib/engine (computeTrueMargin / computePerceivedMargin / perSkuMargins), and
- * styled in the landing's design language (warm background, white cards, Inter Tight
- * headings, tabular figures, the dark-green waterfall instrument).
- *
- * PDF principles: true margin top-left, fee waterfall as a bar chart with a value on
- * every bar, tabular numbers, no gradients/shadows, silent-loser SKU table.
+ * Investor "money moment": perceived → true margin via fee waterfall.
  */
 
 import { use, useEffect, useMemo, useState } from "react";
@@ -20,15 +12,13 @@ import { getSellers, getSeller } from "@/lib/engine";
 import { FeeWaterfall, type WaterfallStep } from "@/components/fee-waterfall";
 import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
 
-const fmtPct = (n: number) => `%${n.toFixed(1)}`;
+const fmtPct = (n: number) =>
+  `%${n.toLocaleString("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`;
 
 export default function RevealPage({ params }: { params: Promise<{ tenantId: string }> }) {
   const { tenantId: routeTenant } = use(params);
   const router = useRouter();
 
-  // Investor/sales DEMO surface only — seeded example sellers, never a real
-  // account's data. A signed-in seller who lands here (e.g. by URL) is bounced
-  // to their real dashboard so they never see the demo as if it were theirs.
   useEffect(() => {
     if (!isAuthConfigured()) return;
     const supabase = getSupabaseClient();
@@ -37,7 +27,9 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
     supabase.auth.getUser().then(({ data }) => {
       if (!cancelled && data.user) router.replace("/dashboard");
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   const sellers = useMemo(() => getSellers(), []);
@@ -52,24 +44,36 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
   const hiddenPts = perceived - trueM;
   const trueNeg = trueM < 0;
 
-  // Build waterfall steps: start at perceived margin, subtract the hidden fees
-  // (VAT, shipping, returns, ad spend, payment) as points of revenue, land on true.
   const steps: WaterfallStep[] = useMemo(() => {
     const asPct = (v: number) => (revenue ? (v / revenue) * 100 : 0);
     const losses = [
       { label: ["KDV"], amt: w.vat },
+      { label: ["Komisyon"], amt: w.commission },
       { label: ["Kargo"], amt: w.shipping },
+      { label: ["Ambalaj"], amt: w.packaging ?? 0 },
       { label: ["İade"], amt: w.returnsAllocated },
       { label: ["Reklam"], amt: w.adSpendAllocated },
       { label: ["Ödeme"], amt: w.paymentFees },
-    ];
+    ].filter((l) => (l.amt ?? 0) > 0);
     const out: WaterfallStep[] = [
-      { label: ["Görünen"], low: 0, high: perceived, kind: "start", tag: `%${perceived.toFixed(0)}` },
+      {
+        label: ["Görünen"],
+        low: 0,
+        high: perceived,
+        kind: "start",
+        tag: `%${perceived.toLocaleString("tr-TR", { maximumFractionDigits: 0 })}`,
+      },
     ];
     let cum = perceived;
     for (const l of losses) {
-      const p = asPct(l.amt);
-      out.push({ label: l.label, low: cum - p, high: cum, kind: "loss", tag: `−${p.toFixed(1)}` });
+      const p = asPct(l.amt ?? 0);
+      out.push({
+        label: l.label,
+        low: cum - p,
+        high: cum,
+        kind: "loss",
+        tag: `−${p.toLocaleString("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`,
+      });
       cum -= p;
     }
     out.push({
@@ -84,7 +88,6 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* header */}
       <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-sm">
         <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6 lg:px-8">
           <Link href="/" className="font-heading text-lg font-bold tracking-tight text-foreground">
@@ -97,7 +100,9 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-12 lg:px-8">
-        {/* seller selector */}
+        <p className="mb-4 text-xs text-muted-foreground">
+          Demo yüzeyi · Trendyol kanalı · seed satıcı verisi (gerçek hesap verisi değil)
+        </p>
         <div className="mb-10 flex flex-wrap items-center gap-2">
           {sellers.map((s) => {
             const active = s.tenantId === tenantId;
@@ -120,9 +125,10 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
         </div>
 
         <div className="grid gap-8 lg:grid-cols-2">
-          {/* LEFT: true margin (top-left) + waterfall instrument */}
           <section>
-            <div className="text-xs font-medium uppercase tracking-widest text-muted-foreground">True margin</div>
+            <div className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Gerçek net marj
+            </div>
             <div
               className="tnum mt-2 font-heading text-6xl font-bold leading-none tracking-tight sm:text-7xl"
               style={{ color: trueNeg ? "#B4432E" : "#0B7A4B" }}
@@ -130,20 +136,28 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
               {fmtPct(trueM)}
             </div>
             <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
-              Engine reads a perceived margin of{" "}
-              <span className="tnum font-medium text-foreground">{fmtPct(perceived)}</span>. Once VAT, shipping,
-              returns, ad spend and payment fees are allocated per SKU, the real contribution margin is{" "}
+              Motor görünen marjı{" "}
+              <span className="tnum font-medium text-foreground">{fmtPct(perceived)}</span> olarak okur.
+              KDV, komisyon, kargo, ambalaj, iade, reklam ve ödeme ücretleri SKU bazında düşülünce
+              gerçek katkı marjı{" "}
               <span className="tnum font-medium" style={{ color: trueNeg ? "#B4432E" : "#0B7A4B" }}>
                 {fmtPct(trueM)}
               </span>{" "}
-              — a <span className="tnum font-medium text-foreground">{hiddenPts.toFixed(1)} pt</span> gap. Seller’s own
-              estimate: <span className="tnum">{view.perceivedMarginBelief}%</span>.
+              —{" "}
+              <span className="tnum font-medium text-foreground">
+                {hiddenPts.toLocaleString("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} puan
+              </span>{" "}
+              fark. Satıcının kendi tahmini:{" "}
+              <span className="tnum">
+                %{view.perceivedMarginBelief.toLocaleString("tr-TR", { maximumFractionDigits: 1 })}
+              </span>
+              .
             </p>
 
             <div className="mt-6">
               <FeeWaterfall
                 steps={steps}
-                caption={`${view.label} · ${view.category} · margin per revenue`}
+                caption={`${view.label} · ${view.category} · ciroya göre marj`}
                 perceivedPct={perceived}
                 truePct={trueM}
                 hiddenPts={hiddenPts}
@@ -154,22 +168,21 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
               href={`/financing/${tenantId}`}
               className="mt-6 inline-flex h-11 items-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
-              Because we see this, we can price you → Financing
+              Bu yüzden fiyatlayabiliyoruz → Finansman
             </Link>
           </section>
 
-          {/* RIGHT: silent-loser SKU table */}
           <section>
             <div className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              SKU breakdown — silent losers
+              SKU kırılımı — sessiz zarar edenler
             </div>
             <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="px-4 py-3 text-left font-medium">SKU</th>
-                    <th className="px-4 py-3 text-right font-medium">Perceived</th>
-                    <th className="px-4 py-3 text-right font-medium">True</th>
+                    <th className="px-4 py-3 text-right font-medium">Görünen</th>
+                    <th className="px-4 py-3 text-right font-medium">Gerçek</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -182,14 +195,20 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
                             className="ml-2 rounded-full px-2 py-0.5 text-xs font-medium"
                             style={{ background: "rgba(180,67,46,0.10)", color: "#B4432E" }}
                           >
-                            silent loser
+                            sessiz zarar
                           </span>
                         )}
                       </td>
-                      <td className="tnum px-4 py-3 text-right" style={{ color: r.perceivedMarginPct >= 0 ? "#0B7A4B" : "#B4432E" }}>
+                      <td
+                        className="tnum px-4 py-3 text-right"
+                        style={{ color: r.perceivedMarginPct >= 0 ? "#0B7A4B" : "#B4432E" }}
+                      >
                         {fmtPct(r.perceivedMarginPct)}
                       </td>
-                      <td className="tnum px-4 py-3 text-right" style={{ color: r.trueMarginPct >= 0 ? "#0B7A4B" : "#B4432E" }}>
+                      <td
+                        className="tnum px-4 py-3 text-right"
+                        style={{ color: r.trueMarginPct >= 0 ? "#0B7A4B" : "#B4432E" }}
+                      >
                         {fmtPct(r.trueMarginPct)}
                       </td>
                     </tr>
@@ -197,12 +216,6 @@ export default function RevealPage({ params }: { params: Promise<{ tenantId: str
                 </tbody>
               </table>
             </div>
-
-            <p className="mt-5 max-w-md text-xs leading-relaxed text-muted-foreground">
-              Figures are computed live by the engine from representative seed data. Replace the raw settlement rows and
-              the reveal, underwriting and backtest all recompute automatically. N=3 design partners — proof of
-              mechanism, not a statistical loss-rate.
-            </p>
           </section>
         </div>
       </main>

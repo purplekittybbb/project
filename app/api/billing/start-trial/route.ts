@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { bearerToken, userScopedClient } from "@/lib/billing/auth";
+import { bearerToken, requireBillingActor } from "@/lib/billing/auth";
 import {
   getStripe,
   growthSubscriptionItem,
@@ -25,10 +25,6 @@ export async function POST(req: Request) {
   }
 
   const accessToken = bearerToken(req);
-  if (!accessToken) {
-    return NextResponse.json({ error: "Oturum bulunamadı — lütfen tekrar giriş yapın." }, { status: 401 });
-  }
-
   let body: StartTrialBody;
   try {
     body = (await req.json()) as StartTrialBody;
@@ -41,28 +37,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "setupIntentId gerekli." }, { status: 400 });
   }
 
-  const supabase = userScopedClient(accessToken);
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase yapılandırılmamış." }, { status: 500 });
+  const actor = await requireBillingActor(accessToken);
+  if (!actor.ok) {
+    return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
+  const { user, svc } = actor;
 
   const stripe = getStripe();
   if (!stripe) {
     return NextResponse.json({ error: "Stripe yapılandırılmamış." }, { status: 503 });
   }
 
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  const user = userData.user;
-  if (userError || !user) {
-    return NextResponse.json({ error: "Oturum geçersiz." }, { status: 401 });
-  }
-
-  // Every Stripe SDK call below THROWS on failure (network error, Stripe
-  // outage, rate limit, a declined/expired card on subscription creation).
-  // Wrapped so such a failure becomes a clean 502 with a logged, attributable
-  // detail — never an unhandled exception surfacing as an opaque generic 500
-  // right as the user finishes entering their card. The early returns inside
-  // are validation short-circuits, not error paths, and return normally.
   try {
     const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
     if (setupIntent.status !== "succeeded") {
@@ -90,34 +75,41 @@ export async function POST(req: Request) {
       invoice_settings: { default_payment_method: paymentMethodId },
     });
 
-    const { data: billingRow } = await supabase
+    const { data: billingRow } = await svc
       .from("billing_subscriptions")
       .select("stripe_subscription_id, status")
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (billingRow?.stripe_subscription_id && billingRow.status === "trialing") {
+    // Idempotent for both trialing and active — avoid duplicate Stripe subs on retry.
+    if (
+      billingRow?.stripe_subscription_id &&
+      (billingRow.status === "trialing" || billingRow.status === "active")
+    ) {
       return NextResponse.json({
         success: true,
-        status: "trialing",
+        status: billingRow.status,
         subscriptionId: billingRow.stripe_subscription_id,
         alreadyActive: true,
       });
     }
 
-    const subscription = await stripe.subscriptions.create({
-      customer: customerId,
-      items: [growthSubscriptionItem()],
-      trial_period_days: trialPeriodDays(),
-      default_payment_method: paymentMethodId,
-      metadata: { supabase_user_id: user.id },
-    });
+    const subscription = await stripe.subscriptions.create(
+      {
+        customer: customerId,
+        items: [growthSubscriptionItem()],
+        trial_period_days: trialPeriodDays(),
+        default_payment_method: paymentMethodId,
+        metadata: { supabase_user_id: user.id },
+      },
+      { idempotencyKey: `start-trial:${user.id}:${setupIntentId}` },
+    );
 
     const trialEnd = subscription.trial_end
       ? new Date(subscription.trial_end * 1000).toISOString()
       : null;
 
-    const { error: upsertError } = await supabase.from("billing_subscriptions").upsert(
+    const { error: upsertError } = await svc.from("billing_subscriptions").upsert(
       {
         user_id: user.id,
         stripe_customer_id: customerId,
@@ -126,7 +118,7 @@ export async function POST(req: Request) {
         trial_end: trialEnd,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "user_id" }
+      { onConflict: "user_id" },
     );
 
     if (upsertError) {

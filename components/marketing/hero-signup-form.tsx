@@ -33,45 +33,46 @@ export function HeroSignupForm() {
     }
 
     setLoading(true);
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      router.push("/signup");
-      return;
-    }
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        router.push("/signup");
+        return;
+      }
 
-    const { data, error: signErr } = await supabase.auth.signUp({
-      email: trimmedEmail,
-      password,
-      options: {
-        data: {
-          full_name: trimmedEmail.split("@")[0] || "Satıcı",
-          company: "",
+      const { data, error: signErr } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password,
+        options: {
+          data: {
+            full_name: trimmedEmail.split("@")[0] || "Satıcı",
+            company: "",
+          },
         },
-      },
-    });
+      });
 
-    setLoading(false);
-    if (signErr) {
-      setError(
-        /already registered|already exists/i.test(signErr.message)
-          ? "Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin."
-          : signErr.message,
-      );
-      return;
+      if (signErr) {
+        setError(
+          /already registered|already exists/i.test(signErr.message)
+            ? "Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin."
+            : "Kayıt tamamlanamadı. Lütfen tekrar deneyin.",
+        );
+        return;
+      }
+      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        setError("Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin.");
+        return;
+      }
+      if (!data.session) {
+        setNotice("Hesap oluşturuldu. E-postanızdaki onay bağlantısına tıklayın.");
+        return;
+      }
+      window.location.assign("/connect");
+    } catch {
+      setError("Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.");
+    } finally {
+      setLoading(false);
     }
-    // Supabase obfuscates an existing-email signup as a "successful" response
-    // with an empty identities array (no confirmation email is actually sent).
-    // Detect it so we tell the user to sign in instead of falsely claiming a
-    // new account was created.
-    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-      setError("Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin.");
-      return;
-    }
-    if (!data.session) {
-      setNotice("Hesap oluşturuldu. E-postanızdaki onay bağlantısına tıklayın.");
-      return;
-    }
-    window.location.assign("/connect");
   }
 
   return (
@@ -82,24 +83,42 @@ export function HeroSignupForm() {
       <p className="mt-2 text-sm text-[color-mix(in_srgb,var(--tm-paper)_75%,transparent)]">
         E-posta ve şifre — tek adımda hesap açın.
       </p>
-      <form onSubmit={onSubmit} className="mt-6 space-y-3">
-        <input
-          type="email"
-          autoComplete="email"
-          placeholder="E-posta"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className={`w-full rounded-md border bg-[var(--tm-paper)] px-3 py-2.5 text-sm text-foreground ${error ? FIELD_ERROR_BORDER : "border-input"}`}
-        />
-        <input
-          type="password"
-          autoComplete="new-password"
-          placeholder="Şifre (min. 8 karakter)"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className={`w-full rounded-md border bg-[var(--tm-paper)] px-3 py-2.5 text-sm text-foreground ${error ? FIELD_ERROR_BORDER : "border-input"}`}
-        />
-        {error && <p className={`text-xs ${FIELD_ERROR_TEXT_ON_DARK}`}>{error}</p>}
+      <form onSubmit={onSubmit} className="mt-6 space-y-3" aria-describedby={error ? "hero-signup-error" : undefined}>
+        <div>
+          <label htmlFor="hero-signup-email" className="sr-only">
+            E-posta
+          </label>
+          <input
+            id="hero-signup-email"
+            type="email"
+            autoComplete="email"
+            placeholder="E-posta"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            aria-invalid={Boolean(error)}
+            className={`w-full rounded-md border bg-[var(--tm-paper)] px-3 py-2.5 text-sm text-foreground ${error ? FIELD_ERROR_BORDER : "border-input"}`}
+          />
+        </div>
+        <div>
+          <label htmlFor="hero-signup-password" className="sr-only">
+            Şifre
+          </label>
+          <input
+            id="hero-signup-password"
+            type="password"
+            autoComplete="new-password"
+            placeholder="Şifre (min. 8 karakter)"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            aria-invalid={Boolean(error)}
+            className={`w-full rounded-md border bg-[var(--tm-paper)] px-3 py-2.5 text-sm text-foreground ${error ? FIELD_ERROR_BORDER : "border-input"}`}
+          />
+        </div>
+        {error && (
+          <p id="hero-signup-error" role="alert" className={`text-xs ${FIELD_ERROR_TEXT_ON_DARK}`}>
+            {error}
+          </p>
+        )}
         {notice && <p className="text-xs text-[color-mix(in_srgb,var(--tm-paper)_85%,transparent)]">{notice}</p>}
         <TrustSubmitButton
           disabled={loading}
@@ -109,7 +128,6 @@ export function HeroSignupForm() {
           {loading ? "Kaydediliyor…" : "Ücretsiz Başla"}
         </TrustSubmitButton>
 
-        {/* PDF §3.2 — güven sinyalleri aksiyon butonunun hemen yanında (KVKK seal). */}
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 pt-1 text-[11px] text-[color-mix(in_srgb,var(--tm-paper)_60%,transparent)]">
           <span className="inline-flex items-center gap-1">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>

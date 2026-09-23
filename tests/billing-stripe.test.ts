@@ -22,8 +22,8 @@ const {
   mockSubscriptionsCreate: vi.fn(),
 }));
 
-vi.mock("@supabase/supabase-js", () => ({
-  createClient: vi.fn(() => ({
+function mockSupabaseClient() {
+  return {
     auth: { getUser: mockGetUser },
     from: (table: string) => {
       if (table !== "billing_subscriptions") throw new Error(`Unexpected table: ${table}`);
@@ -37,7 +37,16 @@ vi.mock("@supabase/supabase-js", () => ({
         upsert: (row: unknown, opts: unknown) => mockBillingUpsert(row, opts),
       };
     },
-  })),
+  };
+}
+
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: vi.fn(() => mockSupabaseClient()),
+}));
+
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: vi.fn(() => mockSupabaseClient()),
+  hasServiceRoleConfig: vi.fn(() => true),
 }));
 
 vi.mock("stripe", () => ({
@@ -76,7 +85,7 @@ describe("POST /api/billing/setup-intent", () => {
     vi.resetModules();
     mockGetUser.mockReset();
     mockBillingSelect.mockReset();
-    mockBillingInsert.mockReset();
+    mockBillingUpsert.mockReset();
     mockCustomersCreate.mockReset();
     mockSetupIntentsCreate.mockReset();
 
@@ -84,8 +93,10 @@ describe("POST /api/billing/setup-intent", () => {
       ...ORIGINAL_ENV,
       STRIPE_SECRET_KEY: "sk_test_x",
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_test_x",
+      STRIPE_LIVE_ENABLED: "1",
       NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
     };
 
     mockGetUser.mockResolvedValue({
@@ -93,7 +104,7 @@ describe("POST /api/billing/setup-intent", () => {
       error: null,
     });
     mockBillingSelect.mockResolvedValue({ data: null, error: null });
-    mockBillingInsert.mockResolvedValue({ error: null });
+    mockBillingUpsert.mockResolvedValue({ error: null });
     mockCustomersCreate.mockResolvedValue({ id: "cus_test" });
     mockSetupIntentsCreate.mockResolvedValue({ client_secret: "seti_secret_test" });
   });
@@ -104,6 +115,8 @@ describe("POST /api/billing/setup-intent", () => {
 
   it("rejects when Stripe is not configured", async () => {
     delete process.env.STRIPE_SECRET_KEY;
+    delete process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+    delete process.env.STRIPE_LIVE_ENABLED;
     const { POST } = await importSetupIntentRoute();
     const res = await POST(authedRequest("http://localhost/api/billing/setup-intent"));
     expect(res.status).toBe(503);
@@ -123,6 +136,7 @@ describe("POST /api/billing/setup-intent", () => {
     expect(body.clientSecret).toBe("seti_secret_test");
     expect(mockCustomersCreate).toHaveBeenCalledOnce();
     expect(mockSetupIntentsCreate).toHaveBeenCalledOnce();
+    expect(mockBillingUpsert).toHaveBeenCalledOnce();
   });
 
   it("reuses an existing Stripe customer id", async () => {
@@ -132,7 +146,21 @@ describe("POST /api/billing/setup-intent", () => {
     expect(res.status).toBe(200);
     expect(mockCustomersCreate).not.toHaveBeenCalled();
     expect(mockSetupIntentsCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ customer: "cus_existing" })
+      expect.objectContaining({ customer: "cus_existing" }),
+    );
+  });
+
+  it("replaces demo: customer ids with a real Stripe customer", async () => {
+    mockBillingSelect.mockResolvedValue({
+      data: { stripe_customer_id: "demo:user-1" },
+      error: null,
+    });
+    const { POST } = await importSetupIntentRoute();
+    const res = await POST(authedRequest("http://localhost/api/billing/setup-intent"));
+    expect(res.status).toBe(200);
+    expect(mockCustomersCreate).toHaveBeenCalledOnce();
+    expect(mockSetupIntentsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ customer: "cus_test" }),
     );
   });
 });
@@ -153,8 +181,10 @@ describe("POST /api/billing/start-trial", () => {
       ...ORIGINAL_ENV,
       STRIPE_SECRET_KEY: "sk_test_x",
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_test_x",
+      STRIPE_LIVE_ENABLED: "1",
       NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
     };
 
     mockGetUser.mockResolvedValue({
@@ -191,7 +221,7 @@ describe("POST /api/billing/start-trial", () => {
   it("creates a trialing subscription after a succeeded SetupIntent", async () => {
     const { POST } = await importStartTrialRoute();
     const res = await POST(
-      authedRequest("http://localhost/api/billing/start-trial", { setupIntentId: "seti_1" })
+      authedRequest("http://localhost/api/billing/start-trial", { setupIntentId: "seti_1" }),
     );
     const body = await res.json();
     expect(res.status).toBe(200);
@@ -211,7 +241,7 @@ describe("POST /api/billing/start-trial", () => {
     });
     const { POST } = await importStartTrialRoute();
     const res = await POST(
-      authedRequest("http://localhost/api/billing/start-trial", { setupIntentId: "seti_1" })
+      authedRequest("http://localhost/api/billing/start-trial", { setupIntentId: "seti_1" }),
     );
     expect(res.status).toBe(403);
   });
@@ -227,8 +257,17 @@ describe("isStripeLiveEnabled", () => {
   it("is true when both Stripe keys are set", async () => {
     process.env.STRIPE_SECRET_KEY = "sk_test";
     process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_test";
+    delete process.env.STRIPE_LIVE_ENABLED;
     const { isStripeLiveEnabled } = await import("../lib/billing/is-stripe-live-enabled");
     expect(isStripeLiveEnabled()).toBe(true);
+  });
+
+  it("is false when only secret key is set", async () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test";
+    delete process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+    delete process.env.STRIPE_LIVE_ENABLED;
+    const { isStripeLiveEnabled } = await import("../lib/billing/is-stripe-live-enabled");
+    expect(isStripeLiveEnabled()).toBe(false);
   });
 
   it("is false when keys are missing", async () => {

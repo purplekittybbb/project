@@ -1,27 +1,45 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+"use client";
+
+import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { LockIcon } from "@/components/trust/LockIcon";
 
 /**
  * PDF §3.2 — güven rozeti işlem anında (point of friction).
- * Kilit, CTA'nın içinde / hemen yanında; footer'a gömülmez.
+ * Internal latch blocks double-submit before parent re-renders disabled.
  */
 export function TrustSubmitButton({
   children,
   className = "",
   seal = "256-bit şifreli bağlantı · verileriniz güvende",
   showSeal = true,
+  onClick,
+  disabled,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   children: ReactNode;
   seal?: string;
   showSeal?: boolean;
 }) {
+  const [latched, setLatched] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   return (
     <div className="w-full">
       <button
         type="submit"
         {...props}
+        disabled={disabled || latched}
         className={`tm-btn-primary inline-flex w-full items-center justify-center gap-2 ${className}`.trim()}
+        onClick={(e) => {
+          if (latched || disabled) {
+            e.preventDefault();
+            return;
+          }
+          setLatched(true);
+          if (timerRef.current) clearTimeout(timerRef.current);
+          timerRef.current = setTimeout(() => setLatched(false), 1500);
+          onClick?.(e);
+        }}
       >
         <LockIcon className="shrink-0 text-[var(--tm-paper)] opacity-90" />
         <span>{children}</span>

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { bearerToken, userScopedClient } from "@/lib/billing/auth";
+import { bearerToken, requireBillingActor } from "@/lib/billing/auth";
 import { computeTrialEndIso, demoCustomerId } from "@/lib/billing/demo-trial";
 import { isStripeLiveEnabled } from "@/lib/billing/is-stripe-live-enabled";
 
@@ -17,32 +17,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Stripe aktif — demo deneme kullanılamaz." }, { status: 503 });
   }
 
-  const accessToken = bearerToken(req);
-  if (!accessToken) {
-    return NextResponse.json({ error: "Oturum bulunamadı — lütfen tekrar giriş yapın." }, { status: 401 });
+  const actor = await requireBillingActor(bearerToken(req));
+  if (!actor.ok) {
+    return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
+  const { user, svc } = actor;
 
-  const supabase = userScopedClient(accessToken);
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase yapılandırılmamış." }, { status: 500 });
-  }
-
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  const user = userData.user;
-  if (userError || !user) {
-    return NextResponse.json({ error: "Oturum geçersiz." }, { status: 401 });
-  }
-
-  const { data: existing } = await supabase
+  const { data: existing } = await svc
     .from("billing_subscriptions")
     .select("status, trial_end, stripe_customer_id")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (existing?.status === "trialing") {
+  if (existing?.status === "trialing" || existing?.status === "active") {
     return NextResponse.json({
       success: true,
-      status: "trialing",
+      status: existing.status,
       trialEnd: existing.trial_end as string | null,
       isDemo: true,
       alreadyActive: true,
@@ -52,7 +42,7 @@ export async function POST(req: Request) {
   const trialEnd = computeTrialEndIso();
   const now = new Date().toISOString();
 
-  const { error: upsertError } = await supabase.from("billing_subscriptions").upsert(
+  const { error: upsertError } = await svc.from("billing_subscriptions").upsert(
     {
       user_id: user.id,
       stripe_customer_id: demoCustomerId(user.id),
@@ -61,7 +51,7 @@ export async function POST(req: Request) {
       trial_end: trialEnd,
       updated_at: now,
     },
-    { onConflict: "user_id" }
+    { onConflict: "user_id" },
   );
 
   if (upsertError) {

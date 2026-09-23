@@ -28,6 +28,8 @@ const nextConfig = {
       process.env.STRIPE_SECRET_KEY?.trim() && process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim()
         ? "1"
         : "",
+    // Explicit opt-in only — never default-open auth when Supabase keys are missing.
+    DEMO_MODE_ENABLED: process.env.DEMO_MODE === "true" || process.env.NEXT_PUBLIC_DEMO_MODE === "true" ? "1" : "",
   },
   typescript: {
     ignoreBuildErrors: false,
