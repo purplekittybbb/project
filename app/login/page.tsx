@@ -6,7 +6,7 @@
 
 import { Suspense, useState, useRef } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
 import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
@@ -31,7 +31,6 @@ function safeNextPath(raw: string | null): string {
 }
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = safeNextPath(searchParams.get("next"));
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -68,7 +67,7 @@ function LoginForm() {
     const supabase = getSupabaseClient();
     if (!supabase) {
       await new Promise((r) => setTimeout(r, 500));
-      router.push(nextPath);
+      window.location.assign(nextPath);
       return;
     }
 
@@ -87,8 +86,8 @@ function LoginForm() {
       return;
     }
 
-    router.push(nextPath);
-    router.refresh();
+    // Full navigation so proxy sees fresh auth cookies (soft push can race).
+    window.location.assign(nextPath);
   }
 
   return (

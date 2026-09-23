@@ -65,7 +65,7 @@ export function HeroSignupForm() {
       setNotice("Hesap oluşturuldu. E-postanızdaki onay bağlantısına tıklayın.");
       return;
     }
-    router.push("/connect");
+    window.location.assign("/connect");
   }
 
   return (

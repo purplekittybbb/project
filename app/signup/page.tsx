@@ -13,7 +13,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
 import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
@@ -108,8 +107,6 @@ const EMPTY: FormState  = { fullName: "", email: "", company: "", password: "" }
 const NO_ERR: ErrorState = { fullName: "", email: "", company: "", password: "" };
 
 export default function SignupPage() {
-  const router = useRouter();
-
   const [form, setForm]     = useState<FormState>(EMPTY);
   const [errors, setErrors] = useState<ErrorState>(NO_ERR);
   const [formError, setFormError] = useState("");
@@ -164,7 +161,7 @@ export default function SignupPage() {
     // Demo fallback: no Supabase keys configured → keep the app usable.
     if (!supabase) {
       await new Promise((r) => setTimeout(r, 600));
-      router.push("/connect");
+      window.location.assign("/connect");
       return;
     }
 
@@ -206,8 +203,7 @@ export default function SignupPage() {
     }
 
     // New accounts always go through /connect first.
-    router.push("/connect");
-    router.refresh();
+    window.location.assign("/connect");
   }
 
   return (
