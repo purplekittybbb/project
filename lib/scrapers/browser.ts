@@ -138,6 +138,7 @@ async function launchServerlessBrowser(): Promise<BrowserSession> {
     args: scraperChromiumArgs(Chromium.args),
     executablePath,
     headless: true,
+    proxy: scraperProxyFromEnv(),
   });
   const { page, dispose } = await openScraperPage(browser, "serverless");
 
@@ -158,6 +159,7 @@ async function launchLocalBrowser(): Promise<BrowserSession> {
     const browser = await playwright.chromium.launch({
       headless: true,
       args: scraperChromiumArgs(["--no-sandbox", "--disable-setuid-sandbox"]),
+      proxy: scraperProxyFromEnv(),
     });
     const { page, dispose } = await openScraperPage(browser, "local");
     return {
@@ -173,6 +175,7 @@ async function launchLocalBrowser(): Promise<BrowserSession> {
     const browser = await chromium.launch({
       headless: true,
       args: scraperChromiumArgs(["--no-sandbox", "--disable-setuid-sandbox"]),
+      proxy: scraperProxyFromEnv(),
     });
     const { page, dispose } = await openScraperPage(browser, "local");
     return {
@@ -189,7 +192,10 @@ async function launchLocalBrowser(): Promise<BrowserSession> {
 /**
  * Create a real Playwright browser session.
  *
- * Returns `null` when launch fails (callers fall back to preview mode).
+ * Optional `SCRAPER_PROXY_URL` (e.g. residential proxy) is passed to launch
+ * so marketplace DC IP blocks can be bypassed when configured.
+ *
+ * Returns `null` when launch fails (callers fall back to preview / error mode).
  */
 export async function createBrowserSession(): Promise<BrowserSession | null> {
   try {
@@ -202,4 +208,11 @@ export async function createBrowserSession(): Promise<BrowserSession | null> {
     console.error("[createBrowserSession] launch failed:", message);
     return null;
   }
+}
+
+/** Playwright proxy config from env — undefined when unset. */
+export function scraperProxyFromEnv(): { server: string } | undefined {
+  const server = process.env.SCRAPER_PROXY_URL?.trim();
+  if (!server) return undefined;
+  return { server };
 }
