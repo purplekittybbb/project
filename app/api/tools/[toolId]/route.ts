@@ -6,14 +6,17 @@ import { parseToolQuery } from "@/lib/tools/parse-query";
 import {
   buildRateLimitSubject,
   checkAndIncrementToolUsage,
+  refundToolUsage,
 } from "@/lib/tools/guest-rate-limit";
 import { isScraperToolId, type StandaloneToolId } from "@/lib/tools/registry";
+import { resolveQueuedScrapeJob } from "@/lib/tools/resolve-queued-job";
 import { runStandaloneTool } from "@/lib/tools/run-standalone";
+import { isUsableStandaloneResult } from "@/lib/tools/usable-result";
 import { getSubscriptionStatus } from "@/lib/iyzico/subscription";
 
 export const runtime = "nodejs";
-/** 3-page scrape + anti-bot delays; requires Vercel Pro for >60s. */
-export const maxDuration = 120;
+/** Cache hit or enqueue only — live scrape runs in the BullMQ worker. */
+export const maxDuration = 30;
 
 interface RouteContext {
   params: Promise<{ toolId: string }>;
@@ -53,6 +56,51 @@ async function isPaidUser(supabase: SupabaseClient | null, userId: string | null
   } catch {
     return false;
   }
+}
+
+function extractQueuedJobId(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const jobId = (data as { jobId?: unknown }).jobId;
+  return typeof jobId === "string" && jobId.length > 0 ? jobId : null;
+}
+
+/**
+ * Poll an enqueued scrape job. No rate-limit increment — the POST that created
+ * the job already held a quota unit. Permanent failures refund.
+ */
+export async function GET(req: Request, context: RouteContext) {
+  const { toolId: rawToolId } = await context.params;
+  const toolId = rawToolId as Exclude<StandaloneToolId, "profit-calc">;
+
+  if (!isScraperToolId(toolId)) {
+    return NextResponse.json({ error: "Bilinmeyen veya mağaza gerektiren araç." }, { status: 404 });
+  }
+
+  const jobId = new URL(req.url).searchParams.get("jobId")?.trim();
+  if (!jobId) {
+    return NextResponse.json(
+      { error: "jobId gerekli. Önce POST ile sorgu gönderin." },
+      { status: 400 },
+    );
+  }
+
+  const resolved = await resolveQueuedScrapeJob(toolId, jobId);
+  if (resolved.status === "error") {
+    if (resolved.shouldRefund) {
+      const { userId } = await getOptionalUser();
+      const subject = buildRateLimitSubject(req.headers, userId);
+      await refundToolUsage(toolId, subject);
+    }
+    return NextResponse.json({ error: resolved.error }, { status: resolved.httpStatus });
+  }
+
+  if (resolved.shouldRefund) {
+    const { userId } = await getOptionalUser();
+    const subject = buildRateLimitSubject(req.headers, userId);
+    await refundToolUsage(toolId, subject);
+  }
+
+  return NextResponse.json(resolved.envelope, { status: 200 });
 }
 
 export async function POST(req: Request, context: RouteContext) {
@@ -102,21 +150,33 @@ export async function POST(req: Request, context: RouteContext) {
   const parsed = parseToolQuery(query, body.marketplace);
   const result = await runStandaloneTool(toolId, parsed);
 
-  // 202: the request is valid and will succeed on retry — this is not an
-  // error, just "no scrape capacity this instant." Lets the frontend tell
-  // a queued state apart from a real failure without parsing the body.
-  const status = result.mode === "queued" ? 202 : 200;
+  let quotaOut = {
+    limit: quota.limit,
+    remaining: quota.remaining,
+    used: quota.used,
+    enforced: quota.enforced,
+  };
 
+  // Free-tier honesty: don't charge empty / blocked / preview results.
+  // In-flight queue jobs WITH jobId keep the charge (poll delivers or refunds).
+  // Slot-full queued without jobId still refunds so retries aren't free forever.
+  const queuedJobId = result.mode === "queued" ? extractQueuedJobId(result.data) : null;
+  const holdQuotaForJob = Boolean(queuedJobId);
+  if (quota.enforced && !isUsableStandaloneResult(toolId, result) && !holdQuotaForJob) {
+    await refundToolUsage(toolId, subject);
+    quotaOut = {
+      ...quotaOut,
+      used: Math.max(0, quota.used - 1),
+      remaining: Math.min(quota.limit, quota.remaining + 1),
+    };
+  }
+
+  // Always 200: cache hit, enqueue ack, or short sync fallback.
   return NextResponse.json(
     {
       ...result,
-      quota: {
-        limit: quota.limit,
-        remaining: quota.remaining,
-        used: quota.used,
-        enforced: quota.enforced,
-      },
+      quota: quotaOut,
     },
-    { status },
+    { status: 200 },
   );
 }
