@@ -71,7 +71,13 @@ export async function loadDemandEstimates(sku?: string): Promise<StoredDemandEst
   if (sku) query = query.eq("sku", sku);
 
   const { data, error } = await query;
-  if (error || !data) return [];
+  if (error) {
+    if (!/does not exist|schema cache/i.test(error.message)) {
+      console.error("[demand-estimates] load failed:", error.message);
+    }
+    return [];
+  }
+  if (!data) return [];
 
   return (data as Array<Record<string, unknown>>).map((r) => ({
     id: String(r.id),

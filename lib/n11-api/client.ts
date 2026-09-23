@@ -160,6 +160,7 @@ async function fetchOrdersPage(
         appsecret: creds.appSecret,
         Accept: "application/json",
       },
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (res.status === 401 || res.status === 403) {

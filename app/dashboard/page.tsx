@@ -209,11 +209,17 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   useEffect(() => {
     if (demoMode || !authConfigured) return;
     let active = true;
-    loadWeeklyDigestEnabled().then((enabled) => {
-      if (!active) return;
-      setDigestEnabled(enabled);
-      setDigestLoaded(true);
-    });
+    void loadWeeklyDigestEnabled()
+      .then((enabled) => {
+        if (!active) return;
+        setDigestEnabled(enabled);
+        setDigestLoaded(true);
+      })
+      .catch(() => {
+        if (!active) return;
+        setDigestError("Özet tercihi yüklenemedi.");
+        setDigestLoaded(true);
+      });
     return () => { active = false; };
   }, [demoMode, authConfigured]);
 
@@ -252,20 +258,28 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     if (demoMode) return;
     let active = true;
     (async () => {
-      const { rows, error: loadError } = await loadUserRowsWithStatus();
-      if (!active) return;
-      setUserDataLoadError(loadError);
-      setUserRows(rows);
-      const seller = buildUserSeller(rows);
-      if (seller) {
-        registerRuntimeSeller(seller, "Verilerim");
-        setTenant(USER_TENANT_ID);
-        // Backfill: a returning user with data but no decision_ledger row yet
-        // (e.g. right after this feature shipped) gets one recorded now.
-        recordLedgerDecision().then(() => loadRealLedger());
+      try {
+        const { rows, error: loadError } = await loadUserRowsWithStatus();
+        if (!active) return;
+        setUserDataLoadError(loadError);
+        setUserRows(rows);
+        const seller = buildUserSeller(rows);
+        if (seller) {
+          registerRuntimeSeller(seller, "Verilerim");
+          setTenant(USER_TENANT_ID);
+          void recordLedgerDecision()
+            .then(() => loadRealLedger())
+            .catch(() => { /* ledger best-effort */ });
+        }
+      } catch (err) {
+        if (!active) return;
+        setUserDataLoadError(err instanceof Error ? err.message : "Veri yüklenemedi.");
+      } finally {
+        if (active) {
+          setInitialDataLoadDone(true);
+          setDataVersion((v) => v + 1);
+        }
       }
-      setInitialDataLoadDone(true);
-      setDataVersion((v) => v + 1);
     })();
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -305,33 +319,37 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       return;
     }
     let active = true;
-    (async () => {
-      const stored = await loadDemandEstimates();
-      if (!active) return;
-      const map = new Map<string, DemandRangeResult>();
-      const skus = [...new Set(userRows.map((r) => r.sku))];
-      for (const sku of skus) {
-        const hit: StoredDemandEstimate | undefined = stored.find((e) => e.sku === sku);
-        if (hit) {
-          map.set(sku, hit);
-          continue;
+    void (async () => {
+      try {
+        const stored = await loadDemandEstimates();
+        if (!active) return;
+        const map = new Map<string, DemandRangeResult>();
+        const skus = [...new Set(userRows.map((r) => r.sku))];
+        for (const sku of skus) {
+          const hit: StoredDemandEstimate | undefined = stored.find((e) => e.sku === sku);
+          if (hit) {
+            map.set(sku, hit);
+            continue;
+          }
+          const rows = userRows.filter((r) => r.sku === sku);
+          const totalUnits = rows.reduce((s, r) => s + r.units, 0);
+          const timestamps = rows.map((r) => new Date(r.sale_date).getTime());
+          const dataDays = Math.max(
+            1,
+            Math.round((Math.max(...timestamps) - Math.min(...timestamps)) / 86_400_000),
+          );
+          map.set(
+            sku,
+            estimateDemand({ stockDelta: { dailySalesRate: totalUnits / dataDays, dataDays } }),
+          );
         }
-        const rows = userRows.filter((r) => r.sku === sku);
-        const totalUnits = rows.reduce((s, r) => s + r.units, 0);
-        const timestamps = rows.map((r) => new Date(r.sale_date).getTime());
-        const dataDays = Math.max(
-          1,
-          Math.round((Math.max(...timestamps) - Math.min(...timestamps)) / 86_400_000),
-        );
-        map.set(
-          sku,
-          estimateDemand({ stockDelta: { dailySalesRate: totalUnits / dataDays, dataDays } }),
-        );
+        setDemandBySku(map);
+      } catch {
+        if (active) setDemandBySku(new Map());
       }
-      setDemandBySku(map);
     })();
     return () => { active = false; };
-  }, [demoMode, tenant, userRows, dataVersion]);
+  }, [demoMode, tenant, dataVersion]);
 
   useEffect(() => {
     if (demoMode || !authConfigured) {
@@ -340,9 +358,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     }
     let active = true;
     const marketplace = channel === "combined" ? undefined : channel;
-    (async () => {
-      const rows = await loadMyWatchedVisibility(marketplace ? { marketplace } : undefined);
-      if (active) setWatchedVisibility(rows);
+    void (async () => {
+      try {
+        const rows = await loadMyWatchedVisibility(marketplace ? { marketplace } : undefined);
+        if (active) setWatchedVisibility(rows);
+      } catch {
+        if (active) setWatchedVisibility([]);
+      }
     })();
     return () => { active = false; };
   }, [demoMode, authConfigured, channel, dataVersion, visReload]);
@@ -372,7 +394,9 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     // user is waiting on, and a missed append just means the next data change
     // (or the periodic cron resync) records it instead.
     if (authConfigured) {
-      recordLedgerDecision().then(() => loadRealLedger());
+      void recordLedgerDecision()
+        .then(() => loadRealLedger())
+        .catch(() => { /* ledger best-effort */ });
     }
   }
 
@@ -606,13 +630,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     let active = true;
     const supabase = getSupabaseClient();
     if (!supabase) return;
-    supabase.auth.getUser().then(({ data }) => {
+    void supabase.auth.getUser().then(({ data }) => {
       if (!active || !data.user) return;
       setAccount({
         email: data.user.email ?? "—",
         company: typeof data.user.user_metadata?.company === "string" ? data.user.user_metadata.company : "",
       });
-    });
+    }).catch(() => { /* ignore */ });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authConfigured]);
@@ -948,8 +972,6 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     ? (realLedgerEntries ?? []).map((l) => ({ ...l, tenantId: USER_TENANT_ID, label: "Your account" }))
     : seedLedger;
 
-  const approved = view.decision.approvedLimit > 0;
-  const takeRate = fmtPctPlain(view.decision.takeRate * 100);
   // Financing tab uses getFinancing(tenant, channel) — same channel scope as
   // view.decision — so gates and money figures stay consistent when the user
   // switches Trendyol / Hepsiburada / combined.
@@ -1028,6 +1050,9 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           .filter((o): o is MarketplaceOption => !!o && !o.engineChannel)
       : [];
 
+  const dataChannelsKey = dataChannels.join(",");
+  const realSellerChannelsKey = realSellerChannels.join(",");
+
   // Keep `channel` valid: if the active channel isn't among the available tabs,
   // snap to the first data channel. For a signed-in real user, ALSO make sure the
   // channel actually has this seller's data — a tab can exist (e.g. the
@@ -1035,15 +1060,26 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // seller, which previously fell through to a seed demo seller's numbers below.
   useEffect(() => {
     if (connectedIds === null) return;
-    if (channel !== "combined" && !dataChannels.includes(channel)) {
-      setChannel(dataChannels[0]);
+    const channels = dataChannelsKey ? (dataChannelsKey.split(",") as Channel[]) : [];
+    const real = realSellerChannelsKey ? (realSellerChannelsKey.split(",") as Channel[]) : [];
+    const firstData = channels[0];
+    if (!firstData) return;
+    if (channel !== "combined" && !channels.includes(channel)) {
+      if (channel !== firstData) setChannel(firstData);
       return;
     }
-    if (authConfigured && channel !== "combined" && realSellerChannels.length > 0 && !realSellerChannels.includes(channel)) {
-      setChannel(realSellerChannels[0]);
+    const firstReal = real[0];
+    if (
+      authConfigured &&
+      channel !== "combined" &&
+      firstReal &&
+      real.length > 0 &&
+      !real.includes(channel) &&
+      channel !== firstReal
+    ) {
+      setChannel(firstReal);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectedIds, authConfigured, dataVersion]);
+  }, [connectedIds, authConfigured, dataVersion, channel, dataChannelsKey, realSellerChannelsKey]);
 
   async function handleSignOut() {
     const supabase = getSupabaseClient();
@@ -1577,32 +1613,27 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
 
                 {/* RIGHT COLUMN */}
                 <div className="w-full lg:w-5/12 flex flex-col lg:pl-4">
-                  {/* Underwriting Card */}
+                  {/* Güvenli Fiyat kartı — satıcı odaklı.
+                      Eskiden burada "Karar / Kesinti oranı / Reddedildi" gibi
+                      kredi-veren (underwriting) dili vardı; kredi başvurusu
+                      yapmayan bir satıcı için kafa karıştırıcıydı ve ürünün
+                      satıcı paneline ait değildi. Onun yerine satıcının gerçekten
+                      işine yarayan iki figürü öne çıkarıyoruz: güvenli/başabaş
+                      fiyat ve aylık net katkı. (Kredi-veren görünümü yalnızca
+                      demo modundaki Financing sekmesinde kalır.) */}
                   <div className="mb-14 border border-zinc-800 bg-zinc-900/20 p-6 lg:p-8">
-                    <div className="flex justify-between items-start mb-8">
-                      <div>
-                        <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">Karar</h3>
-                        <div className={`text-3xl font-mono tracking-tight ${approved ? "text-zinc-100" : "text-zinc-100"}`}>
-                          {approved ? money(view.decision.approvedLimit) : "Reddedildi"}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">Kesinti oranı</h3>
-                        <div className={`text-3xl font-mono ${approved ? "text-zinc-100" : "text-zinc-700"}`}>{approved ? `${takeRate}%` : "—"}</div>
-                      </div>
+                    <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">Güvenli fiyat</h3>
+                    <div className="text-3xl font-mono tracking-tight text-zinc-100">
+                      {money(view.breakEvenPrice)}
                     </div>
-                    <div className="flex justify-between border-t border-zinc-800 pt-5 font-mono text-sm mb-3">
-                      <span className="text-zinc-400">Aylık katkı</span>
+                    <div className="text-[11px] text-zinc-500 font-mono tracking-wide mt-2 mb-6">
+                      Başabaş fiyatı — bu fiyatın altında satmak zarar ettirir.
+                    </div>
+                    <div className="flex justify-between border-t border-zinc-800 pt-5 font-mono text-sm mb-5">
+                      <span className="text-zinc-400">Aylık net katkı</span>
                       <span className={view.inputs.trailingMonthlyContribution >= 0 ? "text-zinc-100 tabular-nums" : "fin-loss tabular-nums"}>
                         {view.inputs.trailingMonthlyContribution < 0 ? "-" : ""}{money(view.inputs.trailingMonthlyContribution)}
                       </span>
-                    </div>
-                    <div className="flex justify-between font-mono text-sm mb-5">
-                      <span className="text-zinc-400">Başabaş fiyatı</span>
-                      <span className="text-zinc-100 tabular-nums">{money(view.breakEvenPrice)}</span>
-                    </div>
-                    <div className="text-[11px] text-zinc-500 font-mono tracking-wide border-l border-zinc-700 pl-3 mb-3">
-                      Bu fiyatın altında satmak zarar.
                     </div>
                     <div className="text-[11px] text-zinc-500 font-mono tracking-wide border-l border-zinc-700 pl-3">
                       Fiyatlandırma cirodan değil gerçek marjdan yapılır.

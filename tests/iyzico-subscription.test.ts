@@ -6,7 +6,7 @@
  * Covers:
  *   - Access statuses (active, trialing)
  *   - Denial statuses (cancelled, past_due)
- *   - Fail-open on DB error / exception
+ *   - Fail-closed on DB error / exception
  *   - Fail-closed on missing row (no subscription)
  *   - Grace period: past_due within grace window → still has access
  *   - Cancellation at period end: cancelled but period not yet expired → has access
@@ -172,22 +172,22 @@ describe("getSubscriptionStatus", () => {
     expect(result.status).toBe("cancelled");
   });
 
-  // ── Fail-open / fail-closed tests ─────────────────────────────────────────
+  // ── Fail-closed on infrastructure errors ─────────────────────────────────
 
-  it("gracefully handles DB error — fails OPEN (table may not exist yet)", async () => {
+  it("gracefully handles DB error — fails CLOSED (no free premium unlock)", async () => {
     const supabase = makeMockSupabase(null, { message: "relation does not exist" });
     const result = await getSubscriptionStatus(supabase, "user-xyz");
-    expect(result.hasAccess).toBe(true);
-    expect(result.failOpen).toBe(true);
+    expect(result.hasAccess).toBe(false);
+    expect(result.failOpen).toBe(false);
     expect(result.status).toBeNull();
     expect(result.inGracePeriod).toBe(false);
   });
 
-  it("gracefully handles unexpected exception — fails OPEN (connection error)", async () => {
+  it("gracefully handles unexpected exception — fails CLOSED", async () => {
     const supabase = makeThrowingSupabase();
     const result = await getSubscriptionStatus(supabase, "user-abc");
-    expect(result.hasAccess).toBe(true);
-    expect(result.failOpen).toBe(true);
+    expect(result.hasAccess).toBe(false);
+    expect(result.failOpen).toBe(false);
   });
 
   it("returns isNew=true and fails CLOSED when no subscription row exists", async () => {

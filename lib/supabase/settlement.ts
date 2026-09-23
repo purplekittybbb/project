@@ -50,6 +50,26 @@ export async function loadAllSettlementPayouts(): Promise<SettlementPayout[]> {
   return (data as DbRow[]).map(toPayout);
 }
 
+/** Load payouts with explicit error (prefer over loadAllSettlementPayouts for UI). */
+export async function loadAllSettlementPayoutsWithStatus(): Promise<{
+  payouts: SettlementPayout[];
+  error: string | null;
+}> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return { payouts: [], error: null };
+  const { data, error } = await supabase
+    .from("settlement_payouts")
+    .select("marketplace, period_label, actual_amount, currency, note, updated_at")
+    .order("period_label", { ascending: false });
+  if (error) {
+    if (/does not exist|schema cache/i.test(error.message)) {
+      return { payouts: [], error: null };
+    }
+    return { payouts: [], error: error.message };
+  }
+  return { payouts: ((data ?? []) as DbRow[]).map(toPayout), error: null };
+}
+
 /** Bir dönem için gerçek hakediş tutarını kaydeder/günceller (upsert). */
 export async function saveSettlementPayout(
   marketplace: string,

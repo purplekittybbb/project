@@ -98,7 +98,7 @@ export function StoreRequiredGate({ tool }: { tool: ToolDefinition }) {
     if (state.kind === "anonymous") {
       router.replace(`/login?next=${encodeURIComponent(tool.href)}`);
     }
-  }, [state, router, tool.href]);
+  }, [state.kind, router, tool.href]);
 
   if (state.kind === "loading" || state.kind === "anonymous") {
     return (

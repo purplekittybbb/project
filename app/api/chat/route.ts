@@ -133,9 +133,13 @@ async function resolveSellerData(
   const { data: userData } = await supabase.auth.getUser();
   if (!userData.user) return null;
 
-  const { data: rows } = await supabase
+  const { data: rows, error: rowsError } = await supabase
     .from("user_transactions")
     .select("order_id, sku, category, sale_date, units, gross_revenue, unit_cost, shipping, return_rate, ad_spend, marketplace");
+  if (rowsError) {
+    console.error("[chat] user_transactions read failed:", rowsError.message);
+    return null;
+  }
   const userRawRows = (rows ?? []).map((r) => ({
     order_id: (r as { order_id: string }).order_id,
     sku: (r as { sku: string }).sku,
@@ -751,6 +755,7 @@ async function callGemini(system: string, history: ChatTurn[]): Promise<string> 
         contents,
         generationConfig: { temperature: 0.2 },
       }),
+      signal: AbortSignal.timeout(45_000),
     }
   );
 

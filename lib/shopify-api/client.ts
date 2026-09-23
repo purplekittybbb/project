@@ -250,6 +250,7 @@ async function graphqlRequest(shop: string, accessToken: string, variables: Reco
         "X-Shopify-Access-Token": accessToken,
       },
       body: JSON.stringify({ query: ORDERS_QUERY, variables }),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (res.status === 401 || res.status === 403) {

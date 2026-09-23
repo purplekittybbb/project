@@ -81,7 +81,13 @@ export async function loadLossAlarms(onlyUnresolved = false): Promise<StoredLoss
   if (onlyUnresolved) query = query.is("resolved_at", null);
 
   const { data, error } = await query;
-  if (error || !data) return [];
+  if (error) {
+    if (!/does not exist|schema cache/i.test(error.message)) {
+      console.error("[loss-alarms] load failed:", error.message);
+    }
+    return [];
+  }
+  if (!data) return [];
 
   return (data as Array<Record<string, unknown>>).map((r) => ({
     id: String(r.id),

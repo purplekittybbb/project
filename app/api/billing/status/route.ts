@@ -58,12 +58,19 @@ export async function GET(req: Request) {
       .eq("user_id", userData.user.id)
       .maybeSingle();
     if (iyzicoRow) {
-      paidPlan = {
-        planId: iyzicoRow.plan_id as "starter" | "pro",
-        status: iyzicoRow.status as string,
-        currentPeriodEnd: (iyzicoRow.current_period_end as string) ?? null,
-        cancelledAt: (iyzicoRow.cancelled_at as string) ?? null,
-      };
+      const planId =
+        iyzicoRow.plan_id === "starter" || iyzicoRow.plan_id === "pro"
+          ? iyzicoRow.plan_id
+          : null;
+      if (planId) {
+        paidPlan = {
+          planId,
+          status: String(iyzicoRow.status ?? ""),
+          currentPeriodEnd:
+            typeof iyzicoRow.current_period_end === "string" ? iyzicoRow.current_period_end : null,
+          cancelledAt: typeof iyzicoRow.cancelled_at === "string" ? iyzicoRow.cancelled_at : null,
+        };
+      }
     }
   } catch {
     // Migration not applied yet or table unreachable — paidPlan stays null.

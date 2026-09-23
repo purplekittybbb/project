@@ -22,14 +22,13 @@ export function growthPlanPriceId(): string | null {
 export function growthSubscriptionItem(): Stripe.SubscriptionCreateParams.Item {
   const priceId = growthPlanPriceId();
   if (priceId) return { price: priceId };
-  return {
-    price_data: {
-      currency: stripeLaunchCurrency(),
-      product_data: { name: "TrueMargin Growth" },
-      unit_amount: stripeLaunchUnitAmount(),
-      recurring: { interval: "month" },
-    } as any,
-  };
+  const priceData = {
+    currency: stripeLaunchCurrency(),
+    product_data: { name: "TrueMargin Growth" },
+    unit_amount: stripeLaunchUnitAmount(),
+    recurring: { interval: "month" as const },
+  } as unknown as Stripe.SubscriptionCreateParams.Item.PriceData;
+  return { price_data: priceData };
 }
 
 export function trialPeriodDays(): number {

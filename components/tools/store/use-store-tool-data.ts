@@ -149,7 +149,7 @@ export function useStoreToolData(toolHref: string): StoreToolState {
     if (state.status === "anonymous") {
       router.replace(`/login?next=${encodeURIComponent(toolHref)}`);
     }
-  }, [state, router, toolHref]);
+  }, [state.status, router, toolHref]);
 
   return state;
 }

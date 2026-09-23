@@ -84,8 +84,8 @@ export async function getMySubscriptionStatus(): Promise<SubscriptionInfo> {
     .maybeSingle();
 
   if (error) {
-    console.warn("[getMySubscriptionStatus] DB error — failing open: %s", error.message);
-    return failOpenAccess();
+    console.warn("[getMySubscriptionStatus] DB error — failing closed: %s", error.message);
+    return failClosedAccess();
   }
   if (!data) {
     const { data: authData } = await supabase.auth.getUser();
@@ -116,14 +116,13 @@ export async function getSubscriptionStatus(
 
     if (error) {
       // Technical failure — could not reach DB or table doesn't exist yet.
-      // FAIL-OPEN: grant access so paying customers are not locked out during
-      // transient Supabase outages or before 0021 migration is applied.
+      // Fail CLOSED so a broken read cannot unlock paid APIs for free users.
       console.warn(
-        "[getSubscriptionStatus] DB error — failing open (userId=%s): %s",
+        "[getSubscriptionStatus] DB error — failing closed (userId=%s): %s",
         userId,
         error.message,
       );
-      return failOpenAccess();
+      return failClosedAccess();
     }
 
     if (!data) {
@@ -143,14 +142,12 @@ export async function getSubscriptionStatus(
 
     return mapRow(data as SubscriptionRow);
   } catch (err) {
-    // Unexpected exception (network timeout, serialization error, etc.)
-    // FAIL-OPEN for the same reason as the DB error case above.
     console.warn(
-      "[getSubscriptionStatus] Unexpected exception — failing open (userId=%s): %s",
+      "[getSubscriptionStatus] Unexpected exception — failing closed (userId=%s): %s",
       userId,
       err instanceof Error ? err.message : String(err),
     );
-    return failOpenAccess();
+    return failClosedAccess();
   }
 }
 
@@ -264,15 +261,10 @@ function noSubscription(): SubscriptionInfo {
   };
 }
 
-/**
- * Fail-open result: returned when we cannot determine subscription status due to
- * a DB/network error. Grants access to avoid locking out paying customers during
- * transient infrastructure outages.
- */
-function failOpenAccess(): SubscriptionInfo {
+function failClosedAccess(): SubscriptionInfo {
   return {
-    hasAccess: true, status: null, planId: null, currentPeriodEnd: null,
-    isNew: false, failOpen: true, inGracePeriod: false,
+    hasAccess: false, status: null, planId: null, currentPeriodEnd: null,
+    isNew: false, failOpen: false, inGracePeriod: false,
     billingIssueAt: null, gracePeriodEnd: null,
   };
 }

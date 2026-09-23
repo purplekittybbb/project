@@ -317,6 +317,66 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
         {READ_ONLY_COPY}
       </p>
 
+      {/* En hızlı başlangıç: CSV yükleme — API anahtarı GEREKTİRMEZ.
+          Denetimde CSV, gerçek-veriye ulaşmanın en hızlı ve en az sürtünmeli
+          yolu çıktı (pazaryeri API'si için anahtar paylaşmak istemeyen satıcı
+          da anında değer görür). Bu yüzden pazaryeri listesinin ÜSTÜNDE,
+          birinci sınıf bir yol olarak öne çıkarıyoruz. Mevcut pickCsv/fileRef/
+          downloadSample mantığını yeniden kullanır. */}
+      <div
+        className="border rounded-[var(--tm-r-ui)] p-5 mb-5"
+        style={{
+          borderColor: "color-mix(in srgb, var(--tm-copper) 30%, transparent)",
+          background: "color-mix(in srgb, var(--tm-copper) 5%, var(--tm-paper))",
+        }}
+      >
+        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+          <span
+            className="text-[10px] font-mono uppercase tracking-[0.15em] px-2 py-0.5 rounded-[var(--tm-r-data)]"
+            style={{
+              color: "var(--tm-copper)",
+              border: "1px solid color-mix(in srgb, var(--tm-copper) 30%, transparent)",
+            }}
+          >
+            En hızlı yol
+          </span>
+          <h2 className="font-heading text-[15px] font-semibold text-foreground">Satış raporunuzu yükleyin</h2>
+        </div>
+        <p className="text-[12.5px] text-muted-foreground leading-relaxed mb-4">
+          API anahtarı gerekmez. Trendyol, Hepsiburada veya N11 panelinizden indirdiğiniz
+          satış / hakediş raporu CSV&apos;sini yükleyin — gerçek net kârınız saniyeler içinde
+          hesaplansın.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={csvBusy}
+            className="tm-btn-primary h-10 px-5 text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-50"
+          >
+            {csvBusy ? "Yükleniyor…" : "CSV dosyası seç"}
+          </button>
+          <button
+            type="button"
+            onClick={downloadSample}
+            className="text-[11px] font-mono text-muted-foreground hover:text-foreground uppercase tracking-widest"
+          >
+            ↓ Örnek CSV indir
+          </button>
+        </div>
+        {csvRows && (
+          <p className="fin-profit font-mono text-[11px] tnum mt-3">
+            CSV içe aktarıldı · {csvRows.length} satır kaydedildi — panelinizde gerçek marj hazır.
+          </p>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3 mb-5">
+        <span className="h-px flex-1" style={{ background: "var(--tm-mist)" }} />
+        <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">veya pazaryerini bağla</span>
+        <span className="h-px flex-1" style={{ background: "var(--tm-mist)" }} />
+      </div>
+
       {/* Connected accounts */}
       {connections.length > 0 && (
         <div className="border border-[var(--tm-mist)] bg-card rounded-[var(--tm-r-ui)] p-4 mb-5">

@@ -2,11 +2,9 @@
  * Per-SKU cost profile persistence (Supabase table `product_costs`, migration
  * 0015 — see enrichment rationale in lib/calc/enrich.ts).
  *
- * GRACEFUL DEGRADATION: every function tolerates the table not existing yet
- * (the 0015 migration is written but not applied until approved) and a missing
- * Supabase config — it returns an empty map / a soft error instead of throwing,
- * so the live app keeps working and simply performs no enrichment until the
- * migration lands. RLS scopes all rows to the signed-in user.
+ * Soft-fails only when the table/column is genuinely missing (migration not
+ * applied). Real RLS/network errors surface via loadProductCostsWithStatus so
+ * callers do not treat "query failed" as "seller has no costs" (inflated margins).
  */
 
 import { getSupabaseClient } from "./client";
@@ -25,35 +23,17 @@ type ProductCostRow = {
   commission_rate?: number; // migration 0037; may be absent on older rows
 };
 
-/**
- * Load the signed-in user's SKU cost profiles as a Map keyed by SKU (the key
- * lib/calc/enrich.ts looks up). If a seller stores the same SKU under multiple
- * marketplaces, the last one read wins — a deliberate simplification for the
- * data-model step; per-marketplace resolution can be layered on later.
- */
-export async function loadProductCosts(): Promise<Map<string, ProductCost>> {
-  const empty = new Map<string, ProductCost>();
-  const supabase = getSupabaseClient();
-  if (!supabase) return empty;
+export type LoadProductCostsResult = {
+  costs: Map<string, ProductCost>;
+  /** Null when OK or when the table is known-missing (soft no-op). */
+  error: string | null;
+};
 
-  // Select commission_rate too, but tolerate the column not existing yet (0037
-  // not applied): fall back to the pre-0037 column list on a schema error.
-  let data: ProductCostRow[] | null = null;
-  {
-    const withCommission = await supabase
-      .from(TABLE)
-      .select("marketplace, sku, unit_cost, shipping_per_unit, return_rate, ad_spend_per_unit, packaging_per_unit, commission_rate");
-    if (withCommission.error) {
-      const legacy = await supabase
-        .from(TABLE)
-        .select("marketplace, sku, unit_cost, shipping_per_unit, return_rate, ad_spend_per_unit, packaging_per_unit");
-      if (legacy.error || !legacy.data) return empty;
-      data = legacy.data as ProductCostRow[];
-    } else {
-      data = (withCommission.data ?? []) as ProductCostRow[];
-    }
-  }
+function isMissingRelationError(message: string): boolean {
+  return /does not exist|schema cache|could not find the table/i.test(message);
+}
 
+function rowsToMap(data: ProductCostRow[]): Map<string, ProductCost> {
   const map = new Map<string, ProductCost>();
   for (const r of data) {
     map.set(r.sku, {
@@ -66,6 +46,49 @@ export async function loadProductCosts(): Promise<Map<string, ProductCost>> {
     });
   }
   return map;
+}
+
+/**
+ * Load cost profiles with explicit error so enrichment can refuse to silently
+ * inflate margins on a failed read.
+ */
+export async function loadProductCostsWithStatus(): Promise<LoadProductCostsResult> {
+  const empty = new Map<string, ProductCost>();
+  const supabase = getSupabaseClient();
+  if (!supabase) return { costs: empty, error: null };
+
+  const withCommission = await supabase
+    .from(TABLE)
+    .select(
+      "marketplace, sku, unit_cost, shipping_per_unit, return_rate, ad_spend_per_unit, packaging_per_unit, commission_rate",
+    );
+
+  let data: ProductCostRow[] | null = null;
+  if (withCommission.error) {
+    const legacy = await supabase
+      .from(TABLE)
+      .select(
+        "marketplace, sku, unit_cost, shipping_per_unit, return_rate, ad_spend_per_unit, packaging_per_unit",
+      );
+    if (legacy.error) {
+      if (isMissingRelationError(legacy.error.message)) {
+        return { costs: empty, error: null };
+      }
+      console.error("[product-costs] load failed:", legacy.error.message);
+      return { costs: empty, error: legacy.error.message };
+    }
+    data = (legacy.data ?? []) as ProductCostRow[];
+  } else {
+    data = (withCommission.data ?? []) as ProductCostRow[];
+  }
+
+  return { costs: rowsToMap(data), error: null };
+}
+
+/** Convenience — prefers empty map; prefer loadProductCostsWithStatus for margin paths. */
+export async function loadProductCosts(): Promise<Map<string, ProductCost>> {
+  const { costs } = await loadProductCostsWithStatus();
+  return costs;
 }
 
 /** Insert or update one SKU's cost profile for the signed-in user. */
@@ -92,16 +115,12 @@ export async function upsertProductCost(
     updated_at: new Date().toISOString(),
   };
 
-  // Try with commission_rate (migration 0037). If the column doesn't exist yet,
-  // retry without it so the rest of the cost profile still saves.
   const withCommission = await supabase
     .from(TABLE)
     .upsert({ ...base, commission_rate: cost.commissionRate ?? 0 }, { onConflict: "user_id,marketplace,sku" });
   if (!withCommission.error) return { error: null };
 
-  const legacy = await supabase
-    .from(TABLE)
-    .upsert(base, { onConflict: "user_id,marketplace,sku" });
+  const legacy = await supabase.from(TABLE).upsert(base, { onConflict: "user_id,marketplace,sku" });
   return { error: legacy.error ? legacy.error.message : null };
 }
 
@@ -112,10 +131,6 @@ export async function deleteProductCost(
 ): Promise<{ error: string | null }> {
   const supabase = getSupabaseClient();
   if (!supabase) return { error: "Supabase is not configured." };
-  const { error } = await supabase
-    .from(TABLE)
-    .delete()
-    .eq("marketplace", marketplace)
-    .eq("sku", sku);
+  const { error } = await supabase.from(TABLE).delete().eq("marketplace", marketplace).eq("sku", sku);
   return { error: error ? error.message : null };
 }

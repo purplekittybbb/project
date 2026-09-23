@@ -11,7 +11,7 @@
  * - No Supabase → open (demo / clone without keys)
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { allowUnauthedDemoBypass, getSupabaseClient } from "@/lib/supabase/client";
 
@@ -25,6 +25,8 @@ function loginUrlFor(pathname: string | null): string {
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
   const [status, setStatus] = useState<Status>("checking");
 
   useEffect(() => {
@@ -43,24 +45,31 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     function goLogin() {
       setStatus("guest");
-      router.replace(loginUrlFor(pathname));
+      router.replace(loginUrlFor(pathnameRef.current));
     }
 
     // getUser() hits Auth and refreshes; getSession() alone can be stale.
-    supabase.auth.getUser().then(({ data, error }) => {
-      if (!active) return;
-      if (!error && data.user) {
-        setStatus("authed");
-      } else {
-        goLogin();
-      }
-    });
+    void supabase.auth
+      .getUser()
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (!error && data.user) {
+          setStatus("authed");
+        } else {
+          goLogin();
+        }
+      })
+      .catch(() => {
+        if (active) goLogin();
+      });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (!active) return;
+      // TOKEN_REFRESHED can briefly report null session — do not bounce to login.
+      if (event === "TOKEN_REFRESHED") return;
       if (session?.user) {
         setStatus("authed");
-      } else {
+      } else if (event === "SIGNED_OUT") {
         goLogin();
       }
     });
@@ -69,7 +78,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       active = false;
       sub.subscription.unsubscribe();
     };
-  }, [router, pathname]);
+  }, [router]);
 
   if (status === "checking") {
     return (

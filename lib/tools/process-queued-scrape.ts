@@ -16,9 +16,46 @@ import {
 import { upsertSharedVisibilityScan } from "@/lib/supabase/shared-visibility";
 import type { ToolMarketplace } from "@/lib/tools/parse-query";
 
+/** Overall job budget — hung Playwright must not pin a worker forever. */
+const QUEUED_SCRAPE_TIMEOUT_MS = 90_000;
+
 function asMarketplace(value: string): ToolMarketplace {
   if (value === "hepsiburada" || value === "n11" || value === "trendyol") return value;
   throw new Error(`Geçersiz pazaryeri: ${value}`);
+}
+
+function withTimeoutAndTeardown<T>(
+  promise: Promise<T>,
+  ms: number,
+  onTimeout: () => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        onTimeout();
+      } catch {
+        /* ignore */
+      }
+      reject(new Error(`queued scrape timed out after ${ms}ms`));
+    }, ms);
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 /**
@@ -40,77 +77,89 @@ export async function processQueuedScrape(payload: ScrapeJobPayload): Promise<vo
     throw new Error("Browser session unavailable");
   }
 
+  let closedEarly = false;
   try {
-    switch (payload.toolId) {
-      case "visibility": {
-        const data = await searchProductRank(
-          { marketplace, keyword, targetTitle, maxPages: 3 },
-          session.page,
-        );
-        if (data.error) throw new Error(data.error);
-        const { error } = await upsertSharedVisibilityScan(svc, {
-          marketplace,
-          keyword,
-          sku: null,
-          rank: data.rank ?? null,
-          page: data.page ?? null,
-          isIndexed: data.isIndexed,
-          isOnFirstPage: data.isOnFirstPage,
-          searchResultCount: data.results.length,
-        });
-        if (error) throw new Error(`Cache write failed: ${error}`);
-        break;
-      }
-      case "index-check": {
-        const data = await checkIndex(
-          { marketplace, keyword, targetTitle, maxPages: 3 },
-          session.page,
-        );
-        if (data.error) throw new Error(data.error);
-        const { error } = await upsertSharedVisibilityScan(svc, {
-          marketplace,
-          keyword,
-          sku: null,
-          rank: data.rank ?? null,
-          page: null,
-          isIndexed: data.isIndexed,
-          isOnFirstPage: data.isOnFirstPage,
-        });
-        if (error) throw new Error(`Cache write failed: ${error}`);
-        break;
-      }
-      case "price-track": {
-        const data = await trackCompetitorPrices(
-          { marketplace, keyword, maxResults: 20 },
-          session.page,
-        );
-        if (!shouldCachePriceTrackResult(data)) {
-          throw new Error(data.error ?? "Sonuç bulunamadı veya bot engeline takıldı");
+    await withTimeoutAndTeardown(
+      (async () => {
+        switch (payload.toolId) {
+          case "visibility": {
+            const data = await searchProductRank(
+              { marketplace, keyword, targetTitle, maxPages: 3 },
+              session.page,
+            );
+            if (data.error) throw new Error(data.error);
+            const { error } = await upsertSharedVisibilityScan(svc, {
+              marketplace,
+              keyword,
+              sku: null,
+              rank: data.rank ?? null,
+              page: data.page ?? null,
+              isIndexed: data.isIndexed,
+              isOnFirstPage: data.isOnFirstPage,
+              searchResultCount: data.results.length,
+            });
+            if (error) throw new Error(`Cache write failed: ${error}`);
+            break;
+          }
+          case "index-check": {
+            const data = await checkIndex(
+              { marketplace, keyword, targetTitle, maxPages: 3 },
+              session.page,
+            );
+            if (data.error) throw new Error(data.error);
+            const { error } = await upsertSharedVisibilityScan(svc, {
+              marketplace,
+              keyword,
+              sku: null,
+              rank: data.rank ?? null,
+              page: null,
+              isIndexed: data.isIndexed,
+              isOnFirstPage: data.isOnFirstPage,
+            });
+            if (error) throw new Error(`Cache write failed: ${error}`);
+            break;
+          }
+          case "price-track": {
+            const data = await trackCompetitorPrices(
+              { marketplace, keyword, maxResults: 20 },
+              session.page,
+            );
+            if (!shouldCachePriceTrackResult(data)) {
+              throw new Error(data.error ?? "Sonuç bulunamadı veya bot engeline takıldı");
+            }
+            const { error } = await upsertSharedPriceTrackScan(svc, marketplace, keyword, data);
+            if (error) throw new Error(`Cache write failed: ${error}`);
+            break;
+          }
+          case "top100": {
+            const data = await analyzeTop100(
+              { marketplace, keyword, maxItems: 100 },
+              session.page,
+            );
+            if (data.error || !data.items?.some((item) => item.price > 0)) {
+              throw new Error(data.error ?? "Sonuç bulunamadı veya bot engeline takıldı");
+            }
+            const { error } = await upsertSharedTop100Scan(svc, marketplace, keyword, data);
+            if (error) throw new Error(`Cache write failed: ${error}`);
+            break;
+          }
+          default: {
+            const _exhaustive: never = payload.toolId;
+            throw new Error(`Unknown scrape tool: ${_exhaustive}`);
+          }
         }
-        const { error } = await upsertSharedPriceTrackScan(svc, marketplace, keyword, data);
-        if (error) throw new Error(`Cache write failed: ${error}`);
-        break;
-      }
-      case "top100": {
-        const data = await analyzeTop100(
-          { marketplace, keyword, maxItems: 100 },
-          session.page,
-        );
-        if (data.error || !data.items.some((item) => item.price > 0)) {
-          throw new Error(data.error ?? "Sonuç bulunamadı veya bot engeline takıldı");
-        }
-        const { error } = await upsertSharedTop100Scan(svc, marketplace, keyword, data);
-        if (error) throw new Error(`Cache write failed: ${error}`);
-        break;
-      }
-      default: {
-        const _exhaustive: never = payload.toolId;
-        throw new Error(`Unknown scrape tool: ${_exhaustive}`);
-      }
-    }
+      })(),
+      QUEUED_SCRAPE_TIMEOUT_MS,
+      () => {
+        closedEarly = true;
+        void session.close().catch(() => {});
+      },
+    );
   } finally {
-    await session.close().catch(() => {
-      /* ignore */
-    });
+    if (!closedEarly) {
+      await session.close().catch(() => {
+        /* ignore */
+      });
+    }
   }
 }

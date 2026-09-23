@@ -126,24 +126,31 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── Extract userId and planId from basketId / buyerId ────────────────────
+  // ── Resolve userId + planId from server-shaped basketId ──────────────────
+  // Checkout init sets basketId = `${user.id}-${planId}-${Date.now()}` and
+  // buyerId = user.id. Never trust a lone buyerId; require a parseable basket
+  // and (when present) buyerId must match the basket UUID prefix.
   const rawBuyerId = paymentResult.buyerId ?? null;
   const rawBasketId = paymentResult.basketId ?? null;
 
-  let resolvedUserId: string | null = rawBuyerId;
-  let resolvedPlanId: "starter" | "pro" | null = null;
+  const basketMatch = rawBasketId?.match(
+    /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(starter|pro)-(\d+)$/i,
+  );
+  if (!basketMatch) {
+    console.error("[iyzico/callback] Unparseable basketId.", { rawBuyerId, rawBasketId });
+    return paymentErrorHtml(
+      "Ödeme alındı. Aboneliğiniz kısa süre içinde aktif edilecek — destek gerekirse yazın.",
+    );
+  }
 
-  if (rawBasketId) {
-    if (rawBasketId.includes("-starter-")) resolvedPlanId = "starter";
-    else if (rawBasketId.includes("-pro-")) resolvedPlanId = "pro";
+  const resolvedUserId = basketMatch[1]!;
+  const resolvedPlanId = basketMatch[2]!.toLowerCase() as "starter" | "pro";
 
-    if (!resolvedUserId) {
-      const planSuffix = resolvedPlanId ? `-${resolvedPlanId}-` : null;
-      if (planSuffix) {
-        const planIdx = rawBasketId.indexOf(planSuffix);
-        if (planIdx > 0) resolvedUserId = rawBasketId.slice(0, planIdx);
-      }
-    }
+  if (rawBuyerId && rawBuyerId.toLowerCase() !== resolvedUserId.toLowerCase()) {
+    console.error("[iyzico/callback] buyerId/basketId mismatch.", { rawBuyerId, resolvedUserId });
+    return paymentErrorHtml(
+      "Ödeme alındı fakat abonelik eşleştirilemedi. Lütfen destek ile iletişime geçin.",
+    );
   }
 
   console.log(
@@ -153,13 +160,6 @@ export async function POST(req: Request) {
     resolvedPlanId,
     paymentResult.paymentId,
   );
-
-  if (!resolvedUserId || !resolvedPlanId) {
-    console.error("[iyzico/callback] Could not resolve userId or planId.", { rawBuyerId, rawBasketId });
-    return paymentErrorHtml(
-      "Ödeme alındı. Aboneliğiniz kısa süre içinde aktif edilecek — destek gerekirse yazın.",
-    );
-  }
 
   // ── Write subscription record ────────────────────────────────────────────
   const now = new Date().toISOString();
@@ -214,20 +214,23 @@ export async function cancelSubscriptionAtPeriodEnd(
 ): Promise<{ error: string | null }> {
   const now = new Date().toISOString();
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("iyzico_subscriptions")
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .update({
-      status:       "cancelled",
+      status: "cancelled",
       cancelled_at: now,
-      updated_at:   now,
-    } as any)
+      updated_at: now,
+    })
     .eq("user_id", userId)
-    .in("status", ["active", "trialing"]);
+    .in("status", ["active", "trialing"])
+    .select("user_id");
 
   if (error) {
     console.error("[cancelSubscriptionAtPeriodEnd] DB error:", error.message);
     return { error: "Abonelik iptal edilemedi." };
+  }
+  if (!data?.length) {
+    return { error: "İptal edilecek aktif abonelik bulunamadı." };
   }
 
   console.log("[cancelSubscriptionAtPeriodEnd] Cancelled at period end for user:", userId);
@@ -248,21 +251,24 @@ export async function markSubscriptionPastDue(
   const now            = new Date();
   const gracePeriodEnd = computeGracePeriodEnd(now);
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("iyzico_subscriptions")
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .update({
-      status:           "past_due",
+      status: "past_due",
       billing_issue_at: now.toISOString(),
       grace_period_end: gracePeriodEnd,
-      updated_at:       now.toISOString(),
-    } as any)
+      updated_at: now.toISOString(),
+    })
     .eq("user_id", userId)
-    .in("status", ["active", "trialing"]);
+    .in("status", ["active", "trialing"])
+    .select("user_id");
 
   if (error) {
     console.error("[markSubscriptionPastDue] DB error:", error.message);
     return { error: "Abonelik durumu güncellenemedi." };
+  }
+  if (!data?.length) {
+    return { error: "Güncellenecek aktif abonelik bulunamadı." };
   }
 
   console.log("[markSubscriptionPastDue] userId=%s gracePeriodEnd=%s", userId, gracePeriodEnd);

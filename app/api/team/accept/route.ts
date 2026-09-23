@@ -33,25 +33,60 @@ export async function POST(req: Request) {
 
   const { data: invite, error: findError } = await supabase
     .from("tenant_members")
-    .select("id, owner_user_id, member_email, status")
+    .select("id, owner_user_id, member_email, member_user_id, status")
     .eq("invite_token", token)
     .maybeSingle();
 
   if (findError || !invite) return NextResponse.json({ error: "Davet bulunamadı." }, { status: 404 });
   if (invite.status === "revoked") return NextResponse.json({ error: "Bu davet iptal edildi." }, { status: 410 });
-  if (user.email && invite.member_email.toLowerCase() !== user.email.toLowerCase()) {
+
+  // Email must be present and match — skipping when email is null let any
+  // signed-in account bind the invite and then read the owner's transactions
+  // via /api/team/data (service-role).
+  if (!user.email) {
+    return NextResponse.json(
+      { error: "Daveti kabul etmek için hesabınızda doğrulanmış bir e-posta olmalı." },
+      { status: 403 },
+    );
+  }
+  if (invite.member_email.toLowerCase() !== user.email.toLowerCase()) {
     return NextResponse.json(
       { error: `Bu davet ${invite.member_email} adresine gönderildi — lütfen o hesapla giriş yapın.` },
-      { status: 403 }
+      { status: 403 },
     );
+  }
+
+  // Idempotent re-accept by the same member is OK; a different user must not
+  // overwrite an already-accepted membership (tenant takeover).
+  if (invite.status === "accepted") {
+    if (invite.member_user_id && invite.member_user_id !== user.id) {
+      return NextResponse.json({ error: "Bu davet başka bir hesap tarafından kabul edilmiş." }, { status: 409 });
+    }
+    if (invite.member_user_id === user.id) {
+      const { data: owner } = await supabase.auth.admin.getUserById(invite.owner_user_id);
+      return NextResponse.json({
+        ok: true,
+        ownerId: invite.owner_user_id,
+        ownerEmail: owner?.user?.email ?? "Sahip",
+      });
+    }
   }
 
   const { data: owner } = await supabase.auth.admin.getUserById(invite.owner_user_id);
 
-  await supabase
+  const { data: updated, error: updateError } = await supabase
     .from("tenant_members")
     .update({ member_user_id: user.id, status: "accepted", accepted_at: new Date().toISOString() })
-    .eq("id", invite.id);
+    .eq("id", invite.id)
+    .eq("status", "pending")
+    .select("id");
+
+  if (updateError) {
+    return NextResponse.json({ error: "Davet kabul edilemedi." }, { status: 500 });
+  }
+  if (!updated?.length) {
+    return NextResponse.json({ error: "Davet artık geçerli değil — yeniden davet isteyin." }, { status: 409 });
+  }
 
   return NextResponse.json({ ok: true, ownerId: invite.owner_user_id, ownerEmail: owner?.user?.email ?? "Sahip" });
 }

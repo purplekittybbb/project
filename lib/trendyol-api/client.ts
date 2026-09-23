@@ -152,6 +152,7 @@ async function fetchOrdersPage(
         "User-Agent": `${creds.sellerId} - SelfIntegration`,
         Accept: "application/json",
       },
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (res.status === 401 || res.status === 403) {
@@ -236,6 +237,7 @@ async function fetchProductsPage(
         "User-Agent": `${creds.sellerId} - SelfIntegration`,
         Accept: "application/json",
       },
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (res.status === 401 || res.status === 403) {

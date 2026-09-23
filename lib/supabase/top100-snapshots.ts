@@ -64,11 +64,11 @@ export async function saveTop100Snapshot(
   const snapshotId = (snapshotData as { id: string }).id;
 
   // ── Batch-insert items ────────────────────────────────────────────────
-  if (result.items.length === 0) {
+  if ((result.items ?? []).length === 0) {
     return { snapshotId, error: null };
   }
 
-  const itemsPayload = result.items.map((item) => ({
+  const itemsPayload = (result.items ?? []).map((item) => ({
     snapshot_id:              snapshotId,
     rank:                     item.rank,
     title:                    item.title,

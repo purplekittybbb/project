@@ -140,7 +140,19 @@ export function PeerBenchmarkingSection({ view, channel, authConfigured }: Props
   }, [viewSignature, channel]);
 
   const [ranked, setRanked] = useState<RankedMetric[]>(localRanked);
-  useEffect(() => setRanked(localRanked), [localRanked]);
+  useEffect(() => {
+    setRanked((prev) => {
+      if (
+        prev.length === localRanked.length &&
+        prev.every(
+          (m, i) => m.metric === localRanked[i]?.metric && m.yours === localRanked[i]?.yours,
+        )
+      ) {
+        return prev;
+      }
+      return localRanked;
+    });
+  }, [localRanked]);
 
   // Real users: replace with pooled-aware ranking from the server.
   useEffect(() => {

@@ -162,65 +162,75 @@ async function refreshStaleInBackground(toolId: ScraperToolId, input: ParsedTool
   if (!slot.acquired) return;
 
   const session = await createBrowserSession();
+  let closedEarly = false;
   try {
     const page = session?.page;
     if (!page) return;
 
-    switch (toolId) {
-      case "visibility": {
-        const data = await searchProductRank(
-          { marketplace: input.marketplace, keyword: input.keyword, targetTitle: input.targetTitle, maxPages: 3 },
-          page,
-        );
-        if (!data.error) {
-          await cacheVisibilityResult(input, {
-            rank: data.rank,
-            page: data.page,
-            isIndexed: data.isIndexed,
-            isOnFirstPage: data.isOnFirstPage,
-            searchResultCount: data.results.length,
-          });
+    const work = async () => {
+      switch (toolId) {
+        case "visibility": {
+          const data = await searchProductRank(
+            { marketplace: input.marketplace, keyword: input.keyword, targetTitle: input.targetTitle, maxPages: 3 },
+            page,
+          );
+          if (!data.error) {
+            await cacheVisibilityResult(input, {
+              rank: data.rank,
+              page: data.page,
+              isIndexed: data.isIndexed,
+              isOnFirstPage: data.isOnFirstPage,
+              searchResultCount: data.results.length,
+            });
+          }
+          break;
         }
-        break;
-      }
-      case "index-check": {
-        const data = await checkIndex(
-          { marketplace: input.marketplace, keyword: input.keyword, targetTitle: input.targetTitle, maxPages: 3 },
-          page,
-        );
-        if (!data.error) {
-          await cacheVisibilityResult(input, {
-            rank: data.rank,
-            page: null,
-            isIndexed: data.isIndexed,
-            isOnFirstPage: data.isOnFirstPage,
-          });
+        case "index-check": {
+          const data = await checkIndex(
+            { marketplace: input.marketplace, keyword: input.keyword, targetTitle: input.targetTitle, maxPages: 3 },
+            page,
+          );
+          if (!data.error) {
+            await cacheVisibilityResult(input, {
+              rank: data.rank,
+              page: null,
+              isIndexed: data.isIndexed,
+              isOnFirstPage: data.isOnFirstPage,
+            });
+          }
+          break;
         }
-        break;
+        case "price-track": {
+          const data = await trackCompetitorPrices(
+            { marketplace: input.marketplace, keyword: input.keyword, maxResults: 20 },
+            page,
+          );
+          if (hasUsablePrices(data)) await cachePriceTrackResult(input, data);
+          break;
+        }
+        case "top100": {
+          const data = await analyzeTop100(
+            { marketplace: input.marketplace, keyword: input.keyword, maxItems: 100 },
+            page,
+          );
+          if (!data.error && data.items.some((item) => item.price > 0)) await cacheTop100Result(input, data);
+          break;
+        }
       }
-      case "price-track": {
-        const data = await trackCompetitorPrices(
-          { marketplace: input.marketplace, keyword: input.keyword, maxResults: 20 },
-          page,
-        );
-        if (hasUsablePrices(data)) await cachePriceTrackResult(input, data);
-        break;
-      }
-      case "top100": {
-        const data = await analyzeTop100(
-          { marketplace: input.marketplace, keyword: input.keyword, maxItems: 100 },
-          page,
-        );
-        if (!data.error && data.items.some((item) => item.price > 0)) await cacheTop100Result(input, data);
-        break;
-      }
-    }
-  } catch {
-    // Best-effort
-  } finally {
-    await session?.close().catch(() => {
-      /* ignore */
+    };
+
+    await withTimeoutAndTeardown(work(), INLINE_SCRAPE_TIMEOUT_MS, () => {
+      closedEarly = true;
+      void session?.close().catch(() => {});
     });
+  } catch {
+    // Best-effort background refresh
+  } finally {
+    if (!closedEarly) {
+      await session?.close().catch(() => {
+        /* ignore */
+      });
+    }
     await releaseScrapeSlot(anon, slot.leaseId);
   }
 }
@@ -312,7 +322,7 @@ export async function runStandaloneTool(
         const fresh = isFresh(cached.scrapedAt, VISIBILITY_TTL_MS);
         const staleOk = !fresh && isWithinStaleGrace(cached.scrapedAt, VISIBILITY_TTL_MS);
         if (fresh || staleOk) {
-          if (staleOk) after(() => void refreshStaleInBackground(toolId, input));
+          if (staleOk) after(() => refreshStaleInBackground(toolId, input));
           const mode = fresh ? "cached" : "stale";
           if (toolId === "visibility") {
             return {
@@ -360,7 +370,7 @@ export async function runStandaloneTool(
         const fresh = isFresh(cached.scrapedAt, PRICE_TRACK_TTL_MS);
         const staleOk = !fresh && isWithinStaleGrace(cached.scrapedAt, PRICE_TRACK_TTL_MS);
         if (fresh || staleOk) {
-          if (staleOk) after(() => void refreshStaleInBackground(toolId, input));
+          if (staleOk) after(() => refreshStaleInBackground(toolId, input));
           return { toolId, mode: fresh ? "cached" : "stale", data: cached.result };
         }
       }
@@ -376,7 +386,7 @@ export async function runStandaloneTool(
         const fresh = isFresh(cached.scrapedAt, TOP100_TTL_MS);
         const staleOk = !fresh && isWithinStaleGrace(cached.scrapedAt, TOP100_TTL_MS);
         if (fresh || staleOk) {
-          if (staleOk) after(() => void refreshStaleInBackground(toolId, input));
+          if (staleOk) after(() => refreshStaleInBackground(toolId, input));
           return { toolId, mode: fresh ? "cached" : "stale", data: cached.result };
         }
       }

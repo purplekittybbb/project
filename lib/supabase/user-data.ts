@@ -24,7 +24,7 @@ import { validateTransactions } from "../domain/schemas";
 import type { UserRawRow } from "../adapters/csv";
 import { localeForMarketplace } from "../domain/locale";
 import { enrichRowWithProductCost } from "../calc/enrich";
-import { loadProductCosts } from "./product-costs";
+import { loadProductCostsWithStatus } from "./product-costs";
 
 const TABLE = "user_transactions";
 
@@ -122,7 +122,11 @@ export async function loadUserRowsWithStatus(): Promise<LoadUserRowsResult> {
   if (!data) return { rows: [], error: "Veri yüklenemedi." };
 
   const stored = (data as DbRow[]).map(toStored);
-  const costs = await loadProductCosts(); // empty map (no-op) until 0015 lands
+  const { costs, error: costsError } = await loadProductCostsWithStatus();
+  if (costsError) {
+    // Prefer surfacing cost-read failure over silently inflated margins.
+    return { rows: stored, error: `Maliyet profili okunamadı: ${costsError}` };
+  }
   if (costs.size === 0) return { rows: stored, error: null };
   return {
     rows: stored.map((r) => ({ ...enrichRowWithProductCost(r, costs.get(r.sku)), id: r.id })),
