@@ -38,9 +38,9 @@ import type { StandaloneToolId } from "./registry";
 
 type ScraperToolId = Exclude<StandaloneToolId, "profit-calc">;
 
-/** Redis yokken Vercel/sync fallback — kısa tut; 60s spinner yok. */
-const INLINE_SCRAPE_TIMEOUT_MS = 20_000;
-const INLINE_MAX_PAGES = 2;
+/** Redis yokken sync fallback — 1 sayfa + timeout'ta browser kapatılır. */
+const INLINE_SCRAPE_TIMEOUT_MS = 25_000;
+const INLINE_MAX_PAGES = 1;
 const INLINE_PRICE_MAX_RESULTS = 24;
 const INLINE_TOP100_MAX_ITEMS = 48;
 const INLINE_SCRAPE_FAIL_MESSAGE =
@@ -70,17 +70,34 @@ function buildQueuedEnvelope(
   };
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+/** Reject after `ms` and run `onTimeout` (e.g. close browser) so work stops burning CPU. */
+function withTimeoutAndTeardown<T>(
+  promise: Promise<T>,
+  ms: number,
+  onTimeout: () => void,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
+    let settled = false;
     const timer = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${ms}ms`));
+      if (settled) return;
+      settled = true;
+      try {
+        onTimeout();
+      } catch {
+        /* ignore teardown errors */
+      }
+      reject(new Error(`timed out after ${ms}ms`));
     }, ms);
     promise.then(
       (value) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         resolve(value);
       },
       (err) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         reject(err);
       },
@@ -370,7 +387,7 @@ export async function runStandaloneTool(
   const queued = await tryEnqueueScrape(toolId, input, opts?.quotaSubject);
   if (queued) return queued;
 
-  // Redis unavailable — short sync scrape behind Postgres lease (≤~20s).
+  // Redis unavailable — short sync scrape behind Postgres lease (1 page + hard teardown).
   const anonForSlot = anon ?? anonSupabaseClient();
   const slot = await acquireScrapeSlot(anonForSlot, input.marketplace);
   if (!slot.acquired) {
@@ -386,24 +403,30 @@ export async function runStandaloneTool(
 
   const session = await createBrowserSession();
   const page = session?.page;
+  let closedEarly = false;
 
   try {
     if (!page) {
       return inlineFailEnvelope(toolId, input);
     }
 
-    const live = await withTimeout(
+    const live = await withTimeoutAndTeardown(
       runInlineScrape(toolId, input, page),
       INLINE_SCRAPE_TIMEOUT_MS,
-      toolId,
+      () => {
+        closedEarly = true;
+        void session?.close().catch(() => undefined);
+      },
     );
     return live;
   } catch {
     return inlineFailEnvelope(toolId, input);
   } finally {
-    await session?.close().catch(() => {
-      /* ignore */
-    });
+    if (!closedEarly) {
+      await session?.close().catch(() => {
+        /* ignore */
+      });
+    }
     await releaseScrapeSlot(anonForSlot, slot.leaseId);
   }
 }

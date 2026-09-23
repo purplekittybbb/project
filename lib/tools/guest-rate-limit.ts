@@ -53,8 +53,8 @@ function todayUtc(): string {
 }
 
 /**
- * Check quota and increment usage atomically (best-effort upsert).
- * Exported with injectable client for tests.
+ * Check quota and increment usage atomically via RPC when available.
+ * Falls back to read+upsert if migration 0041 is not applied yet.
  */
 export async function checkAndIncrementToolUsage(
   toolId: StandaloneToolId,
@@ -71,6 +71,28 @@ export async function checkAndIncrementToolUsage(
 
   const day = todayUtc();
 
+  const { data: rpcRows, error: rpcErr } = await supabase.rpc("increment_guest_tool_usage", {
+    p_day: day,
+    p_tool_id: toolId,
+    p_subject_key: subject.key,
+    p_subject_type: subject.type,
+    p_limit: limit,
+  });
+
+  if (!rpcErr && Array.isArray(rpcRows) && rpcRows.length > 0) {
+    const row = rpcRows[0] as { allowed?: boolean; usage_count?: number };
+    const used = Number(row.usage_count ?? 0);
+    const allowed = Boolean(row.allowed);
+    return {
+      allowed,
+      limit,
+      remaining: Math.max(0, limit - used),
+      used,
+      enforced: true,
+    };
+  }
+
+  // RPC missing / unavailable — legacy non-atomic path (dev before 0041).
   const { data: existing, error: readErr } = await supabase
     .from("guest_tool_usage")
     .select("usage_count")
@@ -81,7 +103,6 @@ export async function checkAndIncrementToolUsage(
     .maybeSingle();
 
   if (readErr) {
-    // Table missing or RLS — fail open so marketing tools stay usable in dev.
     return { allowed: true, limit, remaining: limit, used: 0, enforced: false };
   }
 

@@ -11,6 +11,7 @@ import { SettlementReconciliationPanel } from "@/components/SettlementReconcilia
 import { finLossClass, finSignedClass } from "@/lib/design/financial-ui";
 import { fmtCompactMoney } from "@/lib/format/compact";
 import { MARKETPLACE_LABELS, type Channel, type SellerView } from "@/lib/engine";
+import { fmtPct, fmtPctPlain } from "@/lib/tools/format-tr";
 
 export interface FinancialSummaryWidgetProps {
   view: SellerView;
@@ -128,12 +129,12 @@ export function FinancialSummaryWidget({
         >
           <LiveNumber
             value={marginPercent}
-            format={(n) => `${n > 0 ? "+" : ""}${n.toFixed(1)}%`}
+            format={(n) => fmtPct(n)}
           />
         </div>
         <div className="text-zinc-500 mt-6 lg:mt-8 font-mono text-sm flex items-center gap-4">
           <span>
-            Satıcının sandığı <span className="text-zinc-200">{belief.toFixed(1)}%</span>
+            Satıcının sandığı <span className="text-zinc-200">{fmtPctPlain(belief)}%</span>
           </span>
           <span className="w-1 h-1 bg-zinc-800 rounded-none" />
           <span className={finLossClass()}>{ptsDiffLabel ?? `${ptsDiff} puan düşük`}</span>
@@ -195,7 +196,7 @@ export function FinancialSummaryWidget({
                     )}
                   >
                     {hasGap
-                      ? `${s.marketplaceLabel} ${money(s.gap)} eksik ödedi (−${s.gapRatePct.toFixed(1)}%)`
+                      ? `${s.marketplaceLabel} ${money(s.gap)} eksik ödedi (−${fmtPctPlain(s.gapRatePct)}%)`
                       : `${s.marketplaceLabel} tam ödedi ✓`}
                   </div>
                 ) : (
@@ -321,7 +322,7 @@ function MarginSparkline({
           fill={trueColor}
           fontFamily="monospace"
         >
-          {lastTrue.toFixed(1)}%
+          {fmtPctPlain(lastTrue)}%
         </text>
         <text
           x={xOf(lastIdx) + 6}
@@ -330,7 +331,7 @@ function MarginSparkline({
           fill="#71717a"
           fontFamily="monospace"
         >
-          {lastPerc.toFixed(1)}%
+          {fmtPctPlain(lastPerc)}%
         </text>
       </svg>
       <div className="flex gap-4 mt-2">

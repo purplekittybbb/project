@@ -28,6 +28,7 @@ import { computeMetricsFromView, sizeBucketForUsd, toUsd } from "@/lib/benchmark
 import { publishedBenchmarks } from "@/lib/benchmarks/published";
 import { rankMetric, type RankedMetric } from "@/lib/benchmarks/rank";
 import { ANY, METRIC_KEYS, type MetricKey } from "@/lib/benchmarks/types";
+import { fmtPctPlain } from "@/lib/tools/format-tr";
 
 // ─── metric display ────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ const METRIC_LABEL_KEY: Record<MetricKey, string> = {
   cogs_ratio_pct: "benchmark.cogsRatio",
 };
 
-const fmtPct = (v: number) => `${v.toFixed(1)}%`;
+const fmtPct = (v: number) => `${fmtPctPlain(v)}%`;
 
 const STANDING = {
   good: { key: "benchmark.standingGood", cls: "fin-border-profit-subtle fin-bg-profit-subtle fin-profit", bar: "fin-dot-profit", Icon: CheckCircle2 },

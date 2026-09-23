@@ -9,6 +9,8 @@
  * whose true margin is below zero renders correctly (bars cross the baseline).
  */
 
+import { fmtPctPlain } from "@/lib/tools/format-tr";
+
 export type WaterfallStep = {
   label: string[];
   low: number;
@@ -98,11 +100,11 @@ export function FeeWaterfall({
 
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         <span style={{ fontSize: 15, color: "rgba(255,255,255,0.7)", fontFamily: C.mono }}>
-          %{perceivedPct.toFixed(1)} algılanan
+          %{fmtPctPlain(perceivedPct)} algılanan
         </span>
         <span style={{ color: "rgba(255,255,255,0.4)" }}>&rarr;</span>
         <span style={{ fontSize: 21, fontWeight: 600, color: trueNeg ? "#F6ADA6" : "#FFFFFF", fontFamily: C.mono }}>
-          %{truePct.toFixed(1)} gerçek
+          %{fmtPctPlain(truePct)} gerçek
         </span>
         <span
           style={{
@@ -115,7 +117,7 @@ export function FeeWaterfall({
             fontFamily: C.mono,
           }}
         >
-          &minus;{hiddenPts.toFixed(1)} puan gizli
+          &minus;{fmtPctPlain(hiddenPts)} puan gizli
         </span>
       </div>
 
@@ -123,9 +125,9 @@ export function FeeWaterfall({
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
         role="img"
-        aria-label={`Ücret şelalesi: algılanan marj %${perceivedPct.toFixed(
-          1
-        )}, KDV, kargo, iade, reklam ve ödeme ücretleri düşüldükten sonra %${truePct.toFixed(1)} gerçek marja düşüyor.`}
+        aria-label={`Ücret şelalesi: algılanan marj %${fmtPctPlain(
+          perceivedPct
+        )}, KDV, kargo, iade, reklam ve ödeme ücretleri düşüldükten sonra %${fmtPctPlain(truePct)} gerçek marja düşüyor.`}
         style={{ display: "block" }}
       >
         {ticks.map((t) => (

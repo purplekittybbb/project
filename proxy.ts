@@ -47,7 +47,6 @@ const PUBLIC_PREFIXES = [
   "/demo",
   "/reveal",
   "/financing",
-  "/admin",
   "/api/auth",
   "/api/tools",
   "/api/billing/iyzico/callback",

@@ -14,11 +14,12 @@ import {
   type CampaignResult,
   type Channel,
 } from "@/lib/engine";
+import { fmtPct, fmtPctPlain } from "@/lib/tools/format-tr";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 function pct(v: number, decimals = 1) {
-  return `${v >= 0 ? "+" : ""}${v.toFixed(decimals)}%`;
+  return fmtPct(v, decimals);
 }
 
 function money(v: number, currency: string) {
@@ -100,7 +101,7 @@ function MarginGauge({ label, value, dim }: MarginGaugeProps) {
             : "fin-loss"
         }`}
       >
-        {value.toFixed(1)}%
+        {fmtPctPlain(value)}%
       </div>
       <div className="mt-2 h-px bg-zinc-900 w-full">
         <div
@@ -262,7 +263,7 @@ export function CampaignSimulator({ tenantId, channel, currency }: Props) {
               }`}
             >
               {isWorseThanBase
-                ? `Marj ${Math.abs(result.deltaPct).toFixed(1)} puan düştü — hacim artışı telafi etmeli.`
+                ? `Marj ${fmtPctPlain(Math.abs(result.deltaPct))} puan düştü — hacim artışı telafi etmeli.`
                 : "Kampanya mevcut marjı koruyabilir."}
             </div>
           )}

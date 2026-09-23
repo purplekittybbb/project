@@ -1,4 +1,4 @@
-/** Shared Turkish formatting for tool result panels. */
+/** Shared Turkish formatting for tool result panels and UI. */
 
 export function fmtTry(value: number): string {
   return new Intl.NumberFormat("tr-TR", {
@@ -9,6 +9,7 @@ export function fmtTry(value: number): string {
   }).format(value);
 }
 
+/** Signed percent for margins (+12,5% / −3,2%). */
 export function fmtPct(value: number, digits = 1): string {
   const sign = value >= 0 ? "+" : "−";
   const body = Math.abs(value).toLocaleString("tr-TR", {
@@ -16,6 +17,14 @@ export function fmtPct(value: number, digits = 1): string {
     maximumFractionDigits: digits,
   });
   return `${sign}${body}%`;
+}
+
+/** Unsigned percent body for rates (tr-TR: "12,5"). Callers add "%" / "%{{n}}". */
+export function fmtPctPlain(value: number, digits = 1): string {
+  return value.toLocaleString("tr-TR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 }
 
 export function fmtInt(value: number): string {

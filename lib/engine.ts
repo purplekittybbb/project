@@ -1042,7 +1042,10 @@ export interface FinancingView {
 
 /** Pure — computes a financing view straight from a seller object, no lookup
  *  into RUNTIME_SELLERS. Same concurrency-safety reason as `buildSellerView`. */
-export function buildFinancingView(seller: SeededSeller): FinancingView | undefined {
+export function buildFinancingView(
+  seller: SeededSeller,
+  labelOverride?: string,
+): FinancingView | undefined {
   if (seller.transactions.length === 0) return undefined;
 
   const tenantId = seller.tenantId;
@@ -1055,7 +1058,7 @@ export function buildFinancingView(seller: SeededSeller): FinancingView | undefi
 
   return {
     tenantId,
-    label: RUNTIME_LABELS[tenantId] ?? tenantId,
+    label: labelOverride ?? RUNTIME_LABELS[tenantId] ?? LABELS[tenantId] ?? tenantId,
     currency,
     decision,
     ourOutcome: simulateOutcome(decision),
@@ -1067,29 +1070,48 @@ export function buildFinancingView(seller: SeededSeller): FinancingView | undefi
   };
 }
 
-export function getFinancing(tenantId: string): FinancingView | undefined {
-  const sellers = seededBacktestSellers();
-  const idx = sellers.findIndex((s) => s.tenantId === tenantId);
-  if (idx >= 0) {
-    const report = runBacktest(sellers);
+/**
+ * Underwriting / financing for a seller.
+ * - Seed tenants: full 3-seller portfolio backtest (investor demo unchanged).
+ * - Runtime tenants: channel-scoped txs so Karar + Financing tabs match.
+ * Default channel = trendyol (investor /financing/[id] walkthrough).
+ */
+export function getFinancing(
+  tenantId: string,
+  channel: Channel = "trendyol",
+): FinancingView | undefined {
+  const portfolio = seededBacktestSellers();
+  const seedIdx = portfolio.findIndex((s) => s.tenantId === tenantId);
+  if (seedIdx >= 0) {
+    const report = runBacktest(portfolio);
     return {
       tenantId,
       label: LABELS[tenantId] ?? tenantId,
-      currency: sellers[idx].currency,
-      decision: report.trueMargin.decisions[idx],
-      ourOutcome: report.trueMargin.outcomes[idx],
-      incumbentDecision: report.incumbent.decisions[idx],
-      incumbentOutcome: report.incumbent.outcomes[idx],
+      currency: portfolio[seedIdx]!.currency,
+      decision: report.trueMargin.decisions[seedIdx]!,
+      ourOutcome: report.trueMargin.outcomes[seedIdx]!,
+      incumbentDecision: report.incumbent.decisions[seedIdx]!,
+      incumbentOutcome: report.incumbent.outcomes[seedIdx]!,
       report,
       isSelfBacktest: false,
       historyMonths: 12,
     };
   }
 
-  // Runtime (user) seller — not part of the seeded backtest portfolio.
-  const runtime = RUNTIME_SELLERS.find((s) => s.tenantId === tenantId);
-  if (!runtime) return undefined;
-  return buildFinancingView(runtime);
+  const seller = findSeller(tenantId);
+  if (!seller) return undefined;
+
+  let txs = transactionsForChannel(seller, channel);
+  if (txs.length === 0 && channel !== "trendyol") {
+    txs = transactionsForChannel(seller, "trendyol");
+  }
+  if (txs.length === 0) {
+    txs = transactionsForChannel(seller, "combined");
+  }
+  if (txs.length === 0) return undefined;
+
+  const scoped: SeededSeller = { ...seller, transactions: txs };
+  return buildFinancingView(scoped, RUNTIME_LABELS[tenantId] ?? LABELS[tenantId]);
 }
 
 /** Below this many distinct months of real order history, a single-seller

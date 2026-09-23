@@ -77,6 +77,7 @@ import { productTitleForSku, buildSkuEconomicsMap } from "@/lib/tools/sku-econom
 import { BarcodeStorePage } from "@/components/tools/store/barcode-page";
 import type { StoreToolState } from "@/components/tools/store/use-store-tool-data";
 import { seedStoredRowsForTenant } from "@/lib/data/seed";
+import { fmtPct, fmtPctPlain } from "@/lib/tools/format-tr";
 import { computeSkuMomentum } from "@/lib/tools/opportunity-discovery";
 import { OpportunityDiscoveryCard } from "@/components/OpportunityDiscoveryCard";
 import { OnboardingChecklist } from "@/components/OnboardingChecklist";
@@ -820,9 +821,9 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     getSeller("seller-b", channel) ??
     getSeller("seller-b", "combined")!;
   const fin =
-    getFinancing(tenant) ??
-    getFinancing(USER_TENANT_ID) ??
-    (!authConfigured ? getFinancing("seller-b") : undefined);
+    getFinancing(tenant, channel) ??
+    getFinancing(USER_TENANT_ID, channel) ??
+    (!authConfigured ? getFinancing("seller-b", channel) : undefined);
   const currency = view.currency;
   const w = view.waterfall;
   const grossRev = w.grossRevenue;
@@ -948,20 +949,14 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     : seedLedger;
 
   const approved = view.decision.approvedLimit > 0;
-  const takeRate = (view.decision.takeRate * 100).toFixed(1);
-  // The Financing tab renders `fin.decision` (the whole-portfolio, Trendyol-only
-  // underwriting decision from getFinancing(tenant)/lib/data/seed.ts), NOT
-  // `view.decision` (scoped to whichever channel tab happens to be selected,
-  // e.g. "combined" or "hepsiburada"). It used to gate on `approved`/`takeRate`
-  // above (both view.decision-derived) while displaying fin.decision's money
-  // figure — so picking a non-Trendyol channel could show an approved-limit
-  // amount from fin.decision paired with a declined/mismatched takeRate, or
-  // vice versa. finApproved/finTakeRate keep the Financing tab's gate and its
-  // displayed numbers sourced from the SAME decision object.
+  const takeRate = fmtPctPlain(view.decision.takeRate * 100);
+  // Financing tab uses getFinancing(tenant, channel) — same channel scope as
+  // view.decision — so gates and money figures stay consistent when the user
+  // switches Trendyol / Hepsiburada / combined.
   const finApproved = (fin?.decision.approvedLimit ?? 0) > 0;
-  const finTakeRate = ((fin?.decision.takeRate ?? 0) * 100).toFixed(1);
-  const coOurs = ((fin?.report.trueMargin.chargeOffRate ?? 0) * 100).toFixed(1);
-  const coInc = ((fin?.report.incumbent.chargeOffRate ?? 0) * 100).toFixed(1);
+  const finTakeRate = fmtPctPlain((fin?.decision.takeRate ?? 0) * 100);
+  const coOurs = fmtPctPlain((fin?.report.trueMargin.chargeOffRate ?? 0) * 100);
+  const coInc = fmtPctPlain((fin?.report.incumbent.chargeOffRate ?? 0) * 100);
   const lossRed = Math.round((fin?.report.lossReductionPct ?? 0) * 100);
 
   // tr-TR locale (thousands separator "."), matching every other money-
@@ -975,8 +970,16 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     const s = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 }).format(Math.round(Math.abs(val)));
     return (cur === "USD" ? "$" : "₺") + s;
   };
-  const pctStr = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
+  const pctStr = (n: number) => fmtPct(n);
   const channelLabel = (c: Channel) => (c === "combined" ? "Toplam" : MARKETPLACE_LABELS[c].replace(/ \(.*\)/, ""));
+
+  // Month-over-month true-margin delta for the 3-30-300 header sparkline label.
+  const marginHist = view.marginHistory ?? [];
+  const deltaPct =
+    marginHist.length >= 2
+      ? marginHist[marginHist.length - 1]!.trueMarginPct -
+        marginHist[marginHist.length - 2]!.trueMarginPct
+      : undefined;
 
   // Dynamic marketplace tabs from the user's connected selection. Only engine-
   // supported marketplaces become live data channels; anything else is shown as a
@@ -1541,7 +1544,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               />
 
               {/* 3-30-300 hero header — spec §6: 3-second overview */}
-              <DashboardSummaryHeader skus={view.skus} currency={currency} />
+              <DashboardSummaryHeader skus={view.skus} currency={currency} deltaPct={deltaPct} />
 
               {/* Fırsat Keşfi — real per-SKU momentum from the seller's own sales
                   history (see lib/tools/opportunity-discovery.ts for why this is
@@ -1786,7 +1789,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                                         className="text-[9px] font-mono tnum"
                                         style={{ color: "var(--tm-alert-clay)" }}
                                       >
-                                        {sku.returnRatePct.toFixed(1)}%
+                                        {fmtPctPlain(sku.returnRatePct)}%
                                       </span>
                                     </>
                                   )}
@@ -2032,7 +2035,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 {t("financing.activeCreditLine", { seller: view.label })}
               </h2>
               <p className="mb-12 pl-4 text-[11px] text-zinc-600 font-mono">
-                Trendyol portföy modeli — kanal seçicisinden bağımsız (demo underwriting)
+                {channelLabel(view.channel)} kanalı — seçili sekmeyle aynı underwriting kapsamı
               </p>
 
               <div className="grid gap-16 lg:grid-cols-2 mb-20">
@@ -2090,7 +2093,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       <div className="text-zinc-500 font-sans text-xs mb-3">{t("financing.incumbent")}</div>
                       <dl className="space-y-1.5 text-sm font-mono">
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.limit")}</dt><dd className="tabular-nums text-zinc-400">{money(fin.incumbentDecision.approvedLimit)}</dd></div>
-                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.takeRate")}</dt><dd className="tabular-nums text-zinc-400">{(fin.incumbentDecision.takeRate * 100).toFixed(1)}%</dd></div>
+                        <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.takeRate")}</dt><dd className="tabular-nums text-zinc-400">{fmtPctPlain(fin.incumbentDecision.takeRate * 100)}%</dd></div>
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.outcome")}</dt><dd className={fin.incumbentOutcome.impaired ? "fin-loss" : "text-zinc-400"}>{fin.incumbentOutcome.isLoan ? (fin.incumbentOutcome.impaired ? t("financing.impaired") : t("financing.performing")) : t("financing.declined")}</dd></div>
                         <div className="flex justify-between"><dt className="text-zinc-600">{t("financing.simLoss")}</dt><dd className="tabular-nums text-zinc-400">{money(fin.incumbentOutcome.loss)}</dd></div>
                       </dl>
@@ -2136,7 +2139,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   </div>
                   <div className="bg-zinc-950 p-4 lg:p-6">
                     <div className="text-2xl font-mono tabular-nums text-zinc-100">
-                      {portfolio.gmvCoveragePct == null ? "—" : `${portfolio.gmvCoveragePct.toFixed(0)}%`}
+                      {portfolio.gmvCoveragePct == null ? "—" : `${fmtPctPlain(portfolio.gmvCoveragePct, 0)}%`}
                     </div>
                     <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">{t("financing.gmvCoverage")}</div>
                   </div>
@@ -2203,7 +2206,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                         <div className="w-3/12 text-zinc-500 text-[11px] tabular-nums">{new Date(l.recordedAt).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
                         <div className="w-3/12 text-zinc-300 text-[13px]">{l.label}</div>
                         <div className="w-3/12 text-right text-zinc-100 tabular-nums">{money(l.approvedLimit, l.currency)}</div>
-                        <div className="w-2/12 text-right text-zinc-400 tabular-nums">{(l.takeRate * 100).toFixed(1)}%</div>
+                        <div className="w-2/12 text-right text-zinc-400 tabular-nums">{fmtPctPlain(l.takeRate * 100)}%</div>
                       </div>
                     ))}
                   </div>
