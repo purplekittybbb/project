@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { GUEST_DAILY_LIMIT } from "@/lib/tools/limits";
 import type { StandaloneToolId } from "@/lib/tools/registry";
@@ -14,6 +14,10 @@ interface StandaloneToolRunnerProps {
   title: string;
   description: string;
 }
+
+const POLL_INTERVAL_MS = 2500;
+/** Hard stop so a stuck worker never spins forever. */
+const MAX_POLL_MS = 90_000;
 
 function ResultPanel({
   toolId,
@@ -38,6 +42,21 @@ function ResultPanel({
   }
 }
 
+type ToolApiJson = {
+  error?: string;
+  data?: Record<string, unknown>;
+  mode?: string;
+  toolId?: string;
+  quota?: { limit: number; remaining: number; used: number };
+  upgradeHint?: string | null;
+};
+
+function extractJobId(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const jobId = (data as { jobId?: unknown }).jobId;
+  return typeof jobId === "string" && jobId.length > 0 ? jobId : null;
+}
+
 export function StandaloneToolRunner({ toolId, title, description }: StandaloneToolRunnerProps) {
   const [query, setQuery] = useState("");
   const [marketplace, setMarketplace] = useState("trendyol");
@@ -48,8 +67,105 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
   const [quota, setQuota] = useState<{ limit: number; remaining: number; used: number } | null>(null);
   const [queueStatus, setQueueStatus] = useState<string | null>(null);
   const [upgradeHint, setUpgradeHint] = useState<string | null>(null);
+  const [pollJobId, setPollJobId] = useState<string | null>(null);
+  const pollStartedAt = useRef<number | null>(null);
+  const cancelledRef = useRef(false);
 
-  /** Concurrency cap hit ("queued") — quietly retry a few times before giving up. */
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
+
+  function applyFinishedResult(json: ToolApiJson) {
+    setQueueStatus(null);
+    setPollJobId(null);
+    pollStartedAt.current = null;
+    setUpgradeHint(null);
+    const payload = (json.data ?? json) as Record<string, unknown>;
+    const scrapeError =
+      typeof payload.error === "string" && payload.error.trim().length > 0 ? payload.error : null;
+    if (scrapeError) {
+      setError(scrapeError);
+    } else {
+      setError(null);
+    }
+    setResultData(payload);
+    setResultMode(json.mode ?? (payload.mode as string | undefined));
+    if (json.quota) setQuota(json.quota);
+    setLoading(false);
+  }
+
+  async function pollJobOnce(jobId: string): Promise<"continue" | "done"> {
+    const res = await fetch(`/api/tools/${toolId}?jobId=${encodeURIComponent(jobId)}`, {
+      method: "GET",
+    });
+    const json = (await res.json()) as ToolApiJson;
+
+    if (!res.ok) {
+      setQueueStatus(null);
+      setPollJobId(null);
+      pollStartedAt.current = null;
+      setError(json.error ?? "Tarama tamamlanamadı. Lütfen tekrar deneyin.");
+      setLoading(false);
+      return "done";
+    }
+
+    if (json.mode === "queued") {
+      const msg =
+        (typeof json.data?.message === "string" && json.data.message) ||
+        "Sonucun hazırlanıyor…";
+      setQueueStatus(msg);
+      return "continue";
+    }
+
+    applyFinishedResult(json);
+    return "done";
+  }
+
+  useEffect(() => {
+    if (!pollJobId || !loading) return;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
+
+    const tick = async () => {
+      if (stopped || cancelledRef.current) return;
+      const started = pollStartedAt.current ?? Date.now();
+      if (Date.now() - started > MAX_POLL_MS) {
+        setQueueStatus(null);
+        setPollJobId(null);
+        pollStartedAt.current = null;
+        setError("Tarama beklenenden uzun sürdü. Birazdan tekrar deneyin.");
+        setLoading(false);
+        return;
+      }
+      try {
+        const outcome = await pollJobOnce(pollJobId);
+        if (stopped || cancelledRef.current) return;
+        if (outcome === "continue") {
+          timer = setTimeout(() => void tick(), POLL_INTERVAL_MS);
+        }
+      } catch {
+        if (stopped || cancelledRef.current) return;
+        setQueueStatus(null);
+        setPollJobId(null);
+        pollStartedAt.current = null;
+        setError("Bağlantı hatası. Lütfen tekrar deneyin.");
+        setLoading(false);
+      }
+    };
+
+    timer = setTimeout(() => void tick(), POLL_INTERVAL_MS);
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- poll loop keyed on job id
+  }, [pollJobId, loading, toolId]);
+
+  /** Slot-full without jobId — quietly re-POST a few times. */
   const MAX_QUEUE_RETRIES = 5;
 
   async function runQuery(attempt: number) {
@@ -59,15 +175,9 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, marketplace }),
       });
-      const json = (await res.json()) as {
-        error?: string;
-        data?: Record<string, unknown>;
-        mode?: string;
-        quota?: { limit: number; remaining: number; used: number };
-        upgradeHint?: string | null;
-      };
+      const json = (await res.json()) as ToolApiJson;
 
-      if (!res.ok && res.status !== 202) {
+      if (!res.ok) {
         setError(json.error ?? "Sorgu başarısız.");
         if (json.quota) setQuota(json.quota);
         setUpgradeHint(res.status === 429 ? (json.upgradeHint ?? null) : null);
@@ -76,6 +186,17 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
       }
 
       if (json.mode === "queued") {
+        const jobId = extractJobId(json.data);
+        if (jobId) {
+          setQueueStatus(
+            (typeof json.data?.message === "string" && json.data.message) ||
+              "Sonucun hazırlanıyor…",
+          );
+          if (json.quota) setQuota(json.quota);
+          pollStartedAt.current = Date.now();
+          setPollJobId(jobId);
+          return;
+        }
         if (attempt >= MAX_QUEUE_RETRIES) {
           setQueueStatus(null);
           setError("Şu anda yoğunluk çok yüksek. Lütfen birazdan tekrar deneyin.");
@@ -83,18 +204,15 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
           return;
         }
         const wait = (json.data?.retryAfterSeconds as number | undefined) ?? 8;
-        setQueueStatus((json.data?.message as string | undefined) ?? "Şu anda yoğunluk var, sırada bekleniyor…");
-        setTimeout(() => runQuery(attempt + 1), wait * 1000);
+        setQueueStatus(
+          (typeof json.data?.message === "string" && json.data.message) ||
+            "Şu anda yoğunluk var, sırada bekleniyor…",
+        );
+        setTimeout(() => void runQuery(attempt + 1), wait * 1000);
         return;
       }
 
-      setQueueStatus(null);
-      setUpgradeHint(null);
-      const payload = (json.data ?? json) as Record<string, unknown>;
-      setResultData(payload);
-      setResultMode(json.mode ?? (payload.mode as string | undefined));
-      if (json.quota) setQuota(json.quota);
-      setLoading(false);
+      applyFinishedResult(json);
     } catch {
       setError("Bağlantı hatası. Lütfen tekrar deneyin.");
       setLoading(false);
@@ -108,8 +226,16 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
     setResultData(null);
     setQueueStatus(null);
     setUpgradeHint(null);
+    setPollJobId(null);
+    pollStartedAt.current = null;
     await runQuery(0);
   }
+
+  const buttonLabel = loading
+    ? queueStatus
+      ? "Sonuç hazırlanıyor…"
+      : "Sorgulanıyor…"
+    : "Sorgula";
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -122,7 +248,7 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
         Giriş yapmadan günde {GUEST_DAILY_LIMIT} sorgu (IP bazlı). Giriş yaptıysanız limit daha yüksektir, Profesyonel pakette çok daha yüksektir.
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
-        Gerçek pazaryeri verisi canlı taranır — bu genellikle 15–60 saniye sürer, bazen daha uzun sürebilir.
+        Önbellekteki sonuçlar anında gelir. Yeni anahtar kelimelerde tarama arka planda yapılır — genelde birkaç saniye sürer.
       </p>
 
       <form onSubmit={onSubmit} className="mt-8 space-y-4 rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-card p-6">
@@ -161,7 +287,7 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
           disabled={loading}
           className="tm-btn-primary inline-flex h-10 items-center justify-center px-5 text-sm font-medium disabled:opacity-60"
         >
-          {loading ? (queueStatus ? "Sırada bekleniyor…" : "Sorgulanıyor…") : "Sorgula"}
+          {buttonLabel}
         </button>
         {quota && (
           <p className="text-xs text-muted-foreground">
@@ -171,8 +297,11 @@ export function StandaloneToolRunner({ toolId, title, description }: StandaloneT
       </form>
 
       {queueStatus && !error && (
-        <div className="mt-6 rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-secondary/50 px-4 py-3 text-sm text-muted-foreground" role="status">
-          {queueStatus} Otomatik olarak tekrar denenecek.
+        <div
+          className="mt-6 rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-secondary/50 px-4 py-3 text-sm text-muted-foreground"
+          role="status"
+        >
+          {queueStatus}
         </div>
       )}
 

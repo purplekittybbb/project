@@ -1,48 +1,17 @@
 /**
- * Execute a standalone tool — shared-cache hit, then live scrape when a
- * concurrency slot + browser are available, else queued/preview.
+ * Execute a standalone tool — shared-cache hit, else enqueue scrape (BullMQ)
+ * or fall back to a live sync scrape when Redis is unavailable.
  *
- * CONCURRENCY NOTE (two layers, both required for "everyone at once"):
- *
- * 1. Cache layer — ALL FOUR scraper tools now consult a shared cache before
- *    touching a browser:
- *      - visibility / index-check → shared_visibility_scans (0027)
- *      - price-track              → shared_price_track_scans (0031)
- *      - top100                   → shared_top100_scans (0031)
- *    A fresh cache hit is served straight from Postgres — any number of
- *    concurrent visitors can be served this way with zero scraping load.
- *
- * 2. Concurrency guard — a cache MISS does NOT get an unconditional browser.
- *    It must first acquire a cross-instance lease (migration 0029,
- *    lib/supabase/scan-concurrency.ts) capped at SCRAPE_MAX_CONCURRENT per
- *    marketplace. This is what stops a burst of simultaneous *different*
- *    keywords (worst case: everyone searching something new at once) from
- *    opening dozens of headless browsers against the marketplace at the
- *    same instant — the exact bulk-request pattern that risks an IP ban.
- *    A visitor who can't get a slot gets mode: "queued" immediately (no
- *    hanging request) with a retry hint, instead of the request either
- *    crashing the scraper host or silently piling on load.
- *
- * A successful live scrape is written back to the relevant shared cache so
- * the next visitor asking the same question gets the free cached path, and
- * every ask (hit or miss) is recorded in keyword_search_stats (0030) so the
- * background pre-crawl worker (app/api/cron/precrawl-visibility) knows what
- * to refresh proactively, before anyone even asks.
- *
- * STALE-WHILE-REVALIDATE (free improvement, zero infra cost): a row past
- * its TTL but still within cache-ttl.ts's STALE_GRACE_MULTIPLIER window is
- * served INSTANTLY — honestly labelled mode: "stale", never disguised as
- * fresh — instead of making that one visitor wait through a live scrape.
- * A background refresh is scheduled via next/server's after() (runs after
- * the response is sent, same invocation, no added latency for this
- * visitor) so the next visitor gets a fresh row. This only matters for
- * long-tail keywords the pre-crawl worker hasn't reached yet; in steady
- * state most rows never even reach their base TTL.
+ * When REDIS_URL is set, Vercel API handlers never open a browser: they
+ * enqueue via lib/queue.ts and return mode:"queued". The worker scrapes with
+ * exponential backoff (2s → 4s → 8s). Without Redis, Postgres scrape_leases
+ * still gate a synchronous scrape (local/dev fallback).
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { after } from "next/server";
 import { analyzeTop100, type Top100AnalysisResult } from "@/lib/demand/top100";
+import { enqueueScrapeJob, isRedisConfigured } from "@/lib/queue";
 import { createBrowserSession } from "@/lib/scrapers/browser";
 import { trackCompetitorPrices, type PriceTrackResult } from "@/lib/scrapers/price-tracker";
 import { checkIndex, searchProductRank } from "@/lib/scrapers/visibility";
@@ -54,12 +23,14 @@ import {
 } from "@/lib/tools/cache-ttl";
 import { recordKeywordSearch } from "@/lib/supabase/keyword-stats";
 import { acquireScrapeSlot, releaseScrapeSlot } from "@/lib/supabase/scan-concurrency";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   loadSharedPriceTrackScan,
   loadSharedTop100Scan,
   upsertSharedPriceTrackScan,
   upsertSharedTop100Scan,
 } from "@/lib/supabase/shared-scraper-cache";
+import { hasUsablePrices, shouldCachePriceTrackResult } from "@/lib/scrapers/price-tracker";
 import { loadSharedVisibilityScan, upsertSharedVisibilityScan } from "@/lib/supabase/shared-visibility";
 import { buildPreviewResult } from "./demo-results";
 import type { ParsedToolQuery } from "./parse-query";
@@ -67,28 +38,63 @@ import type { StandaloneToolId } from "./registry";
 
 type ScraperToolId = Exclude<StandaloneToolId, "profit-calc">;
 
+/** Redis yokken Vercel/sync fallback — kısa tut; 60s spinner yok. */
+const INLINE_SCRAPE_TIMEOUT_MS = 20_000;
+const INLINE_MAX_PAGES = 2;
+const INLINE_PRICE_MAX_RESULTS = 24;
+const INLINE_TOP100_MAX_ITEMS = 48;
+const INLINE_SCRAPE_FAIL_MESSAGE =
+  "Şu an tarayamadık. Birazdan tekrar deneyin.";
+
 export interface ToolRunEnvelope {
   toolId: ScraperToolId;
   mode: "live" | "cached" | "stale" | "queued" | "preview";
   data: unknown;
 }
 
-/** Shown to a guest who hit the concurrency cap — honest, not a fake spinner. */
-function buildQueuedEnvelope(toolId: ScraperToolId, retryAfterSeconds: number): ToolRunEnvelope {
+function buildQueuedEnvelope(
+  toolId: ScraperToolId,
+  retryAfterSeconds: number,
+  jobId?: string,
+): ToolRunEnvelope {
   return {
     toolId,
     mode: "queued",
     data: {
-      message: "Şu anda yoğunluk var, tarayıcılar dolu. Birkaç saniye sonra otomatik tekrar deneyin.",
+      message: jobId
+        ? "Sonucun hazırlanıyor… Pazaryeri taranıyor; birkaç saniye içinde güncellenecek."
+        : "İstek kuyruğa alındı. Sonuç birkaç saniye içinde hazır olacak — otomatik tekrar deneyin.",
       retryAfterSeconds,
+      ...(jobId ? { jobId } : {}),
     },
   };
 }
 
-// TTLs live in lib/tools/cache-ttl.ts (shared with the pre-crawl cron and
-// the admin scraper-health endpoint, so all three always agree). All three
-// are refreshed proactively by the pre-crawl cron well before they expire,
-// so in steady state a visitor rarely sees anything this stale.
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+function inlineFailEnvelope(toolId: ScraperToolId): ToolRunEnvelope {
+  return {
+    toolId,
+    mode: "live",
+    data: { error: INLINE_SCRAPE_FAIL_MESSAGE },
+  };
+}
 
 function anonSupabaseClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -98,10 +104,7 @@ function anonSupabaseClient(): SupabaseClient | null {
 }
 
 function serviceRoleSupabaseClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  return createServiceRoleClient();
 }
 
 function isFresh(scrapedAtIso: string, maxAgeMs: number): boolean {
@@ -109,22 +112,25 @@ function isFresh(scrapedAtIso: string, maxAgeMs: number): boolean {
   return !Number.isNaN(t) && Date.now() - t < maxAgeMs;
 }
 
-/** Past TTL but still worth serving instantly while a refresh runs in the background. */
 function isWithinStaleGrace(scrapedAtIso: string, ttlMs: number): boolean {
   return isFresh(scrapedAtIso, ttlMs * STALE_GRACE_MULTIPLIER);
 }
 
-/**
- * Best-effort background refresh for a stale-but-in-grace row, scheduled via
- * after() so it costs the triggering visitor nothing. Opportunistic: if no
- * concurrency slot is free right now it just skips — the pre-crawl worker
- * or a future visitor's own stale-trigger will get it eventually. Never
- * throws, never blocks anything else.
- */
 async function refreshStaleInBackground(toolId: ScraperToolId, input: ParsedToolQuery): Promise<void> {
+  if (isRedisConfigured()) {
+    await enqueueScrapeJob({
+      toolId,
+      marketplace: input.marketplace,
+      keyword: input.keyword,
+      targetTitle: input.targetTitle,
+      reason: "cache_miss",
+    });
+    return;
+  }
+
   const anon = anonSupabaseClient();
   const slot = await acquireScrapeSlot(anon, input.marketplace);
-  if (!slot.acquired) return; // busy right now — don't compete with live guest traffic, just skip this cycle
+  if (!slot.acquired) return;
 
   const session = await createBrowserSession();
   try {
@@ -168,24 +174,28 @@ async function refreshStaleInBackground(toolId: ScraperToolId, input: ParsedTool
           { marketplace: input.marketplace, keyword: input.keyword, maxResults: 20 },
           page,
         );
-        if (!data.error) await cachePriceTrackResult(input, data);
+        if (hasUsablePrices(data)) await cachePriceTrackResult(input, data);
         break;
       }
       case "top100": {
-        const data = await analyzeTop100({ marketplace: input.marketplace, keyword: input.keyword, maxItems: 100 }, page);
-        if (!data.error) await cacheTop100Result(input, data);
+        const data = await analyzeTop100(
+          { marketplace: input.marketplace, keyword: input.keyword, maxItems: 100 },
+          page,
+        );
+        if (!data.error && data.items.some((item) => item.price > 0)) await cacheTop100Result(input, data);
         break;
       }
     }
   } catch {
-    // Best-effort — the pre-crawl worker's next run (or the next stale hit) retries anyway.
+    // Best-effort
   } finally {
-    await session?.close().catch(() => { /* ignore close errors */ });
+    await session?.close().catch(() => {
+      /* ignore */
+    });
     await releaseScrapeSlot(anon, slot.leaseId);
   }
 }
 
-/** Best-effort cache write — never blocks or fails the response to the visitor. */
 async function cacheVisibilityResult(
   input: ParsedToolQuery,
   fields: {
@@ -210,17 +220,18 @@ async function cacheVisibilityResult(
       searchResultCount: fields.searchResultCount,
     });
   } catch {
-    // Cache write is an optimization, not a correctness requirement — swallow.
+    // swallow
   }
 }
 
 async function cachePriceTrackResult(input: ParsedToolQuery, result: PriceTrackResult): Promise<void> {
+  if (!shouldCachePriceTrackResult(result)) return;
   const svc = serviceRoleSupabaseClient();
   if (!svc) return;
   try {
     await upsertSharedPriceTrackScan(svc, input.marketplace, input.keyword, result);
   } catch {
-    // Best-effort — swallow.
+    // swallow
   }
 }
 
@@ -230,8 +241,26 @@ async function cacheTop100Result(input: ParsedToolQuery, result: Top100AnalysisR
   try {
     await upsertSharedTop100Scan(svc, input.marketplace, input.keyword, result);
   } catch {
-    // Best-effort — swallow.
+    // swallow
   }
+}
+
+async function tryEnqueueScrape(
+  toolId: ScraperToolId,
+  input: ParsedToolQuery,
+): Promise<ToolRunEnvelope | null> {
+  if (!isRedisConfigured()) return null;
+
+  const enqueued = await enqueueScrapeJob({
+    toolId,
+    marketplace: input.marketplace,
+    keyword: input.keyword,
+    targetTitle: input.targetTitle,
+    reason: "cache_miss",
+  });
+
+  if (!enqueued.queued) return null;
+  return buildQueuedEnvelope(toolId, 3, enqueued.jobId);
 }
 
 export async function runStandaloneTool(
@@ -241,10 +270,6 @@ export async function runStandaloneTool(
   const anon = anonSupabaseClient();
 
   if (toolId === "visibility" || toolId === "index-check") {
-    // Demand signal for the pre-crawl worker — record every ask, hit or
-    // miss, so popularity is measured by real traffic, not by scrape count.
-    // visibility + index-check share ONE bucket: they read/write the same
-    // shared_visibility_scans row, so one refresh serves both tools.
     void recordKeywordSearch(serviceRoleSupabaseClient(), "visibility", input.marketplace, input.keyword);
 
     if (anon) {
@@ -268,12 +293,6 @@ export async function runStandaloneTool(
                 searchResultCount: cached.searchResultCount,
                 results: [],
                 scrapedAt: cached.scrapedAt,
-                // These three drive the "Pazaryeri / Anahtar kelime / Hedef
-                // ürün" fields the result panel renders — the cached row
-                // itself doesn't carry them, but the just-parsed query does,
-                // and they're identical to what was cached under (they're
-                // part of the cache key). Without this the panel always
-                // showed "—" for all three on every cache hit.
                 keyword: input.keyword,
                 targetTitle: input.targetTitle,
                 marketplace: input.marketplace,
@@ -303,7 +322,7 @@ export async function runStandaloneTool(
     void recordKeywordSearch(serviceRoleSupabaseClient(), "price-track", input.marketplace, input.keyword);
     if (anon) {
       const cached = await loadSharedPriceTrackScan(anon, input.marketplace, input.keyword);
-      if (cached) {
+      if (cached && hasUsablePrices(cached.result)) {
         const fresh = isFresh(cached.scrapedAt, PRICE_TRACK_TTL_MS);
         const staleOk = !fresh && isWithinStaleGrace(cached.scrapedAt, PRICE_TRACK_TTL_MS);
         if (fresh || staleOk) {
@@ -318,7 +337,8 @@ export async function runStandaloneTool(
     void recordKeywordSearch(serviceRoleSupabaseClient(), "top100", input.marketplace, input.keyword);
     if (anon) {
       const cached = await loadSharedTop100Scan(anon, input.marketplace, input.keyword);
-      if (cached) {
+      const cachedItems = cached?.result?.items ?? [];
+      if (cached && cachedItems.some((item) => item.price > 0)) {
         const fresh = isFresh(cached.scrapedAt, TOP100_TTL_MS);
         const staleOk = !fresh && isWithinStaleGrace(cached.scrapedAt, TOP100_TTL_MS);
         if (fresh || staleOk) {
@@ -329,8 +349,11 @@ export async function runStandaloneTool(
     }
   }
 
-  // Cache missed (or doesn't apply to this tool) — this request wants a real
-  // scrape. Gate it behind the cross-instance concurrency lease first.
+  // Cache miss — enqueue (preferred); never scrape inside the Vercel handler when Redis is up.
+  const queued = await tryEnqueueScrape(toolId, input);
+  if (queued) return queued;
+
+  // Redis unavailable — short sync scrape behind Postgres lease (≤~20s).
   const anonForSlot = anon ?? anonSupabaseClient();
   const slot = await acquireScrapeSlot(anonForSlot, input.marketplace);
   if (!slot.acquired) {
@@ -342,118 +365,139 @@ export async function runStandaloneTool(
 
   try {
     if (!page) {
+      return inlineFailEnvelope(toolId);
+    }
+
+    const live = await withTimeout(
+      runInlineScrape(toolId, input, page),
+      INLINE_SCRAPE_TIMEOUT_MS,
+      toolId,
+    );
+    return live;
+  } catch {
+    return inlineFailEnvelope(toolId);
+  } finally {
+    await session?.close().catch(() => {
+      /* ignore */
+    });
+    await releaseScrapeSlot(anonForSlot, slot.leaseId);
+  }
+}
+
+async function runInlineScrape(
+  toolId: ScraperToolId,
+  input: ParsedToolQuery,
+  page: NonNullable<Awaited<ReturnType<typeof createBrowserSession>>>["page"],
+): Promise<ToolRunEnvelope> {
+  switch (toolId) {
+    case "visibility": {
+      const data = await searchProductRank(
+        {
+          marketplace: input.marketplace,
+          keyword: input.keyword,
+          targetTitle: input.targetTitle,
+          maxPages: INLINE_MAX_PAGES,
+        },
+        page,
+      );
+      if (data.error) {
+        return { toolId, mode: "live", data: { error: INLINE_SCRAPE_FAIL_MESSAGE } };
+      }
+      await cacheVisibilityResult(input, {
+        rank: data.rank,
+        page: data.page,
+        isIndexed: data.isIndexed,
+        isOnFirstPage: data.isOnFirstPage,
+        searchResultCount: data.results.length,
+      });
       return {
         toolId,
+        mode: "live",
+        data: {
+          ...data,
+          scrapedAt: new Date().toISOString(),
+          keyword: input.keyword,
+          targetTitle: input.targetTitle,
+          marketplace: input.marketplace,
+        },
+      };
+    }
+    case "index-check": {
+      const data = await checkIndex(
+        {
+          marketplace: input.marketplace,
+          keyword: input.keyword,
+          targetTitle: input.targetTitle,
+          maxPages: INLINE_MAX_PAGES,
+        },
+        page,
+      );
+      if (data.error) {
+        return { toolId, mode: "live", data: { error: INLINE_SCRAPE_FAIL_MESSAGE } };
+      }
+      await cacheVisibilityResult(input, {
+        rank: data.rank,
+        page: null,
+        isIndexed: data.isIndexed,
+        isOnFirstPage: data.isOnFirstPage,
+      });
+      return {
+        toolId,
+        mode: "live",
+        data: {
+          ...data,
+          scrapedAt: new Date().toISOString(),
+          keyword: input.keyword,
+          targetTitle: input.targetTitle,
+          marketplace: input.marketplace,
+        },
+      };
+    }
+    case "price-track": {
+      const data = await trackCompetitorPrices(
+        {
+          marketplace: input.marketplace,
+          keyword: input.keyword,
+          maxResults: INLINE_PRICE_MAX_RESULTS,
+        },
+        page,
+      );
+      if (!hasUsablePrices(data)) {
+        return {
+          toolId,
+          mode: "live",
+          data: { ...data, error: data.error || INLINE_SCRAPE_FAIL_MESSAGE },
+        };
+      }
+      await cachePriceTrackResult(input, data);
+      return { toolId, mode: "live", data };
+    }
+    case "top100": {
+      const data = await analyzeTop100(
+        {
+          marketplace: input.marketplace,
+          keyword: input.keyword,
+          maxItems: INLINE_TOP100_MAX_ITEMS,
+        },
+        page,
+      );
+      if (data.error || !data.items.some((item) => item.price > 0)) {
+        return {
+          toolId,
+          mode: "live",
+          data: { ...data, error: data.error || INLINE_SCRAPE_FAIL_MESSAGE },
+        };
+      }
+      await cacheTop100Result(input, data);
+      return { toolId, mode: "live", data };
+    }
+    default: {
+      const _exhaustive: never = toolId;
+      return {
+        toolId: _exhaustive,
         mode: "preview",
         data: buildPreviewResult(toolId, input),
       };
     }
-
-    switch (toolId) {
-      case "visibility": {
-        const data = await searchProductRank(
-          {
-            marketplace: input.marketplace,
-            keyword: input.keyword,
-            targetTitle: input.targetTitle,
-            maxPages: 3,
-          },
-          page,
-        );
-        // Never cache a failed scrape as if it were a real result — that
-        // would serve a wrong "not found" answer to every visitor of this
-        // keyword until the TTL expires. Only a clean scrape is cached.
-        if (!data.error) {
-          await cacheVisibilityResult(input, {
-            rank: data.rank,
-            page: data.page,
-            isIndexed: data.isIndexed,
-            isOnFirstPage: data.isOnFirstPage,
-            searchResultCount: data.results.length,
-          });
-        }
-        // visibility/index-check scraper results carry no timestamp — and no
-        // keyword/targetTitle/marketplace — of their own (searchProductRank's
-        // return type is just the scrape outcome), so stamp them here from
-        // the parsed query. Without this the result panel's "Pazaryeri /
-        // Anahtar kelime / Hedef ürün" fields always showed "—".
-        return {
-          toolId,
-          mode: "live",
-          data: {
-            ...data,
-            scrapedAt: new Date().toISOString(),
-            keyword: input.keyword,
-            targetTitle: input.targetTitle,
-            marketplace: input.marketplace,
-          },
-        };
-      }
-      case "index-check": {
-        const data = await checkIndex(
-          {
-            marketplace: input.marketplace,
-            keyword: input.keyword,
-            targetTitle: input.targetTitle,
-            maxPages: 3,
-          },
-          page,
-        );
-        if (!data.error) {
-          await cacheVisibilityResult(input, {
-            rank: data.rank,
-            page: null,
-            isIndexed: data.isIndexed,
-            isOnFirstPage: data.isOnFirstPage,
-          });
-        }
-        return {
-          toolId,
-          mode: "live",
-          data: {
-            ...data,
-            scrapedAt: new Date().toISOString(),
-            keyword: input.keyword,
-            targetTitle: input.targetTitle,
-            marketplace: input.marketplace,
-          },
-        };
-      }
-      case "price-track": {
-        const data = await trackCompetitorPrices(
-          {
-            marketplace: input.marketplace,
-            keyword: input.keyword,
-            maxResults: 20,
-          },
-          page,
-        );
-        if (!data.error) await cachePriceTrackResult(input, data);
-        return { toolId, mode: "live", data };
-      }
-      case "top100": {
-        const data = await analyzeTop100(
-          {
-            marketplace: input.marketplace,
-            keyword: input.keyword,
-            maxItems: 100,
-          },
-          page,
-        );
-        if (!data.error) await cacheTop100Result(input, data);
-        return { toolId, mode: "live", data };
-      }
-      default: {
-        const _exhaustive: never = toolId;
-        return {
-          toolId: _exhaustive,
-          mode: "preview",
-          data: buildPreviewResult(toolId, input),
-        };
-      }
-    }
-  } finally {
-    await session?.close();
-    await releaseScrapeSlot(anonForSlot, slot.leaseId);
   }
 }
