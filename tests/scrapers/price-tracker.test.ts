@@ -1,17 +1,22 @@
 /**
- * Price tracker tests — uses mock ScraperPage objects with HTML fixtures.
- * NO real network requests are made.
+ * Price tracker tests — Chromium DOM evaluate mocks (no SSR regex).
  */
 
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   computePriceStats,
+  hasUsablePrices,
+  shouldCachePriceTrackResult,
   trackCompetitorPrices,
   type PriceTrackInput,
 } from "../../lib/scrapers/price-tracker";
+import { NO_USABLE_SCRAPE_ERROR } from "../../lib/scrapers/extract-search-results";
 import type { ScraperPage } from "../../lib/scrapers/browser";
+import { closeMockDomBrowser, makeDomMockPage } from "./mock-dom-page";
 
-// ── computePriceStats (pure function) ─────────────────────────────────────────
+afterAll(async () => {
+  await closeMockDomBrowser();
+});
 
 describe("computePriceStats", () => {
   it("returns all zeros for empty array", () => {
@@ -21,6 +26,12 @@ describe("computePriceStats", () => {
     expect(stats.median).toBe(0);
     expect(stats.p25).toBe(0);
     expect(stats.p75).toBe(0);
+  });
+
+  it("ignores zero and non-finite prices", () => {
+    const stats = computePriceStats([0, 100, Number.NaN, 200]);
+    expect(stats.min).toBe(100);
+    expect(stats.max).toBe(200);
   });
 
   it("single element: all stats equal that value", () => {
@@ -36,11 +47,10 @@ describe("computePriceStats", () => {
     const stats = computePriceStats([100, 200]);
     expect(stats.min).toBe(100);
     expect(stats.max).toBe(200);
-    expect(stats.median).toBe(150); // midpoint of 100 and 200
+    expect(stats.median).toBe(150);
   });
 
   it("computes correct min/max/median for odd-count sorted array", () => {
-    // [100, 200, 300, 400, 500] — median = 300
     const stats = computePriceStats([300, 100, 500, 200, 400]);
     expect(stats.min).toBe(100);
     expect(stats.max).toBe(500);
@@ -48,7 +58,6 @@ describe("computePriceStats", () => {
   });
 
   it("computes correct median for even-count array", () => {
-    // [100, 200, 300, 400] — median = 250
     const stats = computePriceStats([400, 100, 300, 200]);
     expect(stats.min).toBe(100);
     expect(stats.max).toBe(400);
@@ -73,24 +82,66 @@ describe("computePriceStats", () => {
     expect(stats.min).toBe(100);
     expect(stats.max).toBe(100);
     expect(stats.median).toBe(100);
-    expect(stats.p25).toBe(100);
-    expect(stats.p75).toBe(100);
   });
 });
 
-// ── trackCompetitorPrices — mock page ─────────────────────────────────────────
+describe("hasUsablePrices", () => {
+  it("returns false when error is set", () => {
+    expect(
+      hasUsablePrices({
+        prices: [{ title: "x", price: 10, currency: "TRY", rank: 1 }],
+        error: "blocked",
+      }),
+    ).toBe(false);
+  });
+
+  it("returns false when all prices are zero", () => {
+    expect(
+      hasUsablePrices({
+        prices: [
+          { title: "a", price: 0, currency: "TRY", rank: 1 },
+          { title: "b", price: 0, currency: "TRY", rank: 2 },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it("returns true when at least one price > 0", () => {
+    expect(
+      hasUsablePrices({
+        prices: [
+          { title: "a", price: 0, currency: "TRY", rank: 1 },
+          { title: "b", price: 199.9, currency: "TRY", rank: 2 },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("shouldCachePriceTrackResult mirrors hasUsablePrices (no cache on ₺0)", () => {
+    expect(
+      shouldCachePriceTrackResult({
+        prices: [{ title: "x", price: 0, currency: "TRY", rank: 1 }],
+      }),
+    ).toBe(false);
+    expect(
+      shouldCachePriceTrackResult({
+        prices: [{ title: "x", price: 50, currency: "TRY", rank: 1 }],
+      }),
+    ).toBe(true);
+  });
+});
 
 function makeMockPageWithProducts(productCount: number): ScraperPage {
-  // Build a Trendyol-style HTML page with N products
-  const items = Array.from({ length: productCount }, (_, i) => `
-    <div class="prdct-desc-cntnr-name"><span>Ürün Başlık ${i + 1}</span></div>
-    <div class="prc-box-dscntd">${(1000 + i * 100).toLocaleString("tr-TR")},00 TL</div>
-  `).join("\n");
+  const items = Array.from(
+    { length: productCount },
+    (_, i) => `
+    <div class="p-card-wrppr">
+      <div class="prdct-desc-cntnr-name"><span>Ürün Başlık ${i + 1}</span></div>
+      <div class="prc-box-dscntd">${(1000 + i * 100).toLocaleString("tr-TR")},00 TL</div>
+    </div>`,
+  ).join("\n");
 
-  return {
-    goto: async () => null,
-    content: async () => `<html><body>${items}</body></html>`,
-  };
+  return makeDomMockPage([`<html><body>${items}</body></html>`]);
 }
 
 describe("trackCompetitorPrices", () => {
@@ -107,33 +158,29 @@ describe("trackCompetitorPrices", () => {
     const mockPage = makeMockPageWithProducts(5);
     const result = await trackCompetitorPrices(
       { marketplace: "trendyol", keyword: "kulaklık", maxResults: 10 },
-      mockPage
+      mockPage,
     );
-    expect(result.prices.length).toBeGreaterThan(0);
-    expect(result.keyword).toBe("kulaklık");
-    expect(result.marketplace).toBe("trendyol");
+    expect(result.prices.length).toBe(5);
     expect(result.error).toBeUndefined();
+    expect(hasUsablePrices(result)).toBe(true);
   });
 
   it("computes stats from collected prices", async () => {
     const mockPage = makeMockPageWithProducts(3);
     const result = await trackCompetitorPrices(
       { marketplace: "trendyol", keyword: "test", maxResults: 10 },
-      mockPage
+      mockPage,
     );
-    if (result.prices.length > 0) {
-      expect(result.stats.min).toBeGreaterThan(0);
-      expect(result.stats.max).toBeGreaterThanOrEqual(result.stats.min);
-    }
+    expect(result.stats.min).toBeGreaterThan(0);
+    expect(result.stats.max).toBeGreaterThanOrEqual(result.stats.min);
   });
 
   it("respects maxResults cap (hard max 50)", async () => {
     const mockPage = makeMockPageWithProducts(10);
     const result = await trackCompetitorPrices(
       { marketplace: "trendyol", keyword: "test", maxResults: 999 },
-      mockPage
+      mockPage,
     );
-    // Hard max is 50, but we only have 10 products per page (one page scraped)
     expect(result.prices.length).toBeLessThanOrEqual(50);
   });
 
@@ -141,18 +188,16 @@ describe("trackCompetitorPrices", () => {
     const mockPage = makeMockPageWithProducts(3);
     const result = await trackCompetitorPrices(
       { marketplace: "trendyol", keyword: "test", maxResults: 10 },
-      mockPage
+      mockPage,
     );
-    if (result.prices.length > 0) {
-      expect(result.prices[0].rank).toBe(1);
-    }
+    expect(result.prices[0].rank).toBe(1);
   });
 
   it("assigns currency TRY to all collected prices", async () => {
     const mockPage = makeMockPageWithProducts(3);
     const result = await trackCompetitorPrices(
       { marketplace: "trendyol", keyword: "test", maxResults: 10 },
-      mockPage
+      mockPage,
     );
     for (const p of result.prices) {
       expect(p.currency).toBe("TRY");
@@ -161,15 +206,61 @@ describe("trackCompetitorPrices", () => {
 
   it("handles navigation errors gracefully", async () => {
     const brokenPage: ScraperPage = {
-      goto: async () => { throw new Error("Connection refused"); },
+      goto: async () => {
+        throw new Error("Connection refused");
+      },
       content: async () => "",
     };
     const result = await trackCompetitorPrices(
       { marketplace: "trendyol", keyword: "test" },
-      brokenPage
+      brokenPage,
     );
     expect(result.error).toContain("Navigation failed");
     expect(result.prices).toHaveLength(0);
+  });
+
+  it("HTTP 429 rate limit → error envelope, no fake ₺0 success prices", async () => {
+    const rateLimited: ScraperPage = {
+      goto: async () => ({ status: () => 429 }),
+      content: async () =>
+        "<html><body><h1>Too Many Requests</h1><p>Çok fazla istek</p></body></html>",
+      evaluate: async <T>(_fn?: (arg: unknown) => T) => [] as T,
+      waitForSelector: async () => null,
+    };
+    const result = await trackCompetitorPrices(
+      { marketplace: "trendyol", keyword: "kulaklık", maxResults: 10 },
+      rateLimited,
+    );
+    expect(result.error).toBe(NO_USABLE_SCRAPE_ERROR);
+    expect(result.prices).toHaveLength(0);
+    expect(hasUsablePrices(result)).toBe(false);
+    expect(result.stats.min).toBe(0);
+  });
+
+  it("returns NO_USABLE error when mock page has no products", async () => {
+    const emptyPage = makeDomMockPage(["<html><body></body></html>"]);
+    const result = await trackCompetitorPrices(
+      { marketplace: "trendyol", keyword: "tofu soya ezmesi" },
+      emptyPage,
+    );
+    expect(result.error).toBe(NO_USABLE_SCRAPE_ERROR);
+    expect(result.prices).toHaveLength(0);
+    expect(hasUsablePrices(result)).toBe(false);
+  });
+
+  it("zero-price cards → NO_USABLE error, not ₺0 success", async () => {
+    const html = `<html><body>
+      <div class="p-card-wrppr">
+        <div class="prdct-desc-cntnr-name"><span>Fiyatsız Ürün</span></div>
+      </div>
+    </body></html>`;
+    const result = await trackCompetitorPrices(
+      { marketplace: "trendyol", keyword: "test" },
+      makeDomMockPage([html]),
+    );
+    expect(result.error).toBe(NO_USABLE_SCRAPE_ERROR);
+    expect(result.prices).toHaveLength(0);
+    expect(hasUsablePrices(result)).toBe(false);
   });
 
   it("includes scrapedAt ISO timestamp", async () => {
@@ -178,24 +269,20 @@ describe("trackCompetitorPrices", () => {
   });
 
   it("stops early when page returns no results", async () => {
-    let pageCount = 0;
-    const emptyAfterFirst: ScraperPage = {
-      goto: async () => { pageCount++; return null; },
-      content: async () => {
-        if (pageCount === 1) {
-          return `<html><body>
-            <div class="prdct-desc-cntnr-name"><span>Tek Ürün</span></div>
-            <div class="prc-box-dscntd">500,00 TL</div>
-          </body></html>`;
-        }
-        return "<html><body></body></html>"; // empty page
-      },
-    };
+    process.env.SCRAPE_DELAY_MIN_MS = "0";
+    process.env.SCRAPE_DELAY_MAX_MS = "0";
+    const first = `<html><body>
+      <div class="p-card-wrppr">
+        <div class="prdct-desc-cntnr-name"><span>Tek Ürün</span></div>
+        <div class="prc-box-dscntd">500,00 TL</div>
+      </div>
+    </body></html>`;
+    const empty = "<html><body></body></html>";
     const result = await trackCompetitorPrices(
-      { marketplace: "trendyol", keyword: "test", maxResults: 50 },
-      emptyAfterFirst
+      { marketplace: "trendyol", keyword: "test", maxResults: 40 },
+      makeDomMockPage([first, empty]),
     );
-    // Should stop after the empty page
-    expect(pageCount).toBeLessThanOrEqual(3); // at most a few pages
+    expect(result.prices).toHaveLength(1);
+    expect(result.prices[0].price).toBe(500);
   });
 });

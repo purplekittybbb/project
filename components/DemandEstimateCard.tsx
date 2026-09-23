@@ -19,6 +19,7 @@
 
 import { useState } from "react";
 import type { DemandRangeResult } from "@/lib/demand/signals";
+import { XaiExplainSheet, type XaiFactorBar } from "@/components/trust/XaiExplainSheet";
 
 export interface DemandEstimateCardProps {
   estimate: DemandRangeResult;
@@ -86,8 +87,19 @@ function factorMeta(f: { role: "base" | "multiplier"; factor: number }): {
 
 export function DemandEstimateCard({ estimate, sku, last30Units, className }: DemandEstimateCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const badge = BADGE_CONFIG[estimate.confidenceLevel];
   const hasReal = last30Units != null;
+
+  const sheetFactors: XaiFactorBar[] = (estimate.factors ?? []).map((f) => {
+    const m = factorMeta(f);
+    return {
+      label: SIGNAL_LABELS[f.signalName] ?? f.signalName,
+      weight: m.importance || (f.role === "base" ? 1 : 0),
+      effect: m.label,
+      direction: f.role === "base" ? "neutral" : f.factor > 1 ? "up" : f.factor < 1 ? "down" : "neutral",
+    };
+  });
 
   return (
     <div
@@ -174,8 +186,8 @@ export function DemandEstimateCard({ estimate, sku, last30Units, className }: De
         </p>
       )}
 
-      {/* ── Level 2: expandable explanation ────────────────────────────── */}
-      <div className="mt-2">
+      {/* ── Level 2 + Level 3 entry points ─────────────────────────────── */}
+      <div className="mt-2 flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={() => setExpanded((p) => !p)}
@@ -185,82 +197,60 @@ export function DemandEstimateCard({ estimate, sku, last30Units, className }: De
         >
           {expanded ? "Gizle" : "Neden bu tahmin?"}
         </button>
-
-        {expanded && (
-          <div className="mt-2 space-y-2">
-            <p
-              className="text-[12px] font-sans leading-relaxed"
-              style={{ color: "var(--tm-ink)", opacity: 0.65 }}
-            >
-              {estimate.explanation}
-            </p>
-
-            {/* PDF §7.2 Seviye 3 — "Nasıl?": ağırlıklı faktör önem grafiği. */}
-            {estimate.factors && estimate.factors.length > 0 ? (
-              <div>
-                <div
-                  className="text-[10px] uppercase tracking-[0.12em] font-sans mb-1.5"
-                  style={{ color: "var(--tm-ink)", opacity: 0.4 }}
-                >
-                  Faktör ağırlıkları
-                </div>
-                <div className="space-y-1.5">
-                  {(() => {
-                    const metas = estimate.factors.map(factorMeta);
-                    const maxImp = Math.max(0.0001, ...metas.map((m) => m.importance));
-                    return estimate.factors.map((f, i) => {
-                      const m = metas[i];
-                      const widthPct = Math.max(6, (m.importance / maxImp) * 100);
-                      return (
-                        <div key={f.signalName} className="flex items-center gap-2 text-[10px]">
-                          <span className="w-28 shrink-0 font-sans" style={{ color: "var(--tm-ink)", opacity: 0.7 }}>
-                            {SIGNAL_LABELS[f.signalName] ?? f.signalName}
-                          </span>
-                          <div className="flex-1 h-1.5 rounded-full" style={{ background: "color-mix(in srgb, var(--tm-ink) 8%, transparent)" }}>
-                            <div className="h-full rounded-full" style={{ width: `${widthPct}%`, background: m.color }} />
-                          </div>
-                          <span className="w-24 shrink-0 text-right font-mono" style={{ color: m.color }}>
-                            {m.label}
-                          </span>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              </div>
-            ) : (
-              estimate.signalsUsed && estimate.signalsUsed.length > 0 && (
-                <div>
-                  <div
-                    className="text-[10px] uppercase tracking-[0.12em] font-sans mb-1"
-                    style={{ color: "var(--tm-ink)", opacity: 0.4 }}
-                  >
-                    Kullanılan sinyaller
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {estimate.signalsUsed.map((s) => (
-                      <span
-                        key={s}
-                        className="text-[10px] font-sans"
-                        style={{
-                          color: "var(--tm-ink)",
-                          opacity: 0.7,
-                          background: "color-mix(in srgb, var(--tm-ink) 6%, var(--tm-paper))",
-                          border: "1px solid color-mix(in srgb, var(--tm-ink) 12%, transparent)",
-                          borderRadius: "var(--tm-r-data, 2px)",
-                          padding: "1px 6px",
-                        }}
-                      >
-                        {SIGNAL_LABELS[s] ?? s}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )
-            )}
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={() => setSheetOpen(true)}
+          className="text-[11px] font-sans underline underline-offset-2 cursor-pointer"
+          style={{ color: "var(--tm-copper)", background: "none", border: "none", padding: 0 }}
+        >
+          Detayları gör (Nasıl?)
+        </button>
       </div>
+
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          <p
+            className="text-[12px] font-sans leading-relaxed"
+            style={{ color: "var(--tm-ink)", opacity: 0.65 }}
+          >
+            {estimate.explanation}
+          </p>
+          {estimate.signalsUsed && estimate.signalsUsed.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {estimate.signalsUsed.map((s) => (
+                <span
+                  key={s}
+                  className="text-[10px] font-sans"
+                  style={{
+                    color: "var(--tm-ink)",
+                    opacity: 0.7,
+                    background: "color-mix(in srgb, var(--tm-ink) 6%, var(--tm-paper))",
+                    border: "1px solid color-mix(in srgb, var(--tm-ink) 12%, transparent)",
+                    borderRadius: "var(--tm-r-data, 2px)",
+                    padding: "1px 6px",
+                  }}
+                >
+                  {SIGNAL_LABELS[s] ?? s}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PDF §7.2 Seviye 3 — tam sayfa feature-importance / SHAP-benzeri görünüm */}
+      <XaiExplainSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title={`${sku} — talep tahmini mantığı`}
+        subtitle={estimate.explanation}
+        factors={sheetFactors}
+      >
+        <p>
+          Aralık: {fmtRange(estimate.rangeLow, estimate.rangeHigh)}. Güven skoru:{" "}
+          {estimate.confidenceScore}/100 ({badge.label}).
+        </p>
+      </XaiExplainSheet>
     </div>
   );
 }

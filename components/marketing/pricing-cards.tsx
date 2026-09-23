@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Reveal } from "@/components/reveal";
+import { LockIcon } from "@/components/trust/LockIcon";
 import { PRICING_TIERS } from "@/lib/marketing/content";
 
 export function PricingCards() {
@@ -19,7 +20,7 @@ export function PricingCards() {
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">{plan.summary}</p>
             <p className="mt-4 flex items-baseline gap-1">
-              <span className="tnum font-heading text-4xl font-bold text-foreground">
+              <span className="tnum font-mono text-4xl font-bold text-foreground">
                 {plan.priceMonthly === 0
                   ? "₺0"
                   : `₺${plan.priceMonthly.toLocaleString("tr-TR")}`}
@@ -39,14 +40,21 @@ export function PricingCards() {
             </ul>
             <Link
               href={plan.id === "free" ? "/signup" : "/signup"}
-              className={`mt-8 inline-flex h-11 items-center justify-center px-6 text-sm font-medium transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--tm-copper)] ${
+              className={`mt-8 inline-flex h-11 items-center justify-center gap-2 px-6 text-sm font-medium transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--tm-copper)] ${
                 plan.highlight
                   ? "bg-[var(--tm-copper)] text-[var(--tm-paper)]"
                   : "border border-[var(--tm-mist)] bg-background text-foreground hover:bg-secondary"
               }`}
             >
+              {plan.highlight && <LockIcon className="opacity-90" />}
               {plan.id === "free" ? "Ücretsiz başla" : "Kaydol"}
             </Link>
+            {plan.highlight && (
+              <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-[11px] text-muted-foreground">
+                <LockIcon />
+                <span>Güvenli ödeme · istediğiniz an iptal</span>
+              </p>
+            )}
           </article>
         </Reveal>
       ))}

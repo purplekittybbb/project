@@ -20,6 +20,16 @@ describe("parseToolQuery", () => {
     expect(r.productUrl).toContain("trendyol.com");
   });
 
+  it("recovers concatenated trendyol URLs into a searchable product name", () => {
+    const r = parseToolQuery(
+      "https://www.trendyol.com/j-https://www.trendyol.com/j-basket/j-basket-tofu-soya-ezmesi-japonya-300-",
+    );
+    expect(r.type).toBe("url");
+    expect(r.marketplace).toBe("trendyol");
+    expect(r.keyword.toLowerCase()).toContain("tofu");
+    expect(r.keyword).not.toMatch(/https?:/i);
+  });
+
   it("respects marketplace override", () => {
     const r = parseToolQuery("kulaklık", "n11");
     expect(r.marketplace).toBe("n11");

@@ -5,7 +5,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
-import { LockIcon } from "@/components/trust/LockIcon";
+import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
 import { FIELD_ERROR_BORDER } from "@/lib/design/financial-ui";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -140,13 +140,12 @@ export default function SifremiUnuttumPage() {
               )}
 
               <div className="pt-1">
-                <button type="submit" disabled={loading} className="tm-btn-primary w-full">
+                <TrustSubmitButton
+                  disabled={loading}
+                  seal="256-bit şifreleme · oturum güvenliği"
+                >
                   {loading ? "Gönderiliyor…" : "Sıfırlama bağlantısı gönder"}
-                </button>
-                <div className="mt-2.5 flex items-center justify-center gap-1.5 text-muted-foreground text-[11px]">
-                  <LockIcon />
-                  <span>256-bit şifreleme · oturum güvenliği</span>
-                </div>
+                </TrustSubmitButton>
               </div>
             </form>
 

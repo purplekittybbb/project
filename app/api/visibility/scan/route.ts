@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { runVisibilityScan } from "@/lib/visibility/run-scan";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * POST /api/visibility/scan   { marketplace: "trendyol" | "hepsiburada" | "n11" }
@@ -19,15 +19,6 @@ import { runVisibilityScan } from "@/lib/visibility/run-scan";
  */
 export const runtime = "nodejs";
 export const maxDuration = 300;
-
-function serviceRoleClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 export async function POST(req: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -65,7 +56,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const service = serviceRoleClient();
+  const service = createServiceRoleClient();
   if (!service) {
     return NextResponse.json({ error: "Sunucu yapılandırması eksik." }, { status: 500 });
   }

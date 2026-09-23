@@ -54,22 +54,42 @@ export function StoreToolShell({
     );
   }
 
+  if (state.status === "load-error") {
+    return (
+      <div className="mx-auto max-w-xl">
+        <h1 className="font-heading text-3xl font-bold tracking-tight">{tool.title}</h1>
+        <div className="mt-8 tm-field-error-box rounded-[var(--tm-r-ui)] p-6">
+          <p className="text-sm font-medium">{state.message}</p>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="tm-btn-primary mt-4 inline-flex h-10 items-center px-5 text-sm font-medium"
+          >
+            Tekrar dene
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (state.status === "no-store" || state.status === "no-data") {
     return (
       <div className="mx-auto max-w-xl">
         <span className="inline-flex rounded-full border border-[var(--tm-copper)]/30 bg-[var(--tm-copper)]/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-[var(--tm-copper)]">
-          Mağaza Gerekli
+          {state.status === "no-store" ? "Mağaza Gerekli" : "Veri Gerekli"}
         </span>
         <h1 className="mt-4 font-heading text-3xl font-bold tracking-tight">{tool.title}</h1>
         <p className="mt-3 text-base text-muted-foreground">{tool.description}</p>
         <div className="mt-8 rounded-[var(--tm-r-ui)] border border-[var(--tm-mist)] bg-card p-6">
           <p className="text-sm font-medium">
-            {state.status === "no-store"
-              ? "Bu özellik için mağazanızı bağlayın"
-              : "Henüz satış veriniz yok — mağazayı bağlayıp senkron edin"}
+            {"message" in state && state.message
+              ? state.message
+              : state.status === "no-store"
+                ? "Bu özellik için mağazanızı bağlayın veya CSV yükleyin"
+                : "Henüz satış veriniz yok — mağazayı bağlayıp senkron edin veya CSV yükleyin"}
           </p>
           <Link href={state.connectHref} className="tm-btn-primary mt-4 inline-flex h-10 items-center px-5 text-sm font-medium">
-            Mağazayı bağla
+            Veri ekle / mağaza bağla
           </Link>
         </div>
       </div>

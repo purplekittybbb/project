@@ -4,11 +4,12 @@
  * Giriş — PDF §3 kapsülleme, §6 Türkçe mikro-metin, §4 clay hata rengi.
  */
 
-import { useState, useRef } from "react";
+import { Suspense, useState, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase/client";
-import { LockIcon } from "@/components/trust/LockIcon";
+import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
+import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
 import { FIELD_ERROR_BORDER } from "@/lib/design/financial-ui";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -24,8 +25,15 @@ function Logo() {
   );
 }
 
-export default function LoginPage() {
+function safeNextPath(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/connect";
+  return raw;
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = safeNextPath(searchParams.get("next"));
   const passwordRef = useRef<HTMLInputElement>(null);
 
   const [email, setEmail] = useState("");
@@ -60,7 +68,7 @@ export default function LoginPage() {
     const supabase = getSupabaseClient();
     if (!supabase) {
       await new Promise((r) => setTimeout(r, 500));
-      router.push("/connect");
+      router.push(nextPath);
       return;
     }
 
@@ -79,7 +87,7 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/connect");
+    router.push(nextPath);
     router.refresh();
   }
 
@@ -133,11 +141,7 @@ export default function LoginPage() {
             )}
           </div>
 
-          <div className="tm-secure-field-group p-4 space-y-3">
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <LockIcon className="text-[var(--tm-copper)]" />
-              <span>Şifreniz şifrelenmiş bağlantı ile iletilir.</span>
-            </div>
+          <SecurePaymentCapsule hint="Şifreniz şifrelenmiş bağlantı ile iletilir.">
             <div>
               <div className="flex items-baseline justify-between mb-1.5">
                 <label htmlFor="password" className="block text-sm font-medium text-foreground">
@@ -161,7 +165,7 @@ export default function LoginPage() {
                 className="w-full border border-input bg-card px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/60 rounded-[var(--tm-r-data)] transition-colors focus:outline-none focus:ring-2 focus:ring-ring hover:border-foreground/30"
               />
             </div>
-          </div>
+          </SecurePaymentCapsule>
 
           {formError && (
             <div role="alert" className="tm-field-error-box">
@@ -170,13 +174,12 @@ export default function LoginPage() {
           )}
 
           <div className="pt-1">
-            <button type="submit" disabled={loading} className="tm-btn-primary w-full">
+            <TrustSubmitButton
+              disabled={loading}
+              seal="256-bit şifreleme · oturum güvenliği"
+            >
               {loading ? "Giriş yapılıyor…" : "Giriş yap"}
-            </button>
-            <div className="mt-2.5 flex items-center justify-center gap-1.5 text-muted-foreground text-[11px]">
-              <LockIcon />
-              <span>256-bit şifreleme · oturum güvenliği</span>
-            </div>
+            </TrustSubmitButton>
           </div>
         </form>
 
@@ -188,5 +191,19 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <span className="text-muted-foreground text-sm">Yükleniyor…</span>
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

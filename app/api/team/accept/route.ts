@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /** Bir davetin kabul edilmesi — çağıran, o an giriş yapmış olan gerçek kullanıcıdır. */
 
@@ -20,13 +20,6 @@ async function getUser(): Promise<{ id: string; email: string | null } | null> {
   return { id: data.user.id, email: data.user.email ?? null };
 }
 
-function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-}
-
 export async function POST(req: Request) {
   const user = await getUser();
   if (!user) return NextResponse.json({ error: "Önce giriş yapmalısınız." }, { status: 401 });
@@ -35,7 +28,7 @@ export async function POST(req: Request) {
   const token = typeof body.token === "string" ? body.token : "";
   if (!token) return NextResponse.json({ error: "Geçersiz davet bağlantısı." }, { status: 400 });
 
-  const supabase = serviceClient();
+  const supabase = createServiceRoleClient();
   if (!supabase) return NextResponse.json({ error: "Sunucu yapılandırması eksik." }, { status: 500 });
 
   const { data: invite, error: findError } = await supabase

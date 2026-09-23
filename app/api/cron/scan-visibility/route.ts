@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { runVisibilityScan } from "@/lib/visibility/run-scan";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * POST /api/cron/scan-visibility
@@ -19,15 +19,6 @@ import { runVisibilityScan } from "@/lib/visibility/run-scan";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-
-function serviceRoleClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 export async function POST(req: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -52,11 +43,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const supabase = serviceRoleClient();
+  const supabase = createServiceRoleClient();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase service role yapılandırılmamış." }, { status: 500 });
   }
 
   const result = await runVisibilityScan(supabase, { userId, marketplace });
+  if (result.unsupported) {
+    return NextResponse.json(result, { status: 400 });
+  }
   return NextResponse.json(result);
 }

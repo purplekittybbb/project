@@ -17,6 +17,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/urunler`, lastModified, changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/pricing`, lastModified, changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/hakkimizda`, lastModified, changeFrequency: "yearly", priority: 0.5 },
+    { url: `${base}/yatirimci`, lastModified, changeFrequency: "monthly", priority: 0.55 },
+    { url: `${base}/demo`, lastModified, changeFrequency: "monthly", priority: 0.7 },
     { url: `${base}/gizlilik`, lastModified, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/kullanim-kosullari`, lastModified, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/iptal-iade`, lastModified, changeFrequency: "yearly", priority: 0.3 },

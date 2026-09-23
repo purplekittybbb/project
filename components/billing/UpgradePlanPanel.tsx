@@ -43,7 +43,7 @@ const PLAN_OPTIONS: PlanId[] = ["starter", "pro"];
 
 const STATUS_TR: Record<string, string> = {
   active: "Aktif",
-  pending: "Beklemede",
+  pending: "Ödeme bankaya iletildi — onay bekleniyor (genelde birkaç dakika)",
   cancelled: "İptal edildi",
   failed: "Başarısız",
 };

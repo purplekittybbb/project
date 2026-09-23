@@ -1,5 +1,8 @@
 /**
- * Next.js middleware — authentication + subscription gating.
+ * Next.js proxy (formerly middleware) — authentication + subscription gating.
+ *
+ * Next.js 16 renamed the root `middleware.ts` convention to `proxy.ts`.
+ * Logic is unchanged: auth + optional premium subscription checks.
  *
  * TWO LAYERS:
  *   1. Auth: protected routes require a valid Supabase session.
@@ -15,8 +18,8 @@
  * ROUTE CLASSIFICATION:
  *   Public      — no auth required (landing page, auth routes, static assets)
  *   Protected   — auth required (dashboard, API routes with user data)
- *   Premium     — auth + active subscription required (visibility scan cron,
- *                 demand estimation API, top-100 analysis)
+ *   Premium     — auth + active subscription required (reserved for real
+ *                 user-facing premium API paths when they exist)
  */
 
 import { NextResponse } from "next/server";
@@ -42,6 +45,12 @@ const PUBLIC_PREFIXES = [
   "/sifre-sifirla",         // şifre sıfırlama e-posta bağlantısının indiği sayfa
   "/kullanim-kosullari",
   "/iptal-iade",
+  "/changelog",
+  "/yatirimci",            // Marketplace→Credit diligence (seed metrics, lisans dürüstlüğü)
+  "/demo",                 // Seed panel walkthrough — oturumsuz; gerçek kullanıcı /dashboard’da
+  "/reveal",               // Seed “görünen→gerçek marj” (signed-in seller page içinde bounce)
+  "/financing",            // Seed underwriting backtest yüzeyi (lisanslı kredi ürünü değil)
+  "/admin",                // Dev queue monitor UI (API hâlâ CRON_SECRET ister)
   "/api/auth",
   "/api/tools",            // Guest standalone tool queries (rate-limited)
   "/api/billing/iyzico",   // checkout/callback must be reachable pre-login
@@ -50,11 +59,8 @@ const PUBLIC_PREFIXES = [
   "/icons",
   "/downloads",            // static downloads (e.g. Chrome uzantısı .zip)
   "/api/extension/lookup", // Chrome uzantısı — auth'u kendi Bearer token'ı ile yapar, cookie session yok
-  // NOT: "/demo" ve onunla birlikte açılmış "/api/chat" public istisnası
-  // kaldırıldı — /demo sayfası ürünle birlikte tamamen kaldırıldı, artık
-  // hiçbir yerden oturumsuz Copilot çağrısı yapılmıyor. /api/chat tekrar
-  // normal (oturum zorunlu) korumaya döndü; gerçek kullanıcılar zaten
-  // her zaman geçerli bir session cookie ile çağırıyor.
+  // /demo public; /api/chat kasıtlı olarak session ister (demo Copilot kapalı —
+  // oturumsuz AI kotası yok). Financing/reveal seed yüzeyleri client-side engine.
   "/sitemap.xml",          // Googlebot vb. crawler'lar auth cookie'si taşımaz — public olmalı
   "/robots.txt",           // aynı sebep; ayrıca sitemap.xml'i referans ediyor
 ];
@@ -63,25 +69,13 @@ const PUBLIC_PREFIXES = [
  * Prefixes that require an active subscription IN ADDITION to auth.
  * Other authenticated routes only require a valid session.
  *
- * HONESTY NOTE (found during a professionalism/quality audit — see
- * lib/tools/limits.ts PAID_DAILY_LIMIT for the fix that's actually live):
- * "/api/demand" and "/api/top100" do not correspond to any real route in
- * this app — demand estimation is computed client-side in the dashboard
- * from the user's own already-loaded sales data, and Top 100 is served by
- * the standalone-tool route (app/api/tools/[toolId], public + rate-limited
- * by design — a lead-gen free tool, not a premium dashboard feature). These
- * two prefixes were dead entries gating nothing; kept here (rather than
- * silently deleted) as a marker that a real per-route premium gate for
- * these features hasn't been built yet — add the actual route path here
- * once one exists. "/api/cron/scan-visibility" is a server cron endpoint
- * authenticated by CRON_SECRET, not a user session, so this prefix doesn't
- * do anything for it either — session-based gating only applies to routes
- * a signed-in user's browser calls directly.
+ * Keep this list empty of dead paths. Demand estimation runs client-side in
+ * the dashboard; Top 100 is `/api/tools/top100` (public + rate-limited).
+ * Cron scanners use CRON_SECRET, not a browser session — do not list them here.
  */
-const PREMIUM_PREFIXES = [
-  "/api/cron/scan-visibility",
-  "/api/demand",
-  "/api/top100",
+const PREMIUM_PREFIXES: string[] = [
+  // Add real user-facing premium API paths here when they exist, e.g.:
+  // "/api/visibility/scan",
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -94,9 +88,9 @@ function isPremium(pathname: string): boolean {
   return PREMIUM_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
-// ── Middleware ────────────────────────────────────────────────────────────────
+// ── Proxy ─────────────────────────────────────────────────────────────────────
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Always pass public routes through immediately.
@@ -144,7 +138,7 @@ export async function middleware(request: NextRequest) {
     // due to a transient Supabase outage. Monitor log frequency.
     if (sub.failOpen) {
       console.warn(
-        "[middleware] Subscription check failed-open — granting access (userId=%s, path=%s). " +
+        "[proxy] Subscription check failed-open — granting access (userId=%s, path=%s). " +
         "If this repeats frequently, investigate Supabase connectivity or migration 0021.",
         user.id,
         pathname,
@@ -169,7 +163,7 @@ export async function middleware(request: NextRequest) {
   return response;
 }
 
-// ── Config: which routes does the middleware run on? ─────────────────────────
+// ── Config: which routes does the proxy run on? ──────────────────────────────
 
 export const config = {
   matcher: [

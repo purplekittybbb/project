@@ -13,6 +13,7 @@ const skuMargins: SkuMargin[] = [
     isSilentLoser: false,
     returnRatePct: 2,
     isReturnRisk: false,
+    netContribution: 120,
   },
   {
     sku: "N-1",
@@ -23,6 +24,7 @@ const skuMargins: SkuMargin[] = [
     isSilentLoser: false,
     returnRatePct: 3,
     isReturnRisk: false,
+    netContribution: 80,
   },
 ];
 

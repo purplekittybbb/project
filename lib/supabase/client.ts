@@ -6,6 +6,9 @@
  * safe to ship publicly; row-level security on the Supabase side is what protects
  * data. Passwords are hashed and stored by Supabase (bcrypt) — never by us.
  *
+ * SUPABASE_SERVICE_ROLE_KEY must NEVER use NEXT_PUBLIC_ — see
+ * lib/supabase/service-role.ts (server-only, bypasses RLS).
+ *
  * Graceful degradation: if the env vars are not set, getSupabaseClient() returns
  * null. Login/signup then fall back to demo behaviour (straight to /dashboard) and
  * the protected route treats the app as open — so the landing + demo never break

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /** Signed-in kullanıcının salt-okunur erişimi olan sahip hesapların listesi. */
 
@@ -19,17 +19,10 @@ async function getUserId(): Promise<string | null> {
   return data.user?.id ?? null;
 }
 
-function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-}
-
 export async function GET() {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error: "Oturum gerekli." }, { status: 401 });
-  const supabase = serviceClient();
+  const supabase = createServiceRoleClient();
   if (!supabase) return NextResponse.json({ error: "Sunucu yapılandırması eksik." }, { status: 500 });
 
   const { data, error } = await supabase

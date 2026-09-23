@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { FIELD_ERROR_BORDER, FIELD_ERROR_TEXT_ON_DARK } from "@/lib/design/financial-ui";
+import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -94,15 +95,15 @@ export function HeroSignupForm() {
         />
         {error && <p className={`text-xs ${FIELD_ERROR_TEXT_ON_DARK}`}>{error}</p>}
         {notice && <p className="text-xs text-[color-mix(in_srgb,var(--tm-paper)_85%,transparent)]">{notice}</p>}
-        <button
-          type="submit"
+        <TrustSubmitButton
           disabled={loading}
-          className="w-full rounded-[var(--tm-r-ui)] bg-[var(--tm-copper)] py-3 text-sm font-medium text-[var(--tm-paper)] transition-opacity hover:opacity-90 disabled:opacity-60"
+          showSeal={false}
+          className="rounded-[var(--tm-r-ui)] bg-[var(--tm-copper)] py-3 text-sm font-medium text-[var(--tm-paper)] transition-opacity hover:opacity-90 disabled:opacity-60"
         >
           {loading ? "Kaydediliyor…" : "Ücretsiz Başla"}
-        </button>
+        </TrustSubmitButton>
 
-        {/* PDF §3.2 — güven sinyalleri aksiyon butonunun hemen yanında. */}
+        {/* PDF §3.2 — güven sinyalleri aksiyon butonunun hemen yanında (KVKK seal). */}
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 pt-1 text-[11px] text-[color-mix(in_srgb,var(--tm-paper)_60%,transparent)]">
           <span className="inline-flex items-center gap-1">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>

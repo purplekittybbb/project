@@ -12,14 +12,15 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { FREE_TIER_MAX_SCRAPE_SLOTS } from "@/lib/infra/free-tier";
 
-const DEFAULT_MAX_CONCURRENT_PER_MARKETPLACE = 3;
 const DEFAULT_LEASE_TTL_SECONDS = 180;
 
 export function maxConcurrentScrapes(): number {
   const raw = process.env.SCRAPE_MAX_CONCURRENT;
   const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_CONCURRENT_PER_MARKETPLACE;
+  // Free-tier default: keep concurrent live browsers low on Vercel Hobby.
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : FREE_TIER_MAX_SCRAPE_SLOTS;
 }
 
 export interface ScrapeSlot {

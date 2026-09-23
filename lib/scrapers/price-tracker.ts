@@ -3,6 +3,13 @@
  * and returns their prices. Used to build category_trends and feed into
  * computeSafePrice's competitor-price input.
  *
+ * EXTRACTION: Playwright DOM only via shared `extractSearchResultsFromPage`
+ * (`page.evaluate`). No SSR HTML / regex price parsing in this module.
+ *
+ * CACHE RULE: Never persist a result unless `hasUsablePrices` is true
+ * (at least one finite price &gt; 0). Callers and `upsertSharedPriceTrackScan`
+ * both enforce this — ₺0 / bot-wall payloads must not poison shared cache.
+ *
  * ARCHITECTURE RULE: Accepts ScraperPage for mock injection (same pattern
  * as lib/scrapers/visibility.ts). Session lifecycle is owned by the caller.
  *
@@ -10,7 +17,19 @@
  */
 
 import type { ScraperPage } from "./browser";
-import { buildSearchUrl, parseTrendyolResults, parseHepsiburadaResults, parseN11Results } from "./visibility";
+import {
+  extractSearchResultsFromPage,
+  hasUsableSearchResults,
+  NO_USABLE_SCRAPE_ERROR,
+} from "./extract-search-results";
+import {
+  buildSearchUrl,
+  readGotoHttpStatus,
+  detectConfirmedBlock,
+} from "./visibility";
+
+/** Shared DOM extractor — re-exported so price-track callers use one path. */
+export { extractSearchResultsFromPage } from "./extract-search-results";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -43,20 +62,38 @@ export interface PriceTrackResult {
   error?: string;
 }
 
+const EMPTY_STATS = { min: 0, max: 0, median: 0, p25: 0, p75: 0 };
+
+export function hasUsablePrices(result: Pick<PriceTrackResult, "prices" | "error">): boolean {
+  if (result.error) return false;
+  return result.prices.some((p) => Number.isFinite(p.price) && p.price > 0);
+}
+
+/**
+ * Gate for any shared / Redis-adjacent result cache write.
+ * Returns false when there is no finite price &gt; 0 (or an error is set).
+ */
+export function shouldCachePriceTrackResult(
+  result: Pick<PriceTrackResult, "prices" | "error">,
+): boolean {
+  return hasUsablePrices(result);
+}
+
 // ── Pure statistics helper ────────────────────────────────────────────────────
 
 /**
  * Compute price statistics for a sorted array of numbers.
  * Exported for unit testing — pure function, no I/O.
  *
- * Returns all-zero stats for an empty array.
+ * Zero / non-finite values are ignored. Returns all-zero stats when nothing usable remains.
  */
 export function computePriceStats(prices: number[]): PriceTrackResult["stats"] {
-  if (prices.length === 0) {
-    return { min: 0, max: 0, median: 0, p25: 0, p75: 0 };
+  const valid = prices.filter((p) => Number.isFinite(p) && p > 0);
+  if (valid.length === 0) {
+    return { ...EMPTY_STATS };
   }
 
-  const sorted = [...prices].sort((a, b) => a - b);
+  const sorted = [...valid].sort((a, b) => a - b);
   const n = sorted.length;
 
   function percentile(p: number): number {
@@ -79,47 +116,50 @@ export function computePriceStats(prices: number[]): PriceTrackResult["stats"] {
 
 // ── Main tracker ──────────────────────────────────────────────────────────────
 
-const RESULTS_PER_PAGE = 24; // typical for all three marketplaces
+const RESULTS_PER_PAGE = 24;
 const HARD_MAX_RESULTS = 50;
 const DEFAULT_MAX_RESULTS = 20;
 
-function parsePageResults(
-  marketplace: PriceTrackInput["marketplace"],
-  html: string,
-  pageNumber: number
-) {
-  switch (marketplace) {
-    case "trendyol":    return parseTrendyolResults(html, pageNumber);
-    case "hepsiburada": return parseHepsiburadaResults(html, pageNumber);
-    case "n11":         return parseN11Results(html, pageNumber);
-  }
+function emptyResult(
+  keyword: string,
+  marketplace: string,
+  scrapedAt: string,
+  error: string,
+  prices: CompetitorPrice[] = [],
+): PriceTrackResult {
+  return {
+    keyword,
+    marketplace,
+    prices,
+    stats: computePriceStats(prices.map((c) => c.price)),
+    scrapedAt,
+    error,
+  };
 }
 
 /**
  * Scrape competitor prices for a keyword.
  *
- * Pages are fetched until `maxResults` are collected or there are no more
- * results. Never throws — returns a safe error result on failure.
+ * Uses live-DOM extraction only (`extractSearchResultsFromPage` / page.evaluate).
+ * Never caches or returns a success envelope when no price &gt; 0 was found.
+ *
+ * Never throws — returns a safe error result on failure.
  */
 export async function trackCompetitorPrices(
   input: PriceTrackInput,
-  page?: ScraperPage
+  page?: ScraperPage,
 ): Promise<PriceTrackResult> {
   const { marketplace, keyword } = input;
   const maxResults = Math.min(input.maxResults ?? DEFAULT_MAX_RESULTS, HARD_MAX_RESULTS);
   const scrapedAt = new Date().toISOString();
 
-  const emptyStats = { min: 0, max: 0, median: 0, p25: 0, p75: 0 };
-
   if (!page) {
-    return {
+    return emptyResult(
       keyword,
       marketplace,
-      prices: [],
-      stats: emptyStats,
       scrapedAt,
-      error: "No browser page provided — call with a ScraperPage instance.",
-    };
+      "No browser page provided — call with a ScraperPage instance.",
+    );
   }
 
   const collected: CompetitorPrice[] = [];
@@ -131,25 +171,41 @@ export async function trackCompetitorPrices(
       if (collected.length >= maxResults) break;
 
       const url = buildSearchUrl(marketplace, keyword, pageNum);
+      let httpStatus: number | undefined;
 
       try {
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+        const gotoResult = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20_000 });
+        httpStatus = readGotoHttpStatus(gotoResult);
       } catch (navErr) {
-        return {
+        return emptyResult(
           keyword,
           marketplace,
-          prices: collected,
-          stats: computePriceStats(collected.map((c) => c.price)),
           scrapedAt,
-          error: `Navigation failed on page ${pageNum}: ${String(navErr)}`,
-        };
+          `Navigation failed on page ${pageNum}: ${String(navErr)}`,
+          collected,
+        );
       }
 
-      const html = await page.content();
-      const pageResults = parsePageResults(marketplace, html, pageNum);
+      const { results: pageResults } = await extractSearchResultsFromPage(page, marketplace, pageNum);
+
+      if (pageResults.length === 0) {
+        const html = await page.content();
+        const blocked = detectConfirmedBlock(httpStatus, html);
+        if (blocked) {
+          return emptyResult(
+            keyword,
+            marketplace,
+            scrapedAt,
+            NO_USABLE_SCRAPE_ERROR,
+            collected,
+          );
+        }
+        break;
+      }
 
       for (const result of pageResults) {
         if (collected.length >= maxResults) break;
+        if (!Number.isFinite(result.price) || result.price <= 0) continue;
         globalRank++;
         collected.push({
           title: result.title,
@@ -159,26 +215,26 @@ export async function trackCompetitorPrices(
         });
       }
 
-      // If a page returned no results, stop (end of search results)
-      if (pageResults.length === 0) break;
+      // Titles present but every price is 0 → treat as bot/empty, do not continue
+      if (!hasUsableSearchResults(pageResults) && collected.length === 0) {
+        return emptyResult(keyword, marketplace, scrapedAt, NO_USABLE_SCRAPE_ERROR);
+      }
     }
 
-    const priceValues = collected.map((c) => c.price);
-    return {
-      keyword,
-      marketplace,
-      prices: collected,
-      stats: computePriceStats(priceValues),
-      scrapedAt,
-    };
-  } catch (err) {
-    return {
+    const draft: PriceTrackResult = {
       keyword,
       marketplace,
       prices: collected,
       stats: computePriceStats(collected.map((c) => c.price)),
       scrapedAt,
-      error: `Scraping error: ${String(err)}`,
     };
+
+    if (!hasUsablePrices(draft)) {
+      return emptyResult(keyword, marketplace, scrapedAt, NO_USABLE_SCRAPE_ERROR);
+    }
+
+    return draft;
+  } catch (err) {
+    return emptyResult(keyword, marketplace, scrapedAt, `Scraping error: ${String(err)}`, collected);
   }
 }

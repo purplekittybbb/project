@@ -33,7 +33,7 @@ interface Props {
 }
 
 const STATUS_LABEL: Record<Member["status"], string> = {
-  pending: "Bekliyor",
+  pending: "Davet gönderildi — kabul bekleniyor",
   accepted: "Kabul edildi",
   revoked: "İptal edildi",
 };

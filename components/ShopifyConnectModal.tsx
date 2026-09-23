@@ -12,15 +12,8 @@
 import { useState } from "react";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { normalizeShopDomain } from "@/lib/shopify-api/client";
-
-function LockIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0">
-      <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
+import { LockIcon } from "@/components/trust/LockIcon";
+import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
 
 interface Props {
   open: boolean;
@@ -99,20 +92,22 @@ export function ShopifyConnectModal({ open, onClose }: Props) {
         </p>
 
         <form onSubmit={handleContinue} className="space-y-3">
-          <div>
-            <label htmlFor="shopify-shop" className="block text-[11px] text-zinc-500 mb-1">
-              Mağaza alan adı
-            </label>
-            <input
-              id="shopify-shop"
-              type="text"
-              autoComplete="off"
-              value={shop}
-              onChange={(e) => setShop(e.target.value)}
-              placeholder="mystore.myshopify.com"
-              className="w-full border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 font-mono placeholder:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-600 focus:border-zinc-600"
-            />
-          </div>
+          <SecurePaymentCapsule hint="Mağaza alan adı · güvenli OAuth yönlendirmesi">
+            <div>
+              <label htmlFor="shopify-shop" className="block text-[11px] text-zinc-500 mb-1">
+                Mağaza alan adı
+              </label>
+              <input
+                id="shopify-shop"
+                type="text"
+                autoComplete="off"
+                value={shop}
+                onChange={(e) => setShop(e.target.value)}
+                placeholder="mystore.myshopify.com"
+                className="w-full border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 font-mono placeholder:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-600 focus:border-zinc-600"
+              />
+            </div>
+          </SecurePaymentCapsule>
 
           {error && <p className="fin-loss text-[11px] font-mono">{error}</p>}
 
@@ -132,8 +127,9 @@ export function ShopifyConnectModal({ open, onClose }: Props) {
             <button
               type="submit"
               disabled={busy}
-              className="flex-1 h-10 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
+              className="flex-1 h-10 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
             >
+              <LockIcon />
               {busy ? "Yönlendiriliyor…" : "Shopify'a devam et"}
             </button>
           </div>

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { buildUserSeller, toStored, type DbRow } from "@/lib/supabase/user-data";
 import { buildSellerView } from "@/lib/engine";
 import { buildDigestHtml, buildDigestSubject } from "@/lib/email/weekly-digest";
 import { isEmailConfigured, sendEmail } from "@/lib/email/resend";
 import { siteOrigin } from "@/lib/seo";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * GET /api/cron/weekly-digest
@@ -35,15 +35,6 @@ import { siteOrigin } from "@/lib/seo";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-function serviceRoleClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceRoleKey) return null;
-  return createClient(url, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
-
 interface DigestOutcome {
   userId: string;
   sent: boolean;
@@ -57,7 +48,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = serviceRoleClient();
+  const supabase = createServiceRoleClient();
   if (!supabase) {
     console.error("[cron/weekly-digest] SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_URL is not configured.");
     return NextResponse.json({ error: "Supabase service role yapılandırılmamış." }, { status: 500 });

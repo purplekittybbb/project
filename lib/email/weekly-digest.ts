@@ -45,7 +45,7 @@ export function buildDigestHtml(input: DigestInput): string {
           (s) => `
         <tr>
           <td style="padding:6px 0;color:#3f3f46;font-family:monospace;font-size:13px;">${s.sku}</td>
-          <td style="padding:6px 0;color:#dc2626;font-family:monospace;font-size:13px;text-align:right;">${money(s.netContribution)}</td>
+          <td style="padding:6px 0;color:#B3442C;font-family:monospace;font-size:13px;text-align:right;">${money(s.netContribution)}</td>
         </tr>`
         )
         .join("")
@@ -65,7 +65,7 @@ export function buildDigestHtml(input: DigestInput): string {
 
     <div style="border:1px solid #e4e4e7;padding:16px;margin-bottom:16px;">
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:#71717a;margin-bottom:6px;">Gerçek Marj</div>
-      <div style="font-size:32px;font-family:monospace;color:${view.trueMarginPct >= 0 ? "#16a34a" : "#dc2626"};">${pct(view.trueMarginPct)}</div>
+      <div style="font-size:32px;font-family:monospace;color:${view.trueMarginPct >= 0 ? "#1F4D3A" : "#B3442C"};">${pct(view.trueMarginPct)}</div>
       <div style="font-size:12px;color:#71717a;margin-top:4px;">Algılanan marj: ${pct(view.perceivedMarginPct)}</div>
     </div>
 
@@ -79,7 +79,7 @@ export function buildDigestHtml(input: DigestInput): string {
       <div style="font-size:13px;color:#3f3f46;">${settlementLine}</div>
     </div>
 
-    <a href="${dashboardUrl}" style="display:inline-block;background:#18181b;color:#fafafa;padding:10px 20px;text-decoration:none;font-size:13px;">Panele git</a>
+    <a href="${dashboardUrl}" style="display:inline-block;background:#13385E;color:#fafafa;padding:10px 20px;text-decoration:none;font-size:13px;">Panele git</a>
 
     <p style="color:#a1a1aa;font-size:11px;margin-top:32px;">
       Bu e-postayı almak istemiyorsanız TrueMargin panelinde Ayarlar → Haftalık özet bölümünden kapatabilirsiniz.

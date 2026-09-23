@@ -24,6 +24,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { parseCsv, SAMPLE_CSV, type UserRawRow } from "@/lib/adapters/csv";
+import { validateUserRawRows } from "@/lib/domain/schemas";
 import {
   getConnections, isMarketplaceConnected, removeConnection, addConnection,
   hydrateConnectionsFromServer,
@@ -40,6 +41,7 @@ import {
   MARKETPLACE_OPTIONS, REGION_ORDER, REGION_LABELS, getMarketplaceOption,
   type MarketplaceOption,
 } from "@/lib/marketplaces";
+import { LockIcon } from "@/components/trust/LockIcon";
 
 function connectLabel(m: MarketplaceOption): string {
   switch (m.connectionMethod) {
@@ -55,15 +57,6 @@ function connectLabel(m: MarketplaceOption): string {
       return `${m.label.split(" ")[0]} bağla (Demo)`;
     default: return `${m.label.split(" ")[0]} bağla`;
   }
-}
-
-function LockIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0">
-      <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
 }
 
 interface Props {
@@ -92,6 +85,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
   // disconnect immediately without a dialog.
   const [disconnectTarget, setDisconnectTarget] = useState<MarketplaceConnection | null>(null);
   const [disconnectBusy, setDisconnectBusy] = useState(false);
+  const [disconnectDeleting, setDisconnectDeleting] = useState(false);
   const [disconnectError, setDisconnectError] = useState("");
 
   function refresh() {
@@ -235,6 +229,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
     const target = disconnectTarget;
     if (!target) return;
     setDisconnectBusy(true);
+    setDisconnectDeleting(deleteData);
     setDisconnectError("");
     try {
       const supabase = getSupabaseClient();
@@ -261,6 +256,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
       setDisconnectTarget(null);
     } finally {
       setDisconnectBusy(false);
+      setDisconnectDeleting(false);
     }
   }
 
@@ -274,9 +270,23 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
       setCsvBusy(false);
       return;
     }
-    setCsvRows(res.rows);
+    const { valid, warnings } = validateUserRawRows(res.rows);
+    if (valid.length === 0) {
+      setConnectError("Hiçbir satır geçerli veri içermiyor — CSV formatını kontrol edin.");
+      setCsvBusy(false);
+      return;
+    }
+    if (warnings.length > 0) {
+      console.warn("[connect] CSV validation warnings:", warnings);
+    }
+    setCsvRows(valid);
     if (isAuthConfigured()) {
-      await saveUserRows(res.rows);
+      const { error } = await saveUserRows(valid);
+      if (error) {
+        setConnectError(`CSV kaydedilemedi: ${error}`);
+        setCsvBusy(false);
+        return;
+      }
     }
     if (!isMarketplaceConnected("manual_csv")) {
       addConnection("manual_csv", "demo", { method: "csv" });
@@ -435,8 +445,9 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
         type="button"
         onClick={onContinue}
         disabled={!canContinue}
-        className="tm-btn-primary mt-3 w-full h-11 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+        className="tm-btn-primary mt-3 w-full h-11 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
       >
+        <LockIcon className="text-[var(--tm-paper)] opacity-90" />
         Devam et
       </button>
 
@@ -487,7 +498,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                 disabled={disconnectBusy}
                 className="inline-flex items-center justify-center h-10 px-4 border border-input text-foreground font-mono text-[12px] rounded-[var(--tm-r-data)] hover:bg-muted transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               >
-                {disconnectBusy ? "İşleniyor…" : "Yalnızca bağlantıyı kes — verimi sakla"}
+                {disconnectBusy && !disconnectDeleting ? "Bağlantı kesiliyor…" : "Yalnızca bağlantıyı kes — verimi sakla"}
               </button>
               <button
                 type="button"
@@ -495,7 +506,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                 disabled={disconnectBusy}
                 className="inline-flex items-center justify-center h-10 px-4 fin-border-loss-subtle border fin-loss font-mono text-[12px] hover:bg-[color-mix(in_srgb,var(--fin-loss)_16%,transparent)] transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--fin-loss)]"
               >
-                {disconnectBusy ? "İşleniyor…" : "Bağlantıyı kes ve bu pazaryerinin verisini sil"}
+                {disconnectBusy && disconnectDeleting ? "Veri siliniyor…" : "Bağlantıyı kes ve bu pazaryerinin verisini sil"}
               </button>
               <button
                 type="button"

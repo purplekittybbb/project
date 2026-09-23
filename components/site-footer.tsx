@@ -2,11 +2,14 @@ import Link from "next/link";
 import { MARKETING_NAV } from "@/lib/marketing/content";
 import { SITE_NAME } from "@/lib/seo";
 import { companyFooterLine } from "@/lib/legal/company";
+import { CompanyCredibilityBlock } from "@/components/trust/CompanyCredibilityBlock";
 
 const companyLinks = [
   { label: "Giriş", href: "/login" },
   { label: "Kaydol", href: "/signup" },
   { label: "Fiyatlandırma", href: "/pricing" },
+  { label: "Yatırımcı", href: "/yatirimci" },
+  { label: "Demo", href: "/demo" },
   { label: "Değişiklik Günlüğü", href: "/changelog" },
 ];
 
@@ -85,9 +88,12 @@ export function SiteFooter() {
 
       <div className="border-t border-border">
         <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-2 px-6 py-6 sm:flex-row sm:items-center lg:px-8">
-          <p className="text-xs text-muted-foreground">
-            © {new Date().getFullYear()} {SITE_NAME}. Tüm hakları saklıdır.
-          </p>
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">
+              © {new Date().getFullYear()} {SITE_NAME}. Tüm hakları saklıdır.
+            </p>
+            <CompanyCredibilityBlock compact />
+          </div>
           <p className="text-xs text-muted-foreground">
             Fiyatlar KDV hariçtir · İstediğiniz an iptal
           </p>

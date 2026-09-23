@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   mapShopifyWebhookOrderToUserRawRows,
   ShopifyMappingError,
@@ -8,6 +8,7 @@ import {
 import { validateUserRawRows } from "@/lib/domain/schemas";
 import { saveDedupedTransactions } from "@/lib/save-user-transactions";
 import { recordSyncFailure, recordSyncSuccess } from "@/lib/marketplace-sync-status";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * POST /api/shopify/webhooks
@@ -28,15 +29,6 @@ import { recordSyncFailure, recordSyncSuccess } from "@/lib/marketplace-sync-sta
  */
 
 export const runtime = "nodejs";
-
-function serviceRoleClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceRoleKey) return null;
-  return createClient(url, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 async function findShopifyCredential(
   supabase: SupabaseClient,
@@ -71,7 +63,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing shop domain" }, { status: 400 });
   }
 
-  const supabase = serviceRoleClient();
+  const supabase = createServiceRoleClient();
   if (!supabase) {
     console.error("[shopify/webhooks] SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_URL is not configured.");
     return NextResponse.json({ error: "Supabase service role yapılandırılmamış." }, { status: 500 });

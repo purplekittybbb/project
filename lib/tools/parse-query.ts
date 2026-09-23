@@ -43,13 +43,33 @@ function detectMarketplaceFromHost(hostname: string): ToolMarketplace | undefine
   return HOST_TO_MARKETPLACE[host] ?? HOST_TO_MARKETPLACE[`www.${host}`];
 }
 
+/**
+ * Recover a usable marketplace URL when the user pastes a concatenated /
+ * doubled link (common on mobile copy). Takes the last host occurrence.
+ */
+export function recoverMarketplaceUrl(raw: string): string {
+  const hostRe = /https?:\/\/(?:www\.)?(?:trendyol|hepsiburada|n11)\.com/gi;
+  let lastIndex = -1;
+  let lastHost = "";
+  let match: RegExpExecArray | null;
+  while ((match = hostRe.exec(raw)) !== null) {
+    lastIndex = match.index;
+    lastHost = match[0];
+  }
+  if (lastIndex < 0) return raw;
+  return lastHost + raw.slice(lastIndex + lastHost.length);
+}
+
 function titleFromProductUrl(url: URL): string {
+  const q = url.searchParams.get("q") ?? url.searchParams.get("query");
+  if (q && q.trim().length >= 2) return q.trim();
+
   const parts = url.pathname.split("/").filter(Boolean);
   const last = parts[parts.length - 1] ?? "";
-  const fromSlug = slugToTitle(last);
+  const productSlug = last.replace(/-p-[a-z0-9]+.*$/i, "").replace(/\.html$/i, "");
+  const fromSlug = slugToTitle(productSlug);
   if (fromSlug.length >= 3) return fromSlug;
 
-  // Hepsiburada sometimes uses /product-name-p-HBCV123
   const joined = parts.map((p) => slugToTitle(p)).filter((p) => p.length >= 3);
   return joined[joined.length - 1] ?? fromSlug;
 }
@@ -62,9 +82,10 @@ export function parseToolQuery(raw: string, marketplaceOverride?: string): Parse
   const trimmed = raw.trim();
   const override = normalizeMarketplace(marketplaceOverride);
 
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || /trendyol\.com|hepsiburada\.com|n11\.com/i.test(trimmed)) {
     try {
-      const url = new URL(trimmed);
+      const recovered = recoverMarketplaceUrl(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+      const url = new URL(recovered);
       const marketplace = override ?? detectMarketplaceFromHost(url.hostname) ?? "trendyol";
       const targetTitle = titleFromProductUrl(url);
       const keyword = targetTitle.length >= 3 ? targetTitle : trimmed;
@@ -73,7 +94,7 @@ export function parseToolQuery(raw: string, marketplaceOverride?: string): Parse
         marketplace,
         keyword,
         targetTitle: targetTitle.length >= 3 ? targetTitle : keyword,
-        productUrl: trimmed,
+        productUrl: recovered,
       };
     } catch {
       // fall through to keyword mode

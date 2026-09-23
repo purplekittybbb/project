@@ -1,7 +1,7 @@
 import { MarketingPage } from "@/components/marketing/marketing-page";
 import { Reveal } from "@/components/reveal";
+import { CompanyCredibilityBlock } from "@/components/trust/CompanyCredibilityBlock";
 import { SITE_NAME, MARKETING_MARKETPLACE_LIST_TR } from "@/lib/seo";
-import { COMPANY_INFO, filledCompanyFields } from "@/lib/legal/company";
 
 export default function HakkimizdaPage() {
   return (
@@ -24,30 +24,24 @@ export default function HakkimizdaPage() {
               Ücretsiz araçlarla mağaza bağlamadan keşfedebilir; mağazanızı bağladığınızda SKU
               bazlı net kâr, zarar alarmı, güvenli fiyat ve barkod analizi devreye girer.
             </p>
+            <p>
+              Teknik diligence ve Marketplace→Credit tez özeti için{" "}
+              <a href="/yatirimci" className="text-[var(--tm-copper)] hover:underline">
+                /yatirimci
+              </a>
+              ; çalışan seed paneli için{" "}
+              <a href="/demo" className="text-[var(--tm-copper)] hover:underline">
+                /demo
+              </a>
+              .
+            </p>
           </div>
 
           <div className="mt-12 border-t border-border pt-8">
-            <h2 className="font-heading text-lg font-semibold tracking-tight text-foreground">
+            <h2 className="font-heading text-lg font-semibold tracking-tight text-foreground mb-4">
               İletişim ve Şirket Bilgileri
             </h2>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              Sorularınız, iş birliği talepleriniz veya KVKK başvurularınız için:{" "}
-              <strong className="text-foreground">{COMPANY_INFO.email}</strong>
-            </p>
-
-            {/* PDF §2 — fiziksel adres + ticaret unvanı + MERSİS güven verir.
-                Değerler lib/legal/company.ts'te; doldurulunca otomatik görünür,
-                boşken gösterilmez (sahte bilgi yazılmaz). */}
-            {filledCompanyFields().length > 0 && (
-              <dl className="mt-6 grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[auto_1fr]">
-                {filledCompanyFields().map((f) => (
-                  <div key={f.label} className="sm:contents">
-                    <dt className="text-xs uppercase tracking-wide text-muted-foreground/70">{f.label}</dt>
-                    <dd className="text-sm text-foreground">{f.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
+            <CompanyCredibilityBlock />
           </div>
         </Reveal>
       </section>

@@ -11,11 +11,14 @@
  */
 
 import type { SkuMargin } from "@/lib/domain/margin-engine";
+import { finSignedClass } from "@/lib/design/financial-ui";
 import { fmtCompactMoney } from "@/lib/format/compact";
 
 export interface DashboardSummaryHeaderProps {
   skus: SkuMargin[];
   currency: string;
+  /** Optional period-over-period change for the hero KPI (e.g. -12.5 = 12.5% decline). */
+  deltaPct?: number | null;
 }
 
 function fmtCount(n: number): string {
@@ -30,7 +33,20 @@ function fmtMoney(value: number, currency: string): string {
   return currency === "USD" ? `$${formatted}` : `₺${formatted}`;
 }
 
-export function DashboardSummaryHeader({ skus, currency }: DashboardSummaryHeaderProps) {
+function DeltaPctBadge({ deltaPct }: { deltaPct: number }) {
+  const formatted = new Intl.NumberFormat("tr-TR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+    signDisplay: "exceptZero",
+  }).format(deltaPct);
+  return (
+    <span className={finSignedClass(deltaPct, "ml-2 inline-flex items-baseline gap-0.5 font-mono text-[12px]")}>
+      {formatted}%
+    </span>
+  );
+}
+
+export function DashboardSummaryHeader({ skus, currency, deltaPct }: DashboardSummaryHeaderProps) {
   const lossSkus = skus.filter((s) => s.trueMarginPct < 0);
   // Same figure as LossAlarmBanner further down the page (sum of |netContribution|
   // across loss SKUs, in money). This used to sum trueMarginPct (percentage points)
@@ -113,6 +129,7 @@ export function DashboardSummaryHeader({ skus, currency }: DashboardSummaryHeade
         >
           — {fmtCount(skus.length)} aktif ürün analiz edildi.
         </span>
+        {deltaPct != null && Number.isFinite(deltaPct) && <DeltaPctBadge deltaPct={deltaPct} />}
       </div>
     );
   }
@@ -148,6 +165,7 @@ export function DashboardSummaryHeader({ skus, currency }: DashboardSummaryHeade
           >
             ürün zarar ediyor
           </span>
+          {deltaPct != null && Number.isFinite(deltaPct) && <DeltaPctBadge deltaPct={deltaPct} />}
         </div>
       </div>
 

@@ -12,15 +12,7 @@ import { completeDemoLink, simulateInitialSync } from "@/lib/connect/demo-provid
 import type { MarketplaceConnection, OAuthPhase } from "@/lib/connect/types";
 import { READ_ONLY_SCOPES } from "@/lib/connect/types";
 import { getMarketplaceOption } from "@/lib/marketplaces";
-
-function LockIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0">
-      <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
+import { LockIcon } from "@/components/trust/LockIcon";
 
 const READ_ONLY_COPY =
   "Verinizi yalnızca OKUYABİLİRİZ. Asla değiştirmeyiz, sipariş vermeyiz veya ödemelere erişmeyiz.";
@@ -115,7 +107,7 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
                 Kendi gerçek rakamlarınız için &quot;CSV yükle&quot; veya &quot;Elle ekle&quot; seçeneklerini kullanın.
               </p>
             </div>
-            <div className="border border-zinc-800 bg-zinc-900/40 p-4 mb-4">
+            <div className="tm-secure-field-group border border-zinc-800 bg-zinc-900/40 p-4 mb-4">
               <div className="flex items-center gap-2 mb-3 pb-3 border-b border-zinc-800">
                 <span className="text-zinc-100 font-mono text-sm font-medium">{platformName}</span>
                 <span className="text-zinc-600 text-[10px] uppercase tracking-widest">demo onayı</span>
@@ -153,8 +145,9 @@ export function MarketplaceOAuthModal({ marketplaceId, open, onClose, onConnecte
               <button
                 type="button"
                 onClick={handleAuthorize}
-                className="flex-1 h-10 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-zinc-500 focus-visible:outline-offset-2"
+                className="flex-1 h-10 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-zinc-500 focus-visible:outline-offset-2 inline-flex items-center justify-center gap-1.5"
               >
+                <LockIcon />
                 Onayla
               </button>
             </div>

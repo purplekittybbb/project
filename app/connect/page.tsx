@@ -21,7 +21,7 @@ import { AuthGuard } from "@/components/auth-guard";
 import { MarketplaceConnectStep } from "@/components/MarketplaceConnectStep";
 import { addConnection, getConnections } from "@/lib/connect/store";
 import { getSupabaseClient, getFreshAccessToken, isAuthConfigured } from "@/lib/supabase/client";
-import { loadUserRows } from "@/lib/supabase/user-data";
+import { loadUserRowsWithStatus } from "@/lib/supabase/user-data";
 import {
   completeOnboarding, isOnboardingDone, setConnectedMarketplaces,
   getConnectedMarketplaces, TRIAL_DAYS,
@@ -115,6 +115,7 @@ function ConnectFlow() {
 
   const [step, setStep] = useState<Step>("connect");
   const [ready, setReady] = useState(false);
+  const [bootError, setBootError] = useState<string | null>(null);
   const [cardBusy, setCardBusy] = useState(false);
   const [cardError, setCardError] = useState("");
   const stripeLive = isStripeLiveEnabled();
@@ -134,8 +135,13 @@ function ConnectFlow() {
         // Real deployment: trust actual Supabase data, never a stale local flag —
         // a returning user with real rows goes straight in; one with none (even
         // if some earlier browser session marked onboarding "done") sees connect.
-        const rows = await loadUserRows();
+        const { rows, error: loadError } = await loadUserRowsWithStatus();
         if (!active) return;
+        if (loadError) {
+          setBootError("Satış verileriniz okunamadı. Oturumu yenileyip tekrar deneyin.");
+          setReady(true);
+          return;
+        }
         if (rows.length > 0) {
           router.replace("/dashboard");
           return;
@@ -223,6 +229,21 @@ function ConnectFlow() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <span className="text-muted-foreground text-sm">Hesabınız hazırlanıyor…</span>
+      </div>
+    );
+  }
+
+  if (bootError) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-4">
+        <p className="tm-field-error-box max-w-md rounded-[var(--tm-r-ui)] p-4 text-sm text-center">{bootError}</p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="tm-btn-primary h-10 px-5 text-sm font-medium"
+        >
+          Tekrar dene
+        </button>
       </div>
     );
   }

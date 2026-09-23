@@ -22,10 +22,10 @@
  */
 
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { retrieveCheckoutFormResult, getIyzicoConfig } from "@/lib/iyzico/client";
 import { computeGracePeriodEnd } from "@/lib/iyzico/subscription";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const runtime = "nodejs";
 
@@ -52,20 +52,15 @@ export async function POST(req: Request) {
   }
 
   // ── Supabase client (service role for server-side writes) ─────────────────
-  const supabaseUrl    = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabase = createServiceRoleClient();
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabase) {
     console.error("[iyzico/callback] Supabase service role not configured.");
     return new Response(
       `<html><body><p>Ödeme alındı fakat kayıt hatası oluştu. Lütfen destek ile iletişime geçin.</p></body></html>`,
       { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
     );
   }
-
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
 
   // ── Idempotency check: has this payment token already been processed? ──────
   // iyzico may re-deliver the same callback. The unique index on

@@ -39,7 +39,7 @@
   kalitesi) bakarak değerlendiriyor. ✅
 - Profesyonel görünüm için: gerçek/dürüst insanların olduğunu **fiziksel adresler ve iletişim
   bilgileriyle kanıtlamak**, **uzmanlığı ön plana çıkarmak**, **tipografik hatalardan arınmış
-  kusursuz metin mimarisi**. ⬜ fiziksel adres/MERSİS (yapı hazır, gerçek veri bekliyor) · ✅ iletişim + Türkçe metin
+  kusursuz metin mimarisi**. ⬜ fiziksel adres/MERSİS (yapı hazır `lib/legal/company.ts`, gerçek veri bekliyor — sahte yazılmaz) · ✅ iletişim + Türkçe metin
 - Sınır: estetik, güvenliğin/kullanılabilirliğin ikamesi değil. Para transferi çalışmıyorsa
   veya bakiye yanlışsa "tolerans halesi" hızla tükenir. ✅ (gerçek hesap doğru)
 - Estetik, CRO için **temel altyapı** olarak ele alınmalı; süs değil, kullanıcıyı platformda
@@ -144,8 +144,8 @@ Bir yatırımcı platformu ilk milisaniyelerde etiketler; renk = risk yönetimi 
 - **Direkt etiketleme (direct labeling):** veri serilerinin sonuna metin etiketi doğrudan; lejant
   (legend) gidip gelme eforu en aza. ✅ (şelale/çubuk direkt etiket)
 - **Sayı yuvarlama:** arayüzde aşırı/anlamsız yerine mantıklı yuvarlama. Örn. **"1.234.567,89 USD"
-  → "1.23M USD"**. 🟡 (defter/hesaplayıcıda kuruş korunuyor — doğru; **dashboard özet tile'larında
-  kompakt biçim henüz yok** — açık madde)
+  → "1.23M USD"**. ✅ (defter/hesaplayıcıda kuruş korunuyor; dashboard özet tile'larında
+  `fmtCompactMoney`)
 
 ### §5.3 Gerçek Zamanlı Veri Akışı, Render Performansı ve Mikro-Animasyonlar
 - Canlı fiyatta arayüz **yorgunluk/panik yaratmamalı**; agresif yanıp sönme (flashing) veya tüm
@@ -177,7 +177,7 @@ Bir yatırımcı platformu ilk milisaniyelerde etiketler; renk = risk yönetimi 
 - **Öngörülebilirlik (Predictability):** buton yerleşimi, navigasyon, ikonografi, uyarı mesajları
   her sayfada **tutarlı (consistency)**. Tutarsız tasarım = özensiz/hacklenebilir içgüdüsel ima. ✅ (tek tasarım sistemi)
 - **Duygusal Süreklilik (Emotional Continuity):** web + mobil + push + e-posta bildirimleri **tek ses
-  tonu ve tasarımsal bütünlük**. 🟡 (web tutarlı; e-posta/push tonu kısmen)
+  tonu ve tasarımsal bütünlük**. ✅ (web + haftalık e-posta digest; push kanalı yok)
 
 ### §6.2 Şeffaflık ve Sürtünmesiz Doğrulama (KYC/Onboarding)
 - KYC/onboarding, güvenin kazanıldığı/terkin en yüksek olduğu eşik. ✅
@@ -224,8 +224,8 @@ Bir yatırımcı platformu ilk milisaniyelerde etiketler; renk = risk yönetimi 
     dayanarak oluşturuldu."* İstatistik değil, **tamamen insani dil**. ✅ ("Neden bu tahmin?" açıklaması)
   - **Seviye 3 (Derinlemesine Mantık — Nasıl?):** şüpheci/analitik kullanıcı için "Detayları Gör" →
     **en önemli 3-5 faktörün ağırlıklandırıldığı (feature importance) grafikleri, karar ağaçları veya
-    SHAP/LIME'ın basitleştirilmiş görselleştirmesi** açılan tam sayfa görünüm. 🟡 (satır içi ağırlıklı
-    faktör çubukları eklendi; ayrı "tam sayfa" SHAP/LIME görünümü henüz yok)
+    SHAP/LIME'ın basitleştirilmiş görselleştirmesi** açılan tam sayfa görünüm. ✅ (`XaiExplainSheet`
+    tam ekran katman; Demand + Copilot)
 - Bu yapı hem son tüketiciyi ürkütmez hem denetçinin (auditor) aradığı algoritmik şeffaflığı sunar. ✅
 
 ## §8 — Sonuç (Dört Sütun)
@@ -250,9 +250,9 @@ Bir yatırımcı platformu ilk milisaniyelerde etiketler; renk = risk yönetimi 
 
 | # | Madde | PDF | Durum |
 |---|-------|-----|-------|
-| 1 | Dashboard özet tile'larında kompakt sayı (₺1,23M) | §5.2 | ⬜ kodlanabilir |
-| 2 | XAI Seviye-3 ayrı "tam sayfa" SHAP/LIME görünümü | §7.2 | 🟡 satır içi çubuklar var, tam sayfa yok |
-| 3 | Fiziksel adres + MERSİS/vergi no | §2 | ⬜ yapı hazır, gerçek şirket verisi bekliyor |
-| 4 | E-posta/push bildirim tonu bütünlüğü | §6.1 | 🟡 web tutarlı |
+| 1 | Dashboard özet tile'larında kompakt sayı (₺1,23M) | §5.2 | ✅ `fmtCompactMoney` (özet header + Ciro glance + nakit akışı) |
+| 2 | XAI Seviye-3 ayrı "tam sayfa" SHAP/LIME görünümü | §7.2 | ✅ `XaiExplainSheet` (DemandEstimateCard + Copilot AiConfidenceBlock) |
+| 3 | Fiziksel adres + MERSİS/vergi no | §2 | ⬜ yapı hazır (`lib/legal/company.ts`); gerçek şirket verisi kullanıcı doldurur — sahte veri yazılmaz |
+| 4 | E-posta/push bildirim tonu bütünlüğü | §6.1 | ✅ haftalık digest token renkleri; push kanalı yok |
 
 Diğer tüm PDF kuralları uygulanmış durumda (✅).

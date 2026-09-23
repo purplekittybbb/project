@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { createClient } from "@supabase/supabase-js";
 import { sendEmail, isEmailConfigured } from "@/lib/email/resend";
 import { siteOrigin } from "@/lib/seo";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * Ekip erişimi yönetimi — hesap sahibinin daveti (owner-only).
@@ -24,17 +24,10 @@ async function getUserId(): Promise<string | null> {
   return data.user?.id ?? null;
 }
 
-function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-}
-
 export async function GET() {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error: "Oturum gerekli." }, { status: 401 });
-  const supabase = serviceClient();
+  const supabase = createServiceRoleClient();
   if (!supabase) return NextResponse.json({ error: "Sunucu yapılandırması eksik." }, { status: 500 });
 
   const { data, error } = await supabase
@@ -59,7 +52,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Geçerli bir e-posta girin." }, { status: 400 });
   }
 
-  const supabase = serviceClient();
+  const supabase = createServiceRoleClient();
   if (!supabase) return NextResponse.json({ error: "Sunucu yapılandırması eksik." }, { status: 500 });
 
   const { data: inviter } = await supabase.auth.admin.getUserById(userId);
@@ -106,7 +99,7 @@ export async function DELETE(req: Request) {
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id gerekli." }, { status: 400 });
 
-  const supabase = serviceClient();
+  const supabase = createServiceRoleClient();
   if (!supabase) return NextResponse.json({ error: "Sunucu yapılandırması eksik." }, { status: 500 });
 
   await supabase.from("tenant_members").update({ status: "revoked" }).eq("id", id).eq("owner_user_id", userId);

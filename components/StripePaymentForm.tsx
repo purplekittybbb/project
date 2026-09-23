@@ -9,7 +9,8 @@ import { useEffect, useMemo, useState } from "react";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { getFreshAccessToken } from "@/lib/supabase/client";
-import { LockIcon } from "@/components/trust/LockIcon";
+import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
+import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
 
 const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
 
@@ -86,29 +87,20 @@ function PaymentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* PDF §3.1 — hassas kart alanı görsel olarak kapsüllenir ("dijital kasa"). */}
-      <div className="tm-secure-field-group p-4 space-y-3">
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <LockIcon className="text-[var(--tm-copper)]" />
-          <span>Kart bilgileriniz Stripe tarafından şifrelenir; sunucularımızda saklanmaz.</span>
-        </div>
+      <SecurePaymentCapsule hint="Kart bilgileriniz Stripe tarafından şifrelenir; sunucularımızda saklanmaz.">
         <PaymentElement
           options={{
             layout: "tabs",
           }}
         />
-      </div>
-      <button
-        type="submit"
+      </SecurePaymentCapsule>
+      <TrustSubmitButton
         disabled={!stripe || busy}
-        className="tm-btn-primary w-full disabled:opacity-50"
+        className="disabled:opacity-50"
+        seal="Stripe ile şifrelenmiş · bugün ücret yok"
       >
         {busy ? "Doğrulanıyor…" : "Ücretsiz ayı başlat"}
-      </button>
-      <div className="flex items-center justify-center gap-1.5 text-muted-foreground text-[11px]">
-        <LockIcon className="text-[var(--tm-copper)]" />
-        <span>Stripe ile şifrelenmiş · bugün ücret yok</span>
-      </div>
+      </TrustSubmitButton>
     </form>
   );
 }

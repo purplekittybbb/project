@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { analyzeTop100 } from "@/lib/demand/top100";
 import { createBrowserSession, type ScraperPage } from "@/lib/scrapers/browser";
 import { trackCompetitorPrices } from "@/lib/scrapers/price-tracker";
@@ -7,8 +7,10 @@ import { searchProductRank } from "@/lib/scrapers/visibility";
 import { loadPrecrawlCandidates, type PrecrawlCandidate, type PrecrawlToolId } from "@/lib/supabase/keyword-stats";
 import { insertPrecrawlRun } from "@/lib/supabase/precrawl-log";
 import { acquireScrapeSlot, maxConcurrentScrapes, releaseScrapeSlot } from "@/lib/supabase/scan-concurrency";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { upsertSharedPriceTrackScan, upsertSharedTop100Scan } from "@/lib/supabase/shared-scraper-cache";
 import { upsertSharedVisibilityScan } from "@/lib/supabase/shared-visibility";
+import { saveTop100Snapshot } from "@/lib/supabase/top100-snapshots";
 import { PRICE_TRACK_TTL_MS, TOP100_TTL_MS, VISIBILITY_TTL_MS } from "@/lib/tools/cache-ttl";
 
 /**
@@ -88,12 +90,7 @@ function delay(ms: number): Promise<void> {
 }
 
 function serviceRoleClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  return createServiceRoleClient();
 }
 
 interface RunSummary {
@@ -278,6 +275,23 @@ export async function GET(req: Request) {
         );
         if (result.error) return { ok: false, error: result.error };
         const { error } = await upsertSharedTop100Scan(supabase, candidate.marketplace, candidate.keyword, result);
+
+        // Also append a permanent historical snapshot (migration 0025 —
+        // top100_snapshots/top100_items). upsertSharedTop100Scan above only
+        // ever keeps the LATEST value per keyword (it's a cache, overwritten
+        // every refresh), so without this there was never a real time series
+        // to build a "trend ürünler" / rank-movement feature from — only a
+        // single current snapshot. This call is additive and best-effort: a
+        // snapshot-write failure must never turn a good cache refresh into a
+        // reported error, since the live cache (what guests actually see) is
+        // already correct at this point regardless of snapshot outcome.
+        const snapshot = await saveTop100Snapshot(supabase, result);
+        if (snapshot.error) {
+          console.warn(
+            `[cron/precrawl-visibility] [top100] Snapshot write failed for ${candidate.marketplace}/"${candidate.keyword}": ${snapshot.error}`,
+          );
+        }
+
         return { ok: !error, error: error ?? undefined };
       },
     );

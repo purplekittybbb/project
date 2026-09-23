@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadRecentPrecrawlRuns } from "@/lib/supabase/precrawl-log";
 import { maxConcurrentScrapes } from "@/lib/supabase/scan-concurrency";
 import { PRICE_TRACK_TTL_MS, TOP100_TTL_MS, VISIBILITY_TTL_MS } from "@/lib/tools/cache-ttl";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * GET /api/admin/scraper-health
@@ -36,15 +37,6 @@ export const runtime = "nodejs";
 const LEASE_TTL_SECONDS = 180; // Mirrors DEFAULT_LEASE_TTL_SECONDS in lib/supabase/scan-concurrency.ts.
 const MARKETPLACES = ["trendyol", "hepsiburada", "n11"] as const;
 const TOOL_BUCKETS = ["visibility", "price-track", "top100"] as const;
-
-function serviceRoleClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 async function cacheTableStats(supabase: SupabaseClient, table: string, ttlMs: number) {
   const cutoff = new Date(Date.now() - ttlMs).toISOString();
@@ -105,7 +97,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = serviceRoleClient();
+  const supabase = createServiceRoleClient();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase service role yapılandırılmamış." }, { status: 500 });
   }

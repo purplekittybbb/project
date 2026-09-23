@@ -77,12 +77,13 @@ interface Props {
   rows: StoredRow[];
   authConfigured: boolean;
   busy: boolean;
+  actionError?: string | null;
   onUpload: (rows: UserRawRow[]) => Promise<void>;
   onDeleteRow: (id: string) => Promise<void>;
   onClear: () => Promise<void>;
 }
 
-export function MyDataPanel({ rows, authConfigured, busy, onUpload, onDeleteRow, onClear }: Props) {
+export function MyDataPanel({ rows, authConfigured, busy, actionError, onUpload, onDeleteRow, onClear }: Props) {
   const [csvError, setCsvError] = useState("");
   const [preview, setPreview] = useState<CsvParseResult | null>(null);
   const [fileName, setFileName] = useState("");
@@ -177,6 +178,12 @@ export function MyDataPanel({ rows, authConfigured, busy, onUpload, onDeleteRow,
         <div className="border border-amber-900/50 bg-amber-950/20 px-4 py-3 font-mono text-[11px] text-amber-400">
           Supabase anahtarları tanımlı değil — bu oturumda kayıt kalıcı olmayacak.
           Kalıcılık için .env.local içine NEXT_PUBLIC_SUPABASE_URL ve NEXT_PUBLIC_SUPABASE_ANON_KEY ekleyin.
+        </div>
+      )}
+
+      {actionError && (
+        <div className="fin-border-loss-subtle border bg-zinc-950/40 px-4 py-3 font-mono text-[11px] fin-loss" role="alert">
+          Kayıt başarısız: {actionError}
         </div>
       )}
 

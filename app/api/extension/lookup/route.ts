@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import { buildSkuEconomicsMap, type SkuEconomics } from "@/lib/tools/sku-economics";
 import type { StoredRow } from "@/lib/supabase/user-data";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * Chrome uzantısının çağırdığı tek gerçek-veri uç noktası.
@@ -39,15 +39,6 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
 }
 
-function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
-
 function hashToken(raw: string): string {
   return crypto.createHash("sha256").update(raw).digest("hex");
 }
@@ -63,7 +54,7 @@ export async function GET(req: Request) {
     return json({ error: "Bağlı değil — uzantı ayarlarına TrueMargin token'ınızı ekleyin." }, 401);
   }
 
-  const supabase = serviceClient();
+  const supabase = createServiceRoleClient();
   if (!supabase) return json({ error: "Sunucu yapılandırması eksik." }, 500);
 
   const tokenHash = hashToken(raw);

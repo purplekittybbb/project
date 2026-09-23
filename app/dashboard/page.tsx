@@ -44,13 +44,13 @@ import {
 } from "lucide-react";
 import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
 import { ExtensionTokenPanel } from "@/components/account/ExtensionTokenPanel";
+import { AiConfidenceBlock } from "@/components/trust/AiConfidenceBlock";
 import {
-  loadUserRows, saveUserRows, deleteUserRow, clearUserRows, buildUserSeller,
+  loadUserRowsWithStatus, saveUserRows, deleteUserRow, clearUserRows, buildUserSeller,
   USER_TENANT_ID, type StoredRow,
 } from "@/lib/supabase/user-data";
 import type { UserRawRow } from "@/lib/adapters/csv";
 import { MyDataPanel } from "@/components/MyDataPanel";
-import { NetProfitLedger } from "@/components/NetProfitLedger";
 import { LossAlarmBanner, SkuLossTag } from "@/components/LossAlarmBanner";
 import { DashboardSummaryHeader } from "@/components/DashboardSummaryHeader";
 import {
@@ -74,13 +74,11 @@ import { UpgradePlanPanel } from "@/components/billing/UpgradePlanPanel";
 import { ProFeatureLock } from "@/components/billing/ProFeatureLock";
 import { ProductCostEditor } from "@/components/ProductCostEditor";
 import { productTitleForSku, buildSkuEconomicsMap } from "@/lib/tools/sku-economics";
-import { SafePriceStorePage } from "@/components/tools/store/safe-price-page";
 import { BarcodeStorePage } from "@/components/tools/store/barcode-page";
 import type { StoreToolState } from "@/components/tools/store/use-store-tool-data";
 import { seedStoredRowsForTenant } from "@/lib/data/seed";
 import { computeSkuMomentum } from "@/lib/tools/opportunity-discovery";
 import { OpportunityDiscoveryCard } from "@/components/OpportunityDiscoveryCard";
-import { SettlementReconciliationPanel } from "@/components/SettlementReconciliationPanel";
 import { OnboardingChecklist } from "@/components/OnboardingChecklist";
 import { TeamAccessPanel } from "@/components/TeamAccessPanel";
 import type { DemandRangeResult } from "@/lib/demand/signals";
@@ -100,6 +98,12 @@ import {
 import type { MarketplaceConnection } from "@/lib/connect/types";
 import { DEFAULT_CHANNEL, DEFAULT_DASHBOARD_CHANNELS, DEMO_DASHBOARD_CHANNELS } from "@/lib/product-market";
 import { isAiConfigured } from "@/lib/copilot/ai-configured";
+import {
+  ConnectedStores,
+  FinancialSummaryWidget,
+  MarketplaceMarginStrip,
+  PriceTrackerResults,
+} from "@/components/dashboard";
 
 // Translation keys, not display strings — AI_PRESET_KEYS lives at module
 // scope (t() needs the hook, only available inside the component), so the
@@ -132,6 +136,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // forcing getSellers/getSeller below to recompute with the latest data.
   const [dataVersion, setDataVersion] = useState(0);
   const [userRows, setUserRows] = useState<StoredRow[]>([]);
+  const [userDataLoadError, setUserDataLoadError] = useState<string | null>(null);
+  const [userDataActionError, setUserDataActionError] = useState<string | null>(null);
   const [demandBySku, setDemandBySku] = useState<Map<string, DemandRangeResult>>(new Map());
   const [dataBusy, setDataBusy] = useState(false);
   const [watchedVisibility, setWatchedVisibility] = useState<WatchedVisibility[]>([]);
@@ -245,8 +251,9 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     if (demoMode) return;
     let active = true;
     (async () => {
-      const rows = await loadUserRows();
+      const { rows, error: loadError } = await loadUserRowsWithStatus();
       if (!active) return;
+      setUserDataLoadError(loadError);
       setUserRows(rows);
       const seller = buildUserSeller(rows);
       if (seller) {
@@ -345,7 +352,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
 
   // Re-read from Supabase and re-register after any mutation.
   async function refreshUserData() {
-    const rows = await loadUserRows();
+    const { rows, error: loadError } = await loadUserRowsWithStatus();
+    setUserDataLoadError(loadError);
     setUserRows(rows);
     const seller = buildUserSeller(rows);
     if (seller) {
@@ -443,7 +451,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
 
   async function handleUserUpload(rows: UserRawRow[]) {
     setDataBusy(true);
-    await saveUserRows(rows);
+    setUserDataActionError(null);
+    const { error } = await saveUserRows(rows);
+    if (error) {
+      setUserDataActionError(error);
+      setDataBusy(false);
+      return;
+    }
     await refreshUserData();
     setTenant(USER_TENANT_ID);
     setChannel(DEFAULT_CHANNEL);
@@ -792,7 +806,10 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     (authConfigured ? getSeller(tenant, "combined") : undefined) ??
     getSeller("seller-b", channel) ??
     getSeller("seller-b", "combined")!;
-  const fin = getFinancing(tenant) ?? getFinancing("seller-b")!;
+  const fin =
+    getFinancing(tenant) ??
+    getFinancing(USER_TENANT_ID) ??
+    (!authConfigured ? getFinancing("seller-b") : undefined);
   const currency = view.currency;
   const w = view.waterfall;
   const grossRev = w.grossRevenue;
@@ -917,11 +934,11 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // amount from fin.decision paired with a declined/mismatched takeRate, or
   // vice versa. finApproved/finTakeRate keep the Financing tab's gate and its
   // displayed numbers sourced from the SAME decision object.
-  const finApproved = fin.decision.approvedLimit > 0;
-  const finTakeRate = (fin.decision.takeRate * 100).toFixed(1);
-  const coOurs = (fin.report.trueMargin.chargeOffRate * 100).toFixed(1);
-  const coInc = (fin.report.incumbent.chargeOffRate * 100).toFixed(1);
-  const lossRed = Math.round(fin.report.lossReductionPct * 100);
+  const finApproved = (fin?.decision.approvedLimit ?? 0) > 0;
+  const finTakeRate = ((fin?.decision.takeRate ?? 0) * 100).toFixed(1);
+  const coOurs = ((fin?.report.trueMargin.chargeOffRate ?? 0) * 100).toFixed(1);
+  const coInc = ((fin?.report.incumbent.chargeOffRate ?? 0) * 100).toFixed(1);
+  const lossRed = Math.round((fin?.report.lossReductionPct ?? 0) * 100);
 
   // tr-TR locale (thousands separator "."), matching every other money-
   // formatting helper on this page (DashboardSummaryHeader's fmtMoney,
@@ -1125,23 +1142,64 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   //    regulatory exposure. Real sellers must never see it.
   // Both stay available ONLY in demo mode (investor/sales preview, seeded with
   // example sellers) where they're representative — never for a real account.
-  const navItems = [
-    { id: "Dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
-    { id: "Verilerim", labelKey: "nav.myData", icon: Database },
-    { id: "Maliyetler", labelKey: "nav.costs", icon: Coins },
-    { id: "GuvenliFiyat", labelKey: "nav.safePrice", icon: ShieldCheck },
-    { id: "Barkod", labelKey: "nav.barcode", icon: BarcodeIcon },
-    { id: "Extension", labelKey: "nav.extension", icon: Puzzle },
-    ...(authConfigured ? [] : [
-      { id: "Sellers", labelKey: "nav.sellers", icon: Users },
-      { id: "Financing", labelKey: "nav.financing", icon: Briefcase },
-    ]),
-    { id: "Campaign", labelKey: "nav.campaign", icon: Tag },
-    { id: "Nakit", labelKey: "nav.cashFlow", icon: Landmark },
-    { id: "Products", labelKey: "nav.products", icon: Package },
-    { id: "Copilot", labelKey: "nav.copilot", icon: Sparkles },
-    { id: "History", labelKey: "nav.history", icon: HistoryIcon },
-    { id: "Settings", labelKey: "nav.settings", icon: Settings },
+  // Grouped sidebar navigation — sections give the panel a professional
+  // information architecture instead of a flat 10+ item list. The internal
+  // `id` (currentTab state key) and `labelKey` (i18n) are UNCHANGED; only the
+  // presentation is grouped. Section headers are Turkish literals (the launch
+  // cohort is Turkish; they're structural dividers, not user content).
+  type NavGroup = {
+    label: string;
+    items: { id: string; labelKey: string; icon: typeof LayoutDashboard }[];
+  };
+  const navGroups: NavGroup[] = [
+    {
+      label: "Genel Bakış",
+      items: [{ id: "Dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard }],
+    },
+    {
+      label: "Ürünlerim",
+      items: [
+        { id: "Products", labelKey: "nav.products", icon: Package },
+        { id: "Maliyetler", labelKey: "nav.costs", icon: Coins },
+        { id: "GuvenliFiyat", labelKey: "nav.safePrice", icon: ShieldCheck },
+        { id: "Barkod", labelKey: "nav.barcode", icon: BarcodeIcon },
+        { id: "Verilerim", labelKey: "nav.myData", icon: Database },
+      ],
+    },
+    {
+      label: "Finans",
+      items: [
+        { id: "Nakit", labelKey: "nav.cashFlow", icon: Landmark },
+        { id: "Campaign", labelKey: "nav.campaign", icon: Tag },
+      ],
+    },
+    {
+      label: "Araçlar",
+      items: [
+        { id: "Extension", labelKey: "nav.extension", icon: Puzzle },
+        { id: "Copilot", labelKey: "nav.copilot", icon: Sparkles },
+      ],
+    },
+    // Demo-only lending/portfolio preview — hidden from real signed-in sellers
+    // (see the exclusion rationale in the comment above).
+    ...(authConfigured
+      ? []
+      : [
+          {
+            label: "Demo",
+            items: [
+              { id: "Sellers", labelKey: "nav.sellers", icon: Users },
+              { id: "Financing", labelKey: "nav.financing", icon: Briefcase },
+            ],
+          },
+        ]),
+    {
+      label: "Hesap",
+      items: [
+        { id: "History", labelKey: "nav.history", icon: HistoryIcon },
+        { id: "Settings", labelKey: "nav.settings", icon: Settings },
+      ],
+    },
   ];
 
   // ── Paket ayrımı (basit, 2 kademe) ─────────────────────────────────────────
@@ -1169,8 +1227,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="flex items-center gap-2 text-zinc-600 font-mono text-[11px] uppercase tracking-[0.2em]">
-          <span className="inline-block w-1.5 h-1.5 bg-zinc-600 animate-pulse" />
-          Verileriniz yükleniyor
+          <span className="tm-skeleton inline-block h-1.5 w-1.5 rounded-full" aria-hidden />
+          Verileriniz yükleniyor — genelde birkaç saniye
         </div>
       </div>
     );
@@ -1196,6 +1254,27 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   // empty state instead, with a real path to actual data (CSV upload or a
   // genuine marketplace connection), rather than either bleeding seed data or
   // trapping them in the /connect loop this whole guard exists to avoid.
+  if (authConfigured && initialDataLoadDone && userDataLoadError && !hasRuntimeSeller(USER_TENANT_ID)) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
+        <div className="max-w-sm text-center space-y-4">
+          <div className="text-zinc-200 font-sans text-lg font-medium">Veriler yüklenemedi</div>
+          <p className="text-zinc-500 text-sm leading-relaxed">
+            Satış kayıtlarınız okunamadı: {userDataLoadError}. Oturumunuzun açık olduğundan ve veritabanı
+            migration&apos;larının uygulandığından emin olun, ardından tekrar deneyin.
+          </p>
+          <button
+            type="button"
+            onClick={() => void refreshUserData()}
+            className="h-10 px-4 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors"
+          >
+            Tekrar dene
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const hasNoRealDataYet = authConfigured && initialDataLoadDone && !hasRuntimeSeller(USER_TENANT_ID);
   if (hasNoRealDataYet) {
     return (
@@ -1243,23 +1322,30 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
         <div className="h-20 flex items-center px-6">
           <span className="text-zinc-100 font-mono tracking-tight text-lg font-medium">TrueMargin</span>
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setCurrentTab(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors ${
-                currentTab === item.id ? "bg-zinc-900 text-zinc-100" : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50"
-              }`}
-            >
-              <item.icon size={16} className={currentTab === item.id ? "text-zinc-300" : "text-zinc-600"} />
-              <span>{t(item.labelKey)}</span>
-              {PRO_ONLY_TABS.has(item.id) && !hasProAccess && (
-                <span className="ml-auto text-[9px] font-mono uppercase tracking-widest text-amber-400/70 border border-amber-400/20 px-1 py-0.5">
-                  Pro
-                </span>
-              )}
-            </button>
+        <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
+          {navGroups.map((group) => (
+            <div key={group.label} className="space-y-0.5">
+              <div className="px-3 pb-1 text-[10px] font-mono uppercase tracking-[0.13em] text-zinc-600 font-semibold">
+                {group.label}
+              </div>
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setCurrentTab(item.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 text-sm rounded-sm transition-colors ${
+                    currentTab === item.id ? "bg-zinc-900 text-zinc-100" : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50"
+                  }`}
+                >
+                  <item.icon size={16} className={currentTab === item.id ? "text-zinc-300" : "text-zinc-600"} />
+                  <span>{t(item.labelKey)}</span>
+                  {PRO_ONLY_TABS.has(item.id) && !hasProAccess && (
+                    <span className="ml-auto text-[9px] font-mono uppercase tracking-widest text-amber-400/70 border border-amber-400/20 px-1 py-0.5">
+                      Pro
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         {(() => {
@@ -1413,46 +1499,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   </span>
                 </button>
               )}
-              {view.channel === "combined" && view.marketplaceMargins && (
-                <div className="mb-16">
-                  <h3
-                    className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-6"
-                    title="Sabit, temsili kur — anlık piyasa kuru değildir. Yalnızca farklı pazaryerlerindeki USD tutarları TRY ile karşılaştırılabilir hale getirmek için kullanılır."
-                  >
-                    Pazaryeri bazında · TRY toplamı (USD→TRY, temsili kur @33)
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px bg-zinc-800 border border-zinc-800">
-                    {view.marketplaceMargins.map((mp) => (
-                      <div key={mp.marketplace} className="bg-zinc-950 p-4 lg:p-6">
-                        <div className="text-zinc-500 font-sans text-xs mb-4">
-                          {MARKETPLACE_LABELS[mp.marketplace]}
-                        </div>
-                        <div className={`text-2xl font-mono tabular-nums ${mp.trueMarginPct >= 0 ? "fin-profit" : "fin-loss"}`}>
-                          {pctStr(mp.trueMarginPct)}
-                        </div>
-                        <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">
-                          Algılanan {pctStr(mp.perceivedMarginPct)}
-                        </div>
-                        <div className="text-zinc-500 text-[11px] font-mono mt-3 tabular-nums">
-                          Ciro {money(mp.grossRevenue, mp.currency)}
-                        </div>
-                      </div>
-                    ))}
-                    <div className="bg-zinc-900/40 p-4 lg:p-6 border-l border-zinc-800">
-                      <div className="text-zinc-400 font-sans text-xs mb-4">Toplam (TRY karşılığı)</div>
-                      <div className={`text-2xl font-mono tabular-nums ${view.trueMarginPct >= 0 ? "fin-profit" : "fin-loss"}`}>
-                        {pctStr(view.trueMarginPct)}
-                      </div>
-                      <div className="text-zinc-600 text-[10px] font-mono mt-2 uppercase tracking-wide">
-                        Algılanan {pctStr(view.perceivedMarginPct)}
-                      </div>
-                      <div className="text-zinc-500 text-[11px] font-mono mt-3 tabular-nums">
-                        Ciro {money(view.waterfall.grossRevenue)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <MarketplaceMarginStrip view={view} currency={currency} pctStr={pctStr} />
 
               {/* Yeni hesaplar için başlangıç kontrol listesi — tüm adımlar
                   tamamlanınca veya kullanıcı kapatınca kendiliğinden gizlenir. */}
@@ -1475,183 +1522,27 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               <OpportunityDiscoveryCard momentum={skuMomentum} onGoToProducts={() => setCurrentTab("Products")} />
 
               <div className="flex flex-col lg:flex-row gap-16 lg:gap-24">
-                {/* LEFT COLUMN */}
-                <div className="w-full lg:w-7/12 flex flex-col">
-                  {/* Hero Margin */}
-                  <div className="mb-20 lg:mb-24 relative">
-                    <div className="absolute -left-6 lg:-left-8 top-1 bottom-1 w-px bg-zinc-900"></div>
-                    <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-6">
-                      Gerçek Marj · {channelLabel(view.channel)}
-                    </h2>
-                    <div className={`text-7xl lg:text-[96px] leading-none font-mono tracking-tighter tabular-nums ${marginPercent >= 0 ? "fin-profit" : "fin-loss"}`}>
-                      {marginPercent > 0 ? "+" : ""}{marginPercent.toFixed(1)}%
-                    </div>
-                    <div className="text-zinc-500 mt-6 lg:mt-8 font-mono text-sm flex items-center gap-4">
-                      <span>Satıcının sandığı <span className="text-zinc-200">{belief.toFixed(1)}%</span></span>
-                      <span className="w-1 h-1 bg-zinc-800 rounded-none"></span>
-                      <span className="fin-loss">{ptsDiff} puan düşük</span>
-                    </div>
-
-                    {/* Break-even price — right below the hero margin */}
-                    <div className="mt-6 lg:mt-8 flex items-baseline gap-3 border-l-2 border-zinc-800 pl-4">
-                      <div>
-                        <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-1">
-                          Başabaş fiyatı
-                        </div>
-                        <div className="font-mono tabular-nums text-2xl lg:text-3xl font-semibold text-zinc-100 tracking-tight">
-                          {money(view.breakEvenPrice)}
-                        </div>
-                        <div className="text-zinc-600 text-[11px] font-mono mt-1">
-                          Bu fiyatın altında satmak zarar.
-                        </div>
-                      </div>
-                      <div className="hidden sm:block text-zinc-700 text-[10px] font-mono leading-relaxed max-w-[180px]">
-                        (COGS + kargo + hizmet) / (1 − komisyon)
-                      </div>
-                    </div>
-
-                    {/* Settlement verification — secondary, below break-even. When there's
-                        no real settlement file behind actualPayout (true for every real
-                        signed-in user today — no adapter ingests one yet), this is labeled
-                        "Temsili" instead of silently rendering a bare "tam ödedi ✓". */}
-                    {(() => {
-                      const s = view.settlement;
-                      const hasGap = s.hasGap;
-                      const dotColor = !s.isRealSettlementData ? "bg-zinc-600" : hasGap ? "fin-dot-loss opacity-60" : "fin-dot-profit opacity-60";
-                      return (
-                        <div className="mt-5 flex items-start justify-between gap-4 border border-zinc-800/70 bg-zinc-900/30 px-4 py-3">
-                          <div>
-                            <div className="flex items-center gap-2 mb-2">
-                              <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans">
-                                Hakediş Doğrulama
-                              </div>
-                              {!s.isRealSettlementData && (
-                                <span
-                                  title="Gerçek hakediş dosyası bağlanmadı — bu rakam sadece beklenen tutarı gösterir, gerçek ödeme doğrulaması yapılmadı."
-                                  className="text-[9px] px-1.5 py-0.5 font-mono uppercase tracking-widest border border-zinc-700 text-zinc-500"
-                                >
-                                  Temsili
-                                </span>
-                              )}
-                            </div>
-                            <div className="font-mono text-sm flex items-baseline gap-3 flex-wrap">
-                              <span className="text-zinc-500">Beklenen</span>
-                              <span className="tabular-nums text-zinc-200">{money(s.expectedPayout)}</span>
-                              <span className="text-zinc-700">·</span>
-                              <span className="text-zinc-500">{s.isRealSettlementData ? "Gerçek" : "Temsili"}</span>
-                              <span className="tabular-nums text-zinc-200">{money(s.actualPayout)}</span>
-                            </div>
-                            {s.isRealSettlementData ? (
-                              <div className={`mt-1.5 font-mono text-[12px] tabular-nums font-medium ${hasGap ? "fin-loss" : "fin-profit"}`}>
-                                {hasGap
-                                  ? `${s.marketplaceLabel} ${money(s.gap)} eksik ödedi (−${s.gapRatePct.toFixed(1)}%)`
-                                  : `${s.marketplaceLabel} tam ödedi ✓`}
-                              </div>
-                            ) : (
-                              <div className="mt-1.5 font-mono text-[12px] text-zinc-500 leading-relaxed max-w-sm">
-                                {`${s.marketplaceLabel} için henüz gerçek hakediş/ödeme dosyası bağlı değil — gösterilen "Temsili" tutar beklenen tutarla aynı kabul edilmiştir, doğrulanmış bir ödeme farkı değildir.`}
-                              </div>
-                            )}
-                          </div>
-                          <div className={`shrink-0 w-1.5 self-stretch rounded-full ${dotColor}`} />
-                        </div>
-                      );
-                    })()}
-
-                    {/* Gerçek hakediş mutabakatı — kullanıcının kendi girdiği tutarla
-                        yukarıdaki "Temsili" tahminin yerini alan gerçek karşılaştırma. */}
-                    <SettlementReconciliationPanel
-                      marketplace={view.channel}
-                      marketplaceLabel={view.settlement.marketplaceLabel}
-                      expectedPayout={view.settlement.expectedPayout}
-                      currency={view.currency}
-                      authConfigured={authConfigured}
-                    />
-                  </div>
-
-                  {/* Dönemsel Marj — Sparkline */}
-                  {view.marginHistory.length >= 2 && (() => {
-                    const pts = view.marginHistory;
-                    const W = 280, H = 80, PAD_X = 8, PAD_Y = 12;
-                    const allVals = pts.flatMap(p => [p.trueMarginPct, p.perceivedMarginPct]);
-                    const minV = Math.min(...allVals) - 2;
-                    const maxV = Math.max(...allVals) + 2;
-                    const range = maxV - minV || 1;
-                    const xOf = (i: number) => PAD_X + (i / (pts.length - 1)) * (W - PAD_X * 2);
-                    const yOf = (v: number) => PAD_Y + (1 - (v - minV) / range) * (H - PAD_Y * 2);
-                    const toPath = (vals: number[]) =>
-                      vals.map((v, i) => `${i === 0 ? "M" : "L"} ${xOf(i).toFixed(1)} ${yOf(v).toFixed(1)}`).join(" ");
-                    const zeroY = yOf(0);
-                    const lastIdx = pts.length - 1;
-                    const lastTrue = pts[lastIdx].trueMarginPct;
-                    const lastPerc = pts[lastIdx].perceivedMarginPct;
-                    const trueColor = lastTrue >= 0 ? "#34d399" : "#f87171";
-                    return (
-                      <div className="mt-0 mb-1 border border-zinc-800/70 bg-zinc-900/20 px-4 pt-3 pb-4">
-                        <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-3">
-                          Dönemsel Gerçek Marj
-                        </div>
-                        <svg width={W} height={H} className="overflow-visible">
-                          {/* Zero baseline */}
-                          {zeroY >= PAD_Y && zeroY <= H - PAD_Y && (
-                            <line x1={PAD_X} y1={zeroY} x2={W - PAD_X} y2={zeroY}
-                              stroke="#3f3f46" strokeWidth="1" strokeDasharray="3 3" />
-                          )}
-                          {/* Perceived line — dashed zinc */}
-                          <path d={toPath(pts.map(p => p.perceivedMarginPct))}
-                            fill="none" stroke="#71717a" strokeWidth="1.5" strokeDasharray="4 3" />
-                          {/* True margin line — solid color */}
-                          <path d={toPath(pts.map(p => p.trueMarginPct))}
-                            fill="none" stroke={trueColor} strokeWidth="2" strokeLinejoin="round" />
-                          {/* Dots + x labels */}
-                          {pts.map((p, i) => (
-                            <g key={p.period}>
-                              <circle cx={xOf(i)} cy={yOf(p.trueMarginPct)} r="2.5" fill={trueColor} />
-                              <text x={xOf(i)} y={H} textAnchor="middle"
-                                fontSize="9" fill="#52525b" fontFamily="monospace">{p.label}</text>
-                            </g>
-                          ))}
-                          {/* Direct labels at last point */}
-                          <text x={xOf(lastIdx) + 6} y={yOf(lastTrue) + 4}
-                            fontSize="9" fill={trueColor} fontFamily="monospace">
-                            {lastTrue.toFixed(1)}%
-                          </text>
-                          <text x={xOf(lastIdx) + 6} y={yOf(lastPerc) + 4}
-                            fontSize="9" fill="#71717a" fontFamily="monospace">
-                            {lastPerc.toFixed(1)}%
-                          </text>
-                        </svg>
-                        <div className="flex gap-4 mt-2">
-                          <span className="flex items-center gap-1.5 text-[9px] text-zinc-500 font-mono">
-                            <span className="inline-block w-4 h-px" style={{background: trueColor}} /> Gerçek
-                          </span>
-                          <span className="flex items-center gap-1.5 text-[9px] text-zinc-600 font-mono">
-                            <span className="inline-block w-4 border-t border-dashed border-zinc-600" /> Algılanan
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* ── Net Profit Ledger — spec §2-4 (TrueMargin design system) ── */}
-                  <NetProfitLedger
-                    grossRevenue={grossRev}
-                    commission={commission}
-                    vat={vat}
-                    shipping={shipping}
-                    returns={returns}
-                    adSpend={adSpendVal}
-                    payment={payment}
-                    cogs={cogs}
-                    packaging={w.packaging ?? 0}
-                    netContribution={netContribution}
-                    marginPct={marginPercent}
-                    currency={currency}
-                    floorPrice={view.breakEvenPrice}
-                    baseAdSpend={w.adSpendAllocated}
-                    onAdSpendChange={setAdSpendVal}
-                  />
-                </div>
+                <FinancialSummaryWidget
+                  view={view}
+                  marginPercent={marginPercent}
+                  belief={belief}
+                  ptsDiff={ptsDiff}
+                  netContribution={netContribution}
+                  grossRev={grossRev}
+                  commission={commission}
+                  vat={vat}
+                  shipping={shipping}
+                  returns={returns}
+                  payment={payment}
+                  cogs={cogs}
+                  adSpendVal={adSpendVal}
+                  onAdSpendChange={setAdSpendVal}
+                  currency={currency}
+                  authConfigured={authConfigured}
+                  money={money}
+                  pctStr={pctStr}
+                  channelLabel={channelLabel}
+                />
 
                 {/* RIGHT COLUMN */}
                 <div className="w-full lg:w-5/12 flex flex-col lg:pl-4">
@@ -1919,6 +1810,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       against THEIR OWN data (fin.isSelfBacktest), not the 3-seller seed
                       portfolio; low history months gets an explicit low-sample warning
                       instead of a face-value charge-off percentage. */}
+                  {fin && (
                   <div>
                     <div className="flex items-center gap-4 mb-6">
                       <h3 className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans">Geçmiş Test Karşılaştırması</h3>
@@ -1950,6 +1842,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       </div>
                     )}
                   </div>
+                  )}
                 </div>
               </div>
 
@@ -1968,6 +1861,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 rows={userRows}
                 authConfigured={isAuthConfigured()}
                 busy={dataBusy}
+                actionError={userDataActionError}
                 onUpload={handleUserUpload}
                 onDeleteRow={handleUserDeleteRow}
                 onClear={handleUserClear}
@@ -1992,20 +1886,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               page. Reuses storeToolData (built above from the same real userRows this
               whole dashboard already renders from) rather than forking the logic. */}
           {currentTab === "GuvenliFiyat" && (
-            <div className="max-w-[1100px] mx-auto px-8 py-12 md:py-16">
-              {storeToolData.skuEconomics.size === 0 ? (
-                <p className="text-zinc-600 font-mono text-[12px]">
-                  Henüz veri yok — Verilerim sekmesinden yükleyin veya mağaza bağlayın.
-                </p>
-              ) : (
-                // These tools are light-themed (shared with the standalone light
-                // pages). Give them an intentional light canvas so they don't
-                // read as white cards floating on the dark dashboard.
-                <div className="bg-[var(--tm-paper)] text-[var(--tm-ink)] rounded-[var(--tm-r-ui)] p-6 md:p-8">
-                  <SafePriceStorePage data={storeToolData} />
-                </div>
-              )}
-            </div>
+            <PriceTrackerResults data={storeToolData} />
           )}
 
           {/* VIEW: BARKOD ANALİZİ — same as /araclar/barkod-analizi, moved into the shell. */}
@@ -2117,7 +1998,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               TrueMargin is not a licensed lender — see navItems comment). Gated
               on !authConfigured so a real account can never reach it even by
               manipulating currentTab. */}
-          {currentTab === "Financing" && !authConfigured && (
+          {currentTab === "Financing" && !authConfigured && fin && (
             <div className="max-w-[1200px] mx-auto px-8 py-12 md:py-20">
               <h2 className="text-zinc-600 text-[11px] font-sans uppercase tracking-[0.2em] mb-12 border-l border-zinc-800 pl-4">
                 {t("financing.activeCreditLine", { seller: view.label })}
@@ -2449,125 +2330,21 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 <UpgradePlanPanel paidPlan={billingStatus.paidPlan} onChanged={loadBillingStatus} />
               )}
 
-              {/* Connected marketplaces — every link that actually exists (server-verified
-                  live credentials + demo-only local links), each with a real Disconnect. */}
-              <div className="mt-8 border border-zinc-900 bg-zinc-950/50 p-6">
-                <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">{t("settings.connectedMarketplaces")}</div>
-                {displayedConnections.length === 0 ? (
-                  <p className="text-zinc-600 font-mono text-[12px]">
-                    {t("settings.noMarketplaceConnected")}
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-zinc-900">
-                    {displayedConnections.map((c) => {
-                      const opt = getMarketplaceOption(c.marketplaceId);
-                      const isLive = c.provider === "live";
-                      const status = disconnectStatus[c.marketplaceId];
-                      return (
-                        <li key={c.marketplaceId} className="py-3.5 flex items-center justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-zinc-200 text-sm truncate">{opt?.label ?? c.marketplaceId}</span>
-                              <span
-                                className={`shrink-0 text-[9px] px-1.5 py-0.5 font-mono uppercase tracking-widest border ${
-                                  isLive ? "fin-border-profit-subtle fin-profit/80" : "border-zinc-800 text-zinc-500"
-                                }`}
-                              >
-                                {isLive ? t("settings.live") : t("settings.demo")}
-                              </span>
-                            </div>
-                            <div className="text-zinc-600 text-[11px] font-mono mt-0.5 tabular-nums">
-                              {c.connectedAt
-                                ? t("settings.connectedOn", { date: new Date(c.connectedAt).toISOString().slice(0, 10) })
-                                : t("settings.credentialsOnFile")}
-                            </div>
-                            {status && (
-                              <div className={`text-[11px] font-mono mt-1 ${status.ok ? "fin-profit" : "fin-loss"}`}>
-                                {status.message}
-                              </div>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setDisconnectTarget(c.marketplaceId)}
-                            className="shrink-0 inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-400 font-mono text-[12px] hover:border-[color-mix(in_srgb,var(--fin-loss)_40%,transparent)] hover:fin-loss transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
-                          >
-                            {t("settings.disconnect")}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-
-              {/* Marketplace connections — manual resync per platform, using the
-                  credentials already stored from connect (see lib/marketplace-resync.ts) */}
-              {authConfigured && (
-                <div className="mt-10 border border-zinc-900 bg-zinc-950/50 p-6">
-                  <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">{t("settings.refreshData")}</div>
-                  {resyncableMarketplaces.length === 0 ? (
-                    <p className="text-zinc-600 font-mono text-[12px]">
-                      {t("settings.noLiveIntegration")}
-                    </p>
-                  ) : (
-                    <ul className="space-y-3">
-                      {resyncableMarketplaces.map((mp) => {
-                        const opt = getMarketplaceOption(mp);
-                        const status = resyncStatus[mp];
-                        const meta = credentialMeta[mp];
-                        const busy = resyncBusy === mp;
-                        const needsReauth = !!meta?.needsReauth;
-                        return (
-                          <li key={mp} className="flex items-center justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="text-zinc-300 text-sm flex items-center gap-2">
-                                <span>{opt?.label ?? mp}</span>
-                                {needsReauth && (
-                                  <span className="text-amber-400 text-[10px] font-mono uppercase tracking-wider">
-                                    Yeniden bağlanmalı
-                                  </span>
-                                )}
-                              </div>
-                              {status && (
-                                <div className={`text-[11px] font-mono mt-0.5 ${status.ok ? "fin-profit" : "fin-loss"}`}>
-                                  {status.message}
-                                </div>
-                              )}
-                              {!status && meta?.lastSyncedAt && (
-                                <div className="text-[11px] font-mono mt-0.5 text-zinc-600">
-                                  Son senkron: {new Date(meta.lastSyncedAt).toLocaleString()}
-                                </div>
-                              )}
-                            </div>
-                            <div className="shrink-0 flex items-center gap-2">
-                              {needsReauth && (
-                                <a
-                                  href="/connect?preview=connect"
-                                  className="inline-flex items-center h-9 px-3 border border-amber-500/40 text-amber-300 font-mono text-[12px] hover:bg-amber-500/10 transition-colors"
-                                >
-                                  Yeniden bağlan
-                                </a>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleResync(mp)}
-                                disabled={busy}
-                                className="inline-flex items-center h-9 px-4 border border-zinc-800 text-zinc-300 font-mono text-[12px] hover:bg-zinc-900 hover:text-zinc-100 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
-                              >
-                                {busy ? t("common.refreshing") : t("common.refresh")}
-                              </button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                  <p className="mt-4 text-[11px] text-zinc-600 font-mono leading-relaxed">
-                    {t("settings.refreshFootnote")}
-                  </p>
-                </div>
-              )}
+              <ConnectedStores
+                authConfigured={authConfigured}
+                displayedConnections={displayedConnections}
+                resyncableMarketplaces={resyncableMarketplaces}
+                credentialMeta={credentialMeta}
+                resyncBusy={resyncBusy}
+                resyncStatus={resyncStatus}
+                disconnectStatus={disconnectStatus}
+                disconnectTarget={disconnectTarget}
+                disconnectBusy={disconnectBusy}
+                onDisconnectRequest={setDisconnectTarget}
+                onDisconnectCancel={() => setDisconnectTarget(null)}
+                onDisconnectConfirm={confirmDisconnect}
+                onResync={handleResync}
+              />
 
               {/* Session */}
               <div className="mt-10 border border-zinc-900 bg-zinc-950/50 p-6">
@@ -2584,53 +2361,6 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                   </button>
                 </div>
               </div>
-
-              {/* Disconnect confirmation — PDF trust rule: never destroy data silently.
-                  The choice between the two outcomes is explicit and neither is pre-selected. */}
-              {disconnectTarget && (
-                <div
-                  className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4"
-                  onClick={() => !disconnectBusy && setDisconnectTarget(null)}
-                >
-                  <div
-                    className="bg-zinc-950 border border-zinc-800 p-6 max-w-sm w-full"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="text-zinc-100 text-sm font-medium mb-1.5">
-                      {t("settings.disconnectTitle", { marketplace: getMarketplaceOption(disconnectTarget)?.label ?? disconnectTarget })}
-                    </div>
-                    <p className="text-zinc-500 text-[12px] font-mono leading-relaxed mb-6">
-                      {t("settings.disconnectCopy")}
-                    </p>
-                    <div className="flex flex-col gap-2">
-                      <button
-                        type="button"
-                        onClick={() => confirmDisconnect(false)}
-                        disabled={disconnectBusy}
-                        className="inline-flex items-center justify-center h-10 px-4 border border-zinc-800 text-zinc-200 font-mono text-[12px] hover:bg-zinc-900 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500"
-                      >
-                        {disconnectBusy ? t("common.working") : t("settings.disconnectOnly")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => confirmDisconnect(true)}
-                        disabled={disconnectBusy}
-                        className="inline-flex items-center justify-center h-10 px-4 fin-border-loss-subtle border fin-loss font-mono text-[12px] hover:bg-[color-mix(in_srgb,var(--fin-loss)_16%,transparent)] transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--fin-loss)]"
-                      >
-                        {disconnectBusy ? t("common.working") : t("settings.disconnectAndDelete")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDisconnectTarget(null)}
-                        disabled={disconnectBusy}
-                        className="inline-flex items-center justify-center h-9 px-4 text-zinc-500 font-mono text-[12px] hover:text-zinc-300 transition-colors disabled:opacity-50"
-                      >
-                        {t("common.cancel")}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -2691,6 +2421,18 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                       );
                     }
                     const isPending = aiLoading && i === copilotMessages.length - 1;
+                    const level =
+                      m.mode === "rule-based"
+                        ? ("high" as const)
+                        : m.mode === "model-error"
+                          ? ("low" as const)
+                          : ("medium" as const);
+                    const why =
+                      m.mode === "rule-based"
+                        ? "Bu yanıt, dil modeli tahmini değil; satıcınızın karar/veri motorundaki deterministik kurallardan üretildi."
+                        : m.mode === "model-error"
+                          ? "Dil modeli yanıt veremedi; sistem kural tabanlı yedek yola düştü. Sonuçları kendi verilerinizle doğrulayın."
+                          : "Bu yanıt, satıcınızın panel verisine dayanan bir dil modeli özetidir; kesin muhasebe kaydı değildir.";
                     return (
                       <div key={i} className="flex flex-col gap-3">
                         <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-mono flex items-center gap-3">
@@ -2698,28 +2440,58 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                         </div>
                         <div className="text-zinc-400 text-sm leading-relaxed">
                           {isPending && !m.content && <p className="text-zinc-500">{t("copilot.readingDecisionData")}</p>}
-                          {m.content && (
+                          {m.content && !isPending && (
+                            <AiConfidenceBlock
+                              level={level}
+                              why={why}
+                              limitedData={m.mode === "model-error"}
+                              aiLabel={m.mode === "rule-based" ? "Kural tabanlı" : "AI Destekli"}
+                              sheetTitle={`${view.label} — Copilot karar mantığı`}
+                              factors={[
+                                {
+                                  label: "Kaynak satıcı verisi",
+                                  weight: 1,
+                                  effect: view.label,
+                                  direction: "neutral" as const,
+                                },
+                                {
+                                  label: "Kanal",
+                                  weight: 0.7,
+                                  effect: channelLabel(view.channel),
+                                  direction: "neutral" as const,
+                                },
+                                {
+                                  label: "Yanıt modu",
+                                  weight: m.mode === "rule-based" ? 0.95 : m.mode === "model-error" ? 0.35 : 0.6,
+                                  effect: m.mode ?? "bilinmiyor",
+                                  direction:
+                                    m.mode === "rule-based"
+                                      ? ("up" as const)
+                                      : m.mode === "model-error"
+                                        ? ("down" as const)
+                                        : ("neutral" as const),
+                                },
+                              ]}
+                              how={
+                                <ul className="list-disc space-y-1 pl-4">
+                                  <li>Kaynak satıcı: {view.label}</li>
+                                  <li>Kanal: {channelLabel(view.channel)}</li>
+                                  <li>Mod: {m.mode ?? "bilinmiyor"}</li>
+                                </ul>
+                              }
+                            >
+                              <p className="whitespace-pre-line text-zinc-300">{m.content}</p>
+                            </AiConfidenceBlock>
+                          )}
+                          {m.content && isPending && (
                             <p className="whitespace-pre-line">
                               {m.content}
-                              {isPending && <span className="inline-block w-1.5 h-4 bg-zinc-500 ml-1 align-middle animate-pulse" />}
+                              <span className="ml-1 inline-block h-4 w-1.5 align-middle bg-zinc-500 opacity-70" />
                             </p>
                           )}
                           {m.content && !isPending && (
-                            <p className="text-[11px] text-zinc-600 font-mono flex items-center gap-2 flex-wrap mt-2">
+                            <p className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-zinc-600">
                               <span>{t("copilot.groundedIn", { seller: view.label })}</span>
-                              {(m.mode === "rule-based" || m.mode === "model-error") && (
-                                <span
-                                  title={m.mode === "model-error" ? t("copilot.ruleBasedAiFailedTitle") : t("copilot.ruleBasedNoLlmTitle")}
-                                  className="bg-zinc-900 text-amber-400/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase"
-                                >
-                                  {m.mode === "model-error" ? t("copilot.ruleBasedAiFailed") : t("copilot.ruleBasedResponse")}
-                                </span>
-                              )}
-                              {(m.mode === "model-claude" || m.mode === "model-gemini") && (
-                                <span className="bg-zinc-900 fin-profit/80 text-[9px] px-1.5 py-0.5 tracking-widest font-mono border border-zinc-800 uppercase">
-                                  {m.mode === "model-claude" ? "Claude" : "Gemini"}
-                                </span>
-                              )}
                             </p>
                           )}
                         </div>

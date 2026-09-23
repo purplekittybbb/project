@@ -4,7 +4,8 @@
  */
 
 import { createHash } from "crypto";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { dailyLimitForSubject } from "./limits";
 import type { StandaloneToolId } from "./registry";
 
@@ -25,12 +26,7 @@ export interface RateLimitResult {
 }
 
 function serviceClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  return createServiceRoleClient();
 }
 
 /** Hash IP for storage — never store raw IP. */
@@ -119,4 +115,44 @@ export async function checkAndIncrementToolUsage(
     used: nextCount,
     enforced: true,
   };
+}
+
+/**
+ * Best-effort refund of one quota unit after an unusable live scrape
+ * (empty prices / blocked / error). Never throws; never goes below zero.
+ */
+export async function refundToolUsage(
+  toolId: StandaloneToolId,
+  subject: RateLimitSubject,
+  client?: SupabaseClient | null,
+): Promise<void> {
+  const supabase = client ?? serviceClient();
+  if (!supabase) return;
+
+  const day = todayUtc();
+  const { data: existing, error: readErr } = await supabase
+    .from("guest_tool_usage")
+    .select("usage_count")
+    .eq("day", day)
+    .eq("tool_id", toolId)
+    .eq("subject_key", subject.key)
+    .eq("subject_type", subject.type)
+    .maybeSingle();
+
+  if (readErr || !existing) return;
+
+  const used = Number(existing.usage_count ?? 0);
+  if (used <= 0) return;
+
+  await supabase.from("guest_tool_usage").upsert(
+    {
+      day,
+      tool_id: toolId,
+      subject_key: subject.key,
+      subject_type: subject.type,
+      usage_count: used - 1,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "day,tool_id,subject_key,subject_type" },
+  );
 }

@@ -246,12 +246,18 @@ Bu noktaya gelmeden önce 3 ayrı, birbirinden bağımsız sorun bulunup çözü
    eklendi, tekrar deploy edildi (`8e208c6`, versiyon `sol-menude-dev-dashboard-3`)
 
 ## Şu An Ne Çalışıyor
+- **Sıfır ekstra maliyet Faz 1 — KOD TAMAM**: Vercel Hobby + Supabase Free; AWS/Redis/proxy/CapSolver yok. RLS `0038`+`0039` (FORCE) dosyaları hazır (**sen apply edeceksin**). `proxy.ts` (middleware terk). Free-tier scrape cap=2. Tests yeşil.
+- **Marketplace→Credit diligence yüzeyi**: `/yatirimci` + yeniden açılan `/demo` + `/reveal` + `/financing` public; lisanssız kredi iddiası yok; seed backtest etiketi dürüst.
 - **Shopify gerçek OAuth + webhooks kablolaması**: ✅ Kod tamam; OAuth canlı doğrulandı; webhook deploy bekliyor (`shopify app deploy`)
 - **Pazaryeri senkron**: connect + Refresh + saatlik cron + Shopify push; sync status DB'de
 - **Sector Benchmark / pooled-cohort altyapısı**: ✅ Kod tamam; migration 0010 apply bekliyor
-- Aktif geliştirme yok — ops apply + canlı TR pazaryeri testi bekleniyor
 
 ## Bilinen Sorunlar / Yarım Kalanlar
+0. **Migration 0038 + 0039 Supabase'e apply edilmeli** (acil değil)
+   - `0038_rls_hardening_free_tier.sql` — canonical/iyzico policy fix
+   - `0039_force_rls_tenant_tables.sql` — FORCE RLS
+   - Apply edilmeden app çalışır; sadece DB güvenlik sıkılaştırması gecikir
+
 1. **Migration 0011 (sync status columns) Supabase'e apply edilmeli**
    - File: `supabase/migrations/0011_marketplace_credentials_sync_status.sql`
    - Apply edilmeden sync hâlâ çalışır; lastSyncedAt/needsReauth yazımı soft-fail (log + devam)
@@ -271,6 +277,17 @@ Bu noktaya gelmeden önce 3 ayrı, birbirinden bağımsız sorun bulunup çözü
 6. **Demo mode (/demo) Shopify-only tab**: Seed seller-b'de shopify verisi yok — tab "Shopify" seçiliyken combined fallback
 
 ## Son Yapılanlar
+- **2026-09-22**: Plan kalite boşlukları kapandı — connect load-error; gate credentials-fetch ok;
+  store-gate DB error ≠ no-store; boş scrape kota iadesi; top100 ₺0 gizleme; 619 test.
+
+- **2026-09-22**: Plan kalite barı — store-required-gate load-error ≠ no-store (dürüst hata);
+  price-track/store-gate/free-tier testleri yeşil. Ücretli infra yok.
+
+- **2026-09-22**: Sıfır ekstra maliyet Faz 1 **KOD KAPANDI** (Cursor) — RLS audit + `0038`;
+  `service-role` helper tüm cron/webhook/team/extension/iyzico route'larına yayıldı; free-tier
+  scrape=2; unsupported marketplace cron → 400; **610/610** test. AWS/Redis/proxy yok.
+  Kullanıcı apply (0038) bilinçli ertelendi — sorun çıkarmaz.
+
 - **2026-07-18**: Hesap bağlama/senkron eksikleri kapatıldı (Cursor) — sunucu hydrate, sync status
   migration+UI, Shopify webhooks, saatlik cron, N11 documented field mapping; 186/186 test
 

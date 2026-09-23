@@ -57,6 +57,7 @@ const RUNTIME_SELLERS: SeededSeller[] = [];
 const RUNTIME_LABELS: Record<string, string> = {};
 
 export function registerRuntimeSeller(seller: SeededSeller, label?: string): void {
+  if (seller.transactions.length === 0) return;
   const i = RUNTIME_SELLERS.findIndex((s) => s.tenantId === seller.tenantId);
   if (i >= 0) RUNTIME_SELLERS[i] = seller;
   else RUNTIME_SELLERS.push(seller);
@@ -69,7 +70,7 @@ export function clearRuntimeSellers(): void {
 }
 
 export function hasRuntimeSeller(tenantId: string): boolean {
-  return RUNTIME_SELLERS.some((s) => s.tenantId === tenantId);
+  return RUNTIME_SELLERS.some((s) => s.tenantId === tenantId && s.transactions.length > 0);
 }
 
 /**

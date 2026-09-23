@@ -16,25 +16,34 @@ import { simulateInitialSync } from "@/lib/connect/demo-provider";
 import type { MarketplaceConnection } from "@/lib/connect/types";
 import { getMarketplaceOption } from "@/lib/marketplaces";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
+import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
 
 /**
  * Refactored to use the TrueMargin design tokens (cursor-design-prompt.md):
  *   §1.1  — --tm-paper, --tm-ink, --tm-mist, --tm-copper, --tm-alert-clay
  *   §1.3  — Borders over shadows, sharp radius for data fields
- *   §2    — Security encapsulation: API key fields wrapped in .tm-secure-field-group
+ *   §2    — Security encapsulation: API key fields wrapped in SecurePaymentCapsule
  *   §7    — Mikro-metin: Turkish error messages spesifik, yönlendirici
  */
 
-function LockIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0" style={{ color: "var(--tm-copper)" }}>
-      <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 type Phase = "form" | "connecting" | "connected";
+
+type LiveConnectResult = {
+  rowsSaved?: number;
+  duplicatesSkipped?: number;
+  ordersFetched?: number;
+};
+
+function syncNoticeForResult(result: LiveConnectResult): string | null {
+  const saved = Number(result.rowsSaved ?? 0);
+  const dupes = Number(result.duplicatesSkipped ?? 0);
+  const fetched = Number(result.ordersFetched ?? 0);
+  if (saved > 0) return null;
+  if (dupes > 0) return "Bağlandı — siparişler zaten kayıtlıydı, yeni satır eklenmedi.";
+  if (fetched > 0) return "Bağlandı — siparişler alındı ancak kaydedilemedi. CSV yüklemeyi deneyin veya destekle iletişime geçin.";
+  return "Bağlandı — hesabınızda henüz kaydedilecek sipariş bulunamadı. CSV yükleyebilir veya satış geldikçe senkron bekleyebilirsiniz.";
+}
 
 interface Props {
   marketplaceId: string | null;
@@ -49,12 +58,14 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
   const [phase, setPhase] = useState<Phase>("form");
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setPhase("form");
       setValues({});
       setError("");
+      setSyncNotice(null);
     }
   }, [open, marketplaceId]);
 
@@ -106,11 +117,12 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
       return;
     }
 
+    setSyncNotice(syncNoticeForResult(result as LiveConnectResult));
     const tokenRef = `tm_key_trendyol_${maskCredential(values.apiKey ?? "")}`;
     const conn = addConnection("trendyol", "live", { tokenRef, method: "api_key" });
     setPhase("connected");
     onConnected(conn);
-    setTimeout(onClose, 1000);
+    setTimeout(onClose, 1500);
   }
 
   /**
@@ -154,11 +166,12 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
       return;
     }
 
+    setSyncNotice(syncNoticeForResult(result as LiveConnectResult));
     const tokenRef = `tm_key_hepsiburada_${maskCredential(values.apiUsername ?? "")}`;
     const conn = addConnection("hepsiburada", "live", { tokenRef, method: "api_key" });
     setPhase("connected");
     onConnected(conn);
-    setTimeout(onClose, 1000);
+    setTimeout(onClose, 1500);
   }
 
   /**
@@ -203,11 +216,12 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
       return;
     }
 
+    setSyncNotice(syncNoticeForResult(result as LiveConnectResult));
     const tokenRef = `tm_key_n11_${maskCredential(values.apiKey ?? "")}`;
     const conn = addConnection("n11", "live", { tokenRef, method: "api_key" });
     setPhase("connected");
     onConnected(conn);
-    setTimeout(onClose, 1000);
+    setTimeout(onClose, 1500);
   }
 
   async function handleConnect(e: React.FormEvent) {
@@ -326,48 +340,40 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
             )}
 
             <form onSubmit={handleConnect} className="space-y-4">
-              {/* ── Security encapsulation for credential fields — spec §2 ── */}
-              <div className="tm-secure-field-group p-4 space-y-3">
-                {/* Security capsule header */}
-                <div className="flex items-center gap-1.5 mb-1">
-                  <LockIcon />
-                  <span
-                    className="text-[10px] uppercase tracking-widest font-mono"
-                    style={{ color: "var(--tm-copper)" }}
-                  >
-                    Şifreli · yalnızca okuma
-                  </span>
+              <SecurePaymentCapsule
+                hint="Şifreli · yalnızca okuma"
+                footerHint="Kimlik bilgileri AES-256 ile şifrelenerek saklanır · sipariş verilmez · para taşınmaz"
+              >
+                <div className="space-y-3">
+                  {fields.map((f) => (
+                    <div key={f.key}>
+                      <label
+                        htmlFor={`ak-${f.key}`}
+                        className="block text-[11px] mb-1 font-mono"
+                        style={{ color: "var(--tm-ink)", opacity: 0.65 }}
+                      >
+                        {f.label}
+                      </label>
+                      <input
+                        id={`ak-${f.key}`}
+                        type={f.secret ? "password" : "text"}
+                        autoComplete="off"
+                        value={values[f.key] ?? ""}
+                        onChange={(e) => setField(f.key, e.target.value)}
+                        placeholder={f.placeholder}
+                        className="w-full px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 transition-shadow"
+                        style={{
+                          background:   "var(--tm-paper)",
+                          border:       "1px solid var(--tm-mist)",
+                          borderRadius: "var(--tm-r-data)",
+                          color:        "var(--tm-ink)",
+                          ["--tw-ring-color" as string]: "var(--tm-copper)",
+                        }}
+                      />
+                    </div>
+                  ))}
                 </div>
-
-                {fields.map((f) => (
-                  <div key={f.key}>
-                    <label
-                      htmlFor={`ak-${f.key}`}
-                      className="block text-[11px] mb-1 font-mono"
-                      style={{ color: "var(--tm-ink)", opacity: 0.65 }}
-                    >
-                      {f.label}
-                    </label>
-                    <input
-                      id={`ak-${f.key}`}
-                      type={f.secret ? "password" : "text"}
-                      autoComplete="off"
-                      value={values[f.key] ?? ""}
-                      onChange={(e) => setField(f.key, e.target.value)}
-                      placeholder={f.placeholder}
-                      className="w-full px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 transition-shadow"
-                      style={{
-                        background:   "var(--tm-paper)",
-                        border:       "1px solid var(--tm-mist)",
-                        borderRadius: "var(--tm-r-data)",
-                        color:        "var(--tm-ink)",
-                        /* ring color on focus */
-                        ["--tw-ring-color" as string]: "var(--tm-copper)",
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
+              </SecurePaymentCapsule>
 
               {/* Error — spec §7: spesifik, yönlendirici mesaj */}
               {error && (
@@ -400,30 +406,21 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
                 >
                   İptal
                 </button>
-                <button
-                  type="submit"
-                  className="flex-1 h-10 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                  style={{
-                    background:       "var(--tm-copper)",
-                    color:            "#fff",
-                    borderRadius:     "var(--tm-r-ui)",
-                    border:           "1px solid transparent",
-                    ["--tw-outline-color" as string]: "var(--tm-copper)",
-                  }}
-                >
-                  Bağlan
-                </button>
+                <div className="flex-1">
+                  <TrustSubmitButton
+                    className="h-10 text-sm font-semibold !rounded-[var(--tm-r-ui)]"
+                    style={{
+                      background: "var(--tm-copper)",
+                      color: "#fff",
+                      border: "1px solid transparent",
+                    }}
+                    seal="256-bit şifreli bağlantı · API anahtarınız güvende"
+                  >
+                    Bağlan
+                  </TrustSubmitButton>
+                </div>
               </div>
             </form>
-
-            {/* Trust strip — separate from buttons, low visual weight */}
-            <div
-              className="mt-4 pt-3 flex items-center justify-center gap-1.5 text-[10px]"
-              style={{ color: "var(--tm-ink)", opacity: 0.45, borderTop: "1px solid var(--tm-mist)" }}
-            >
-              <LockIcon />
-              <span>Kimlik bilgileri AES-256 ile şifrelenerek saklanır · sipariş verilmez · para taşınmaz</span>
-            </div>
           </div>
         )}
 
@@ -451,6 +448,11 @@ export function MarketplaceApiKeyModal({ marketplaceId, open, onClose, onConnect
                 <p className="text-[11px] font-mono" style={{ color: "var(--tm-ink)", opacity: 0.5 }}>
                   {opt.label}
                 </p>
+                {syncNotice && (
+                  <p className="mt-3 text-[11px] leading-relaxed px-2" style={{ color: "var(--tm-ink)", opacity: 0.65 }}>
+                    {syncNotice}
+                  </p>
+                )}
               </>
             )}
             {phase !== "connected" && (

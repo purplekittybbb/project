@@ -17,6 +17,8 @@ export type { ToolDefinition };
 export const DISCOVER_NAV = [
   { label: "Blog / Rehberler", href: "/blog", note: "Yakında" },
   { label: "Hakkımızda", href: "/hakkimizda" },
+  { label: "Yatırımcı / diligence", href: "/yatirimci" },
+  { label: "Canlı demo (seed)", href: "/demo" },
   { label: "SSS", href: "/sss" },
 ] as const;
 

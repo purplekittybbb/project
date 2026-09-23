@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { isResyncableMarketplace, resyncMarketplace } from "@/lib/marketplace-resync";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * GET /api/cron/sync-marketplaces
@@ -52,20 +52,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Service-role Supabase client — bypasses RLS on purpose (see module doc).
- * Created fresh per request, kept strictly local to this function; never
- * put the key itself into a log line or an error response.
- */
-function serviceRoleClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceRoleKey) return null;
-  return createClient(url, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
-
 interface SyncOutcome {
   userId: string;
   marketplace: string;
@@ -85,7 +71,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = serviceRoleClient();
+  const supabase = createServiceRoleClient();
   if (!supabase) {
     console.error("[cron/sync-marketplaces] SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_URL is not configured.");
     return NextResponse.json({ error: "Supabase service role yapılandırılmamış." }, { status: 500 });

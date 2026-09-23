@@ -20,14 +20,12 @@
  */
 
 import type { ScraperPage } from "../scrapers/browser";
+import { extractSearchResultsFromPage } from "../scrapers/extract-search-results";
 import {
   buildSearchUrl,
   randomDelay,
   checkBlockSignal,
   RESULTS_PER_PAGE,
-  parseTrendyolResults,
-  parseHepsiburadaResults,
-  parseN11Results,
   type VisibilityCheckInput,
 } from "../scrapers/visibility";
 import { computePriceStats } from "../scrapers/price-tracker";
@@ -221,20 +219,6 @@ async function extractReviewCounts(page: ScraperPage): Promise<number[]> {
     return Array.isArray(counts) ? counts : [];
   } catch {
     return [];
-  }
-}
-
-// ── Parser dispatcher (mock/test path) ────────────────────────────────────────
-
-function parsePageHtml(
-  marketplace: Top100Marketplace,
-  html: string,
-  pageNum: number,
-): Array<{ title: string; price: number; position: number; pageNumber: number }> {
-  switch (marketplace) {
-    case "trendyol":    return parseTrendyolResults(html, pageNum);
-    case "hepsiburada": return parseHepsiburadaResults(html, pageNum);
-    case "n11":         return parseN11Results(html, pageNum);
   }
 }
 
@@ -432,9 +416,9 @@ export async function analyzeTop100(
         pageItems = liveItems.map(({ title, price, position }) => ({ title, price, position }));
         reviewCounts = liveItems.map((i) => i.reviewCount ?? -1); // -1 = not available
       } else {
-        // ── Test/mock path: HTML fixture via page.content() + regex parsers ──
-        const html = await page.content();
-        pageItems = parsePageHtml(marketplace, html, pageNum);
+        // No evaluate → shared DOM extract (returns [] without page.evaluate)
+        const { results } = await extractSearchResultsFromPage(page, marketplace, pageNum);
+        pageItems = results.map(({ title, price, position }) => ({ title, price, position }));
         reviewCounts = await extractReviewCounts(page);
       }
 

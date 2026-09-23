@@ -2,8 +2,9 @@ import { Reveal } from "@/components/reveal";
 import { TESTIMONIALS } from "@/lib/marketing/testimonials";
 
 /**
- * "Kullananlar ne diyor" — gerçek, izinli müşteri referansları (PDF §2).
- * Liste boşsa HİÇ render edilmez (sahte sosyal kanıt yok; boş bölüm yok).
+ * "Kullananlar ne diyor" — referans kartları.
+ * Liste boşsa render edilmez. İçerik kaynağı: lib/marketing/testimonials.ts
+ * (şu an TEMP placeholder; gerçek izinli yorumlarla değiştirilecek).
  */
 export function TestimonialsSection() {
   if (TESTIMONIALS.length === 0) return null;
@@ -20,7 +21,7 @@ export function TestimonialsSection() {
               Kullananlar ne diyor
             </h2>
             <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-              Gerçek pazaryeri satıcılarının kendi deneyimleri.
+              Pazaryeri satıcılarından gelen deneyimler.
             </p>
           </div>
         </Reveal>

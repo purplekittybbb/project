@@ -95,6 +95,12 @@ async function currentUserId(): Promise<string | null> {
   return data.user?.id ?? null;
 }
 
+export interface LoadUserRowsResult {
+  rows: StoredRow[];
+  /** Non-null when Supabase is configured but the query failed (RLS, network, missing migration). */
+  error: string | null;
+}
+
 /** Load the signed-in user's rows (RLS scopes to their own).
  *
  * Rows are enriched with the seller's per-SKU cost profile (see
@@ -102,19 +108,32 @@ async function currentUserId(): Promise<string | null> {
  * stores COGS/shipping/return/ad/packaging as 0, and this fills those gaps from
  * the stored profile WITHOUT overwriting values a CSV/manual entry provided.
  * Enrichment soft-fails to a no-op until the 0015 migration is applied. */
-export async function loadUserRows(): Promise<StoredRow[]> {
+export async function loadUserRowsWithStatus(): Promise<LoadUserRowsResult> {
   const supabase = getSupabaseClient();
-  if (!supabase) return [];
+  if (!supabase) return { rows: [], error: null };
   const { data, error } = await supabase
     .from(TABLE)
     .select("*")
     .order("sale_date", { ascending: true });
-  if (error || !data) return [];
+  if (error) {
+    console.error("[user-data] loadUserRows failed:", error.message);
+    return { rows: [], error: error.message };
+  }
+  if (!data) return { rows: [], error: "Veri yüklenemedi." };
 
   const stored = (data as DbRow[]).map(toStored);
   const costs = await loadProductCosts(); // empty map (no-op) until 0015 lands
-  if (costs.size === 0) return stored;
-  return stored.map((r) => ({ ...enrichRowWithProductCost(r, costs.get(r.sku)), id: r.id }));
+  if (costs.size === 0) return { rows: stored, error: null };
+  return {
+    rows: stored.map((r) => ({ ...enrichRowWithProductCost(r, costs.get(r.sku)), id: r.id })),
+    error: null,
+  };
+}
+
+/** Convenience wrapper — prefers empty rows on error. Prefer loadUserRowsWithStatus. */
+export async function loadUserRows(): Promise<StoredRow[]> {
+  const { rows } = await loadUserRowsWithStatus();
+  return rows;
 }
 
 /** Insert new rows for the signed-in user. Returns an error message or null. */
@@ -314,6 +333,7 @@ export function buildUserSeller(rows: UserRawRow[], tenantId = USER_TENANT_ID): 
   if (droppedCount > 0) {
     console.warn(`buildUserSeller: dropped ${droppedCount} transaction(s) failing schema validation`);
   }
+  if (transactions.length === 0) return null;
 
   // The seller's "believed" margin is their perceived (pre-hidden-cost) margin —
   // computed from their own data, never invented.

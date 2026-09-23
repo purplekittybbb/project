@@ -12,6 +12,7 @@ function makeSku(overrides: Partial<SkuMargin> = {}): SkuMargin {
     isSilentLoser: false,
     returnRatePct: 2,
     isReturnRisk: false,
+    netContribution: 0,
     ...overrides,
   };
 }

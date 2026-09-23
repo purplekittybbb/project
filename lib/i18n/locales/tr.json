@@ -1,6 +1,6 @@
 {
   "nav": {
-    "dashboard": "Dashboard",
+    "dashboard": "Panel",
     "myData": "Verilerim",
     "costs": "Maliyetler",
     "safePrice": "Güvenli Fiyat",
@@ -144,7 +144,7 @@
     "daysLater": "{{days}} gün sonra",
     "allReceived": "tümü alındı",
     "settlements": "{{count}} hakediş",
-    "pending": "{{count}} bekleyen",
+    "pending": "{{count}} banka onayı bekleniyor",
     "noTransactions": "Bu kanal için işlem bulunamadı.",
     "date": "Tarih",
     "marketplace": "Pazaryeri",
@@ -154,7 +154,7 @@
     "gap": "Fark",
     "statusCol": "Durum",
     "statusReceived": "Alındı",
-    "statusPending": "Bekliyor",
+    "statusPending": "İşleniyor — banka onayı bekleniyor",
     "statusOverdue": "Yakın",
     "daysAgo": "{{days}}g önce",
     "daysFromNow": "{{days}}g sonra",

@@ -6,7 +6,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getSupabaseClient, isAuthConfigured } from "@/lib/supabase/client";
-import { LockIcon } from "@/components/trust/LockIcon";
+import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
 import { FIELD_ERROR_BORDER } from "@/lib/design/financial-ui";
 
 function Logo() {
@@ -193,13 +193,12 @@ function SifreSifirlaContent() {
               )}
 
               <div className="pt-1">
-                <button type="submit" disabled={loading} className="tm-btn-primary w-full">
+                <TrustSubmitButton
+                  disabled={loading}
+                  seal="256-bit şifreleme · oturum güvenliği"
+                >
                   {loading ? "Kaydediliyor…" : "Şifreyi güncelle"}
-                </button>
-                <div className="mt-2.5 flex items-center justify-center gap-1.5 text-muted-foreground text-[11px]">
-                  <LockIcon />
-                  <span>256-bit şifreleme · oturum güvenliği</span>
-                </div>
+                </TrustSubmitButton>
               </div>
             </form>
           </>

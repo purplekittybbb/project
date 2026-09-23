@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   buildUserSeller,
-  loadUserRows,
+  loadUserRowsWithStatus,
   USER_TENANT_ID,
   type StoredRow,
 } from "@/lib/supabase/user-data";
@@ -22,7 +22,8 @@ export type StoreToolState =
   | { status: "loading" }
   | { status: "anonymous" }
   | { status: "no-store"; connectHref: string }
-  | { status: "no-data"; connectHref: string }
+  | { status: "no-data"; connectHref: string; message?: string }
+  | { status: "load-error"; message: string }
   | {
       status: "ready";
       view: SellerView;
@@ -57,34 +58,71 @@ export function useStoreToolData(toolHref: string): StoreToolState {
         return;
       }
 
-      const credRes = await fetch("/api/marketplace/credentials-status", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const credJson = (await credRes.json()) as { connections?: unknown[]; marketplaces?: string[] };
-      const hasStore =
-        (credJson.connections?.length ?? 0) > 0 || (credJson.marketplaces?.length ?? 0) > 0;
-
-      if (!hasStore) {
-        if (!cancelled) setState({ status: "no-store", connectHref: buildConnectUrl(toolHref) });
+      const connectHref = buildConnectUrl(toolHref);
+      const { rows, error: loadError } = await loadUserRowsWithStatus();
+      if (loadError) {
+        if (!cancelled) {
+          setState({
+            status: "load-error",
+            message: "Satış verileri yüklenemedi. Oturumu yenileyip tekrar deneyin.",
+          });
+        }
         return;
       }
 
-      const rows = await loadUserRows();
       if (rows.length === 0) {
-        if (!cancelled) setState({ status: "no-data", connectHref: buildConnectUrl(toolHref) });
+        const credRes = await fetch("/api/marketplace/credentials-status", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!credRes.ok) {
+          if (!cancelled) {
+            setState({
+              status: "load-error",
+              message: "Mağaza bağlantı durumu okunamadı. Oturumu yenileyip tekrar deneyin.",
+            });
+          }
+          return;
+        }
+        const credJson = (await credRes.json()) as { connections?: unknown[]; marketplaces?: string[] };
+        const hasCredentials =
+          (credJson.connections?.length ?? 0) > 0 || (credJson.marketplaces?.length ?? 0) > 0;
+
+        if (!cancelled) {
+          setState(
+            hasCredentials
+              ? {
+                  status: "no-data",
+                  connectHref,
+                  message: "Mağaza bağlı ancak henüz sipariş verisi yok — senkron bekleyin veya CSV yükleyin.",
+                }
+              : { status: "no-store", connectHref },
+          );
+        }
         return;
       }
 
       const seller = buildUserSeller(rows, USER_TENANT_ID);
       if (!seller) {
-        if (!cancelled) setState({ status: "no-data", connectHref: buildConnectUrl(toolHref) });
+        if (!cancelled) {
+          setState({
+            status: "no-data",
+            connectHref,
+            message: "Kayıtlı satırlar işlenemedi — CSV formatını veya manuel girişleri kontrol edin.",
+          });
+        }
         return;
       }
 
       registerRuntimeSeller(seller, "Mağazam");
       const view = buildSellerView(seller, "combined");
       if (!view) {
-        if (!cancelled) setState({ status: "no-data", connectHref: buildConnectUrl(toolHref) });
+        if (!cancelled) {
+          setState({
+            status: "no-data",
+            connectHref,
+            message: "Veriler yüklendi ancak marj hesaplanamadı — satır alanlarını kontrol edin.",
+          });
+        }
         return;
       }
 

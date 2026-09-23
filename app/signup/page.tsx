@@ -15,7 +15,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase/client";
-import { LockIcon } from "@/components/trust/LockIcon";
+import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
+import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
 import { FIELD_ERROR_BORDER } from "@/lib/design/financial-ui";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -261,11 +262,7 @@ export default function SignupPage() {
             onBlur={blurField("company")}
           />
 
-          <div className="tm-secure-field-group p-4 space-y-3">
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <LockIcon className="text-[var(--tm-copper)]" />
-              <span>Şifreniz hashlenerek saklanır; düz metin tutulmaz.</span>
-            </div>
+          <SecurePaymentCapsule hint="Şifreniz hashlenerek saklanır; düz metin tutulmaz.">
             <Field
               id="password"
               label="Şifre"
@@ -277,7 +274,7 @@ export default function SignupPage() {
               onChange={set("password")}
               onBlur={blurField("password")}
             />
-          </div>
+          </SecurePaymentCapsule>
 
           {/* Form-level error (sign-up failure) */}
           {formError && (
@@ -298,9 +295,12 @@ export default function SignupPage() {
 
           {/* Submit + trust signals */}
           <div className="pt-1 space-y-3">
-            <button type="submit" disabled={loading} className="tm-btn-primary w-full">
+            <TrustSubmitButton
+              disabled={loading}
+              seal="256-bit şifreleme · KVKK uyumlu veri işleme"
+            >
               {loading ? "Hesap oluşturuluyor…" : "Kaydol"}
-            </button>
+            </TrustSubmitButton>
 
             <p className="text-center text-[11px] text-muted-foreground leading-relaxed">
               Kaydolarak{" "}
@@ -313,11 +313,6 @@ export default function SignupPage() {
               </Link>
               'nı kabul etmiş olursunuz.
             </p>
-
-            <div className="flex items-center justify-center gap-1.5 text-muted-foreground text-[11px]">
-              <LockIcon />
-              <span>256-bit şifreleme · KVKK uyumlu veri işleme</span>
-            </div>
 
             <p className="text-center text-[11px] text-muted-foreground leading-relaxed">
               Verileriniz yalnızca net kâr hesaplaması için kullanılır; üçüncü tarafla paylaşılmaz.

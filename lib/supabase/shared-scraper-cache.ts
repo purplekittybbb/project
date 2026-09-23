@@ -9,7 +9,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { PriceTrackResult } from "@/lib/scrapers/price-tracker";
+import { hasUsablePrices, type PriceTrackResult } from "@/lib/scrapers/price-tracker";
 import type { Top100AnalysisResult } from "@/lib/demand/top100";
 
 interface CachedRow<T> {
@@ -59,12 +59,16 @@ export function loadSharedPriceTrackScan(
   return loadCached<PriceTrackResult>(supabase, "shared_price_track_scans", marketplace, keyword);
 }
 
-export function upsertSharedPriceTrackScan(
+export async function upsertSharedPriceTrackScan(
   supabase: SupabaseClient,
   marketplace: string,
   keyword: string,
   result: PriceTrackResult,
 ): Promise<{ error: string | null }> {
+  // Hard gate: never poison shared cache with ₺0 / empty / errored scrapes.
+  if (!hasUsablePrices(result)) {
+    return { error: "refused: no usable price > 0 — cache write skipped" };
+  }
   return upsertCached(supabase, "shared_price_track_scans", marketplace, keyword, result);
 }
 

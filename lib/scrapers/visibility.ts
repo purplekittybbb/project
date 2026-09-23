@@ -14,24 +14,29 @@
  */
 
 import type { ScraperPage } from "./browser";
+import {
+  extractSearchResultsFromPage,
+  type MarketplaceId,
+  type SearchResult,
+} from "./extract-search-results";
+
+export {
+  CARD_SELECTOR_FALLBACKS,
+  extractSearchResultsFromPage,
+  hasUsableSearchResults,
+  NO_USABLE_SCRAPE_ERROR,
+  type SearchResult,
+} from "./extract-search-results";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface VisibilityCheckInput {
-  marketplace: "trendyol" | "hepsiburada" | "n11";
+  marketplace: MarketplaceId;
   keyword: string;
   /** Match against product title. Case-insensitive substring match. */
   targetTitle: string;
   /** Default 3, hard max 10. Prevents infinite scraping loops. */
   maxPages?: number;
-}
-
-export interface SearchResult {
-  title: string;
-  price: number;
-  /** 1-indexed position within the page. */
-  position: number;
-  pageNumber: number;
 }
 
 export type ScrapeFailureCode =
@@ -85,27 +90,6 @@ export const RESULTS_PER_PAGE: Record<VisibilityCheckInput["marketplace"], numbe
   n11: 24,
 };
 
-/** Primary + fallback card selectors (order matters). */
-export const CARD_SELECTOR_FALLBACKS: Record<
-  VisibilityCheckInput["marketplace"],
-  readonly string[]
-> = {
-  trendyol: [
-    '[data-testid="product-card"]',
-    ".p-card-wrppr",
-    "[class*='product-card']",
-    "[class*='productCard']",
-    "article",
-  ],
-  hepsiburada: [
-    '[data-test-id="product-card-name"]',
-    "[data-test-id='product-card']",
-    "[class*='product-card']",
-    "article",
-  ],
-  n11: [".pro-title", "[class*='productName']", "article"],
-};
-
 /**
  * Build the search URL for a given marketplace, keyword, and page number.
  * Page numbers are 1-indexed.
@@ -123,164 +107,6 @@ export function buildSearchUrl(
       return `https://www.hepsiburada.com/ara?q=${encoded}&sayfa=${page}`;
     case "n11":
       return `https://www.n11.com/arama?q=${encoded}&pg=${page}`;
-  }
-}
-
-// ── HTML parsers (CSS-selector-based, works on raw HTML strings) ──────────────
-
-/**
- * Parse Trendyol search result HTML.
- *
- * Trendyol product cards use:
- *   .p-card-wrppr — outer card wrapper
- *   .prdct-desc-cntnr-name span — product name
- *   .prc-box-dscntd, .prc-box-sllng — price containers
- */
-export function parseTrendyolResults(html: string, pageNumber: number): SearchResult[] {
-  const results: SearchResult[] = [];
-
-  // Match product card blocks
-  const cardPattern = /<div[^>]*class="[^"]*p-card-wrppr[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>\s*<\/div>/g;
-
-  // Fallback: extract by data-id attributes (Trendyol typically uses data-id for product tracking)
-  // We use a simpler approach: extract all product name + price pairs from structured markup
-  const namePattern = /class="[^"]*prdct-desc-cntnr-name[^"]*"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g;
-  const pricePattern = /class="[^"]*(?:prc-box-dscntd|prc-box-sllng)[^"]*"[^>]*>([^<]*\d+[.,]\d*)/g;
-
-  const names: string[] = [];
-  const prices: number[] = [];
-
-  let nameMatch: RegExpExecArray | null;
-  while ((nameMatch = namePattern.exec(html)) !== null) {
-    names.push(nameMatch[1].trim());
-  }
-
-  let priceMatch: RegExpExecArray | null;
-  while ((priceMatch = pricePattern.exec(html)) !== null) {
-    const raw = priceMatch[1].replace(/\./g, "").replace(",", ".").replace(/[^\d.]/g, "");
-    const price = parseFloat(raw);
-    if (!isNaN(price)) {
-      prices.push(price);
-    }
-  }
-
-  const count = Math.min(names.length, prices.length);
-  for (let i = 0; i < count; i++) {
-    results.push({
-      title: names[i],
-      price: prices[i],
-      position: i + 1,
-      pageNumber,
-    });
-  }
-
-  // Suppress unused variable warning — cardPattern defined for documentation
-  void cardPattern;
-
-  return results;
-}
-
-/**
- * Parse Hepsiburada search result HTML.
- *
- * Hepsiburada uses:
- *   [data-test-id="product-card-name"]  — product title
- *   [data-test-id="price-current-price"] — current price
- */
-export function parseHepsiburadaResults(html: string, pageNumber: number): SearchResult[] {
-  const results: SearchResult[] = [];
-
-  const namePattern = /data-test-id="product-card-name"[^>]*>([^<]+)<\/(?:h3|span|div|a)/g;
-  const pricePattern = /data-test-id="price-current-price"[^>]*>([^<]*\d+[.,]\d*)/g;
-
-  const names: string[] = [];
-  const prices: number[] = [];
-
-  let nameMatch: RegExpExecArray | null;
-  while ((nameMatch = namePattern.exec(html)) !== null) {
-    names.push(nameMatch[1].trim());
-  }
-
-  let priceMatch: RegExpExecArray | null;
-  while ((priceMatch = pricePattern.exec(html)) !== null) {
-    const raw = priceMatch[1].replace(/\./g, "").replace(",", ".").replace(/[^\d.]/g, "");
-    const price = parseFloat(raw);
-    if (!isNaN(price)) {
-      prices.push(price);
-    }
-  }
-
-  const count = Math.min(names.length, prices.length);
-  for (let i = 0; i < count; i++) {
-    results.push({
-      title: names[i],
-      price: prices[i],
-      position: i + 1,
-      pageNumber,
-    });
-  }
-
-  return results;
-}
-
-/**
- * Parse N11 search result HTML.
- *
- * N11 uses:
- *   .pro-title / .title — product title
- *   .priceValue / .newPrice — price
- */
-export function parseN11Results(html: string, pageNumber: number): SearchResult[] {
-  const results: SearchResult[] = [];
-
-  const namePattern = /class="[^"]*(?:pro-title|productName)[^"]*"[^>]*>\s*(?:<[^>]+>)*([^<]+)/g;
-  const pricePattern = /class="[^"]*(?:priceValue|newPrice)[^"]*"[^>]*>([^<]*\d+[.,]\d*)/g;
-
-  const names: string[] = [];
-  const prices: number[] = [];
-
-  let nameMatch: RegExpExecArray | null;
-  while ((nameMatch = namePattern.exec(html)) !== null) {
-    const name = nameMatch[1].trim();
-    if (name) names.push(name);
-  }
-
-  let priceMatch: RegExpExecArray | null;
-  while ((priceMatch = pricePattern.exec(html)) !== null) {
-    const raw = priceMatch[1].replace(/\./g, "").replace(",", ".").replace(/[^\d.]/g, "");
-    const price = parseFloat(raw);
-    if (!isNaN(price)) {
-      prices.push(price);
-    }
-  }
-
-  const count = Math.min(names.length, prices.length);
-  for (let i = 0; i < count; i++) {
-    results.push({
-      title: names[i],
-      price: prices[i],
-      position: i + 1,
-      pageNumber,
-    });
-  }
-
-  return results;
-}
-
-// ── Parser dispatcher ─────────────────────────────────────────────────────────
-
-function parseResults(
-  marketplace: VisibilityCheckInput["marketplace"],
-  html: string,
-  pageNumber: number
-): SearchResult[] {
-  switch (marketplace) {
-    case "trendyol":
-      return parseTrendyolResults(html, pageNumber);
-    case "hepsiburada":
-      return parseHepsiburadaResults(html, pageNumber);
-    case "n11":
-      return parseN11Results(html, pageNumber);
   }
 }
 
@@ -389,23 +215,6 @@ function logScrapePageDiagnostics(params: {
   );
 }
 
-async function waitForProductCards(
-  page: ScraperPage,
-  marketplace: VisibilityCheckInput["marketplace"],
-): Promise<string | null> {
-  if (!page.waitForSelector) return CARD_SELECTOR_FALLBACKS[marketplace][0];
-
-  for (const selector of CARD_SELECTOR_FALLBACKS[marketplace]) {
-    try {
-      await page.waitForSelector(selector, { timeout: 8_000 });
-      return selector;
-    } catch {
-      // try next fallback
-    }
-  }
-  return null;
-}
-
 /**
  * Circuit breaker state — tracks consecutive failures per scrape session.
  * Empty extraction and confirmed blocks are counted separately.
@@ -415,8 +224,6 @@ interface CircuitState {
   consecutiveConfirmed: number;
   maxConsecutive: number;
 }
-
-
 
 /**
  * Search for a product by keyword on a marketplace and return its rank.
@@ -440,7 +247,6 @@ export async function searchProductRank(
   const maxPages = Math.min(input.maxPages ?? 3, 10); // hard max: 10
   const resultsPerPage = RESULTS_PER_PAGE[marketplace];
   const lowerTarget = targetTitle.toLowerCase();
-  const cardSelectors = CARD_SELECTOR_FALLBACKS[marketplace];
 
   // Anti-bot: read delay config from env (tests can override to 0)
   const delayMin = parseInt(process.env.SCRAPE_DELAY_MIN_MS ?? "2000", 10);
@@ -487,70 +293,9 @@ export async function searchProductRank(
         };
       }
 
-      let matchedSelector: string | null = null;
-      let pageResults: SearchResult[];
-
-      if (page.evaluate) {
-        matchedSelector = await waitForProductCards(page, marketplace);
-
-        pageResults = (await page.evaluate(
-          ({ selectors, pageNum: pn }) => {
-            let cards: NodeListOf<Element> | null = null;
-            for (const sel of selectors) {
-              const found = document.querySelectorAll(sel);
-              if (found.length > 0) {
-                cards = found;
-                break;
-              }
-            }
-            if (!cards) {
-              cards = document.querySelectorAll(
-                selectors[0] ?? '[data-testid="product-card"]',
-              );
-            }
-
-            const out: Array<{
-              title: string;
-              price: number;
-              position: number;
-              pageNumber: number;
-            }> = [];
-
-            cards.forEach((card, idx) => {
-              const titleEl =
-                card.querySelector('[data-testid="product-name"]') ??
-                card.querySelector('[data-testid="product-title"]') ??
-                card.querySelector('[class*="product-name"]') ??
-                card.querySelector('[class*="title"]') ??
-                card.querySelector("h3") ??
-                card.querySelector("h2");
-              const title = (titleEl as HTMLElement)?.innerText?.trim() ?? "";
-
-              let bestPrice = 0;
-              card.querySelectorAll("*").forEach((el) => {
-                const txt = (el as HTMLElement).innerText ?? "";
-                if (el.children.length === 0 && /\d/.test(txt) && txt.includes("TL")) {
-                  const clean = txt.replace(/\./g, "").replace(",", ".").match(/[\d.]+/);
-                  if (clean) {
-                    const val = parseFloat(clean[0]);
-                    if (val > 0) bestPrice = val;
-                  }
-                }
-              });
-
-              if (title) {
-                out.push({ title, price: bestPrice, position: idx + 1, pageNumber: pn });
-              }
-            });
-
-            return out;
-          },
-          { selectors: cardSelectors, pageNum },
-        )) as SearchResult[];
-      } else {
-        const html = await page.content();
-        pageResults = parseResults(marketplace, html, pageNum);
-      }
+      const extracted = await extractSearchResultsFromPage(page, marketplace, pageNum);
+      const matchedSelector = extracted.matchedSelector;
+      const pageResults = extracted.results;
 
       const html = await page.content();
       const snippet = bodySnippet(html);

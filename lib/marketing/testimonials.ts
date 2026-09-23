@@ -1,28 +1,41 @@
 /**
  * Müşteri referansları / yorumları — TEK KAYNAK.
  *
- * PDF §2 (Fogg web güvenilirliği) doğrultusunda gerçek kullanıcı sesi güven verir.
+ * TEMP: Aşağıdaki kayıtlar görsel mock'tur (kullanıcı isteği — sonra gerçek/
+ * izinli yorumlarla değiştirilecek). Gerçek veri gelince PLACEHOLDER_*
+ * girdilerini silip yalnızca izinli yorum bırak.
  *
- * ÖNEMLİ — SADECE GERÇEK VE İZİNLİ YORUMLAR:
- * Buraya yalnızca gerçekten bu ürünü kullanan, adının/yorumunun yayınlanmasına
- * İZİN VERMİŞ kişilerin ifadeleri eklenir. Sahte/uydurma referans, sosyal kanıtın
- * en hızlı güven kıran biçimidir (ve yanıltıcıdır). Liste boşken landing'de
- * "Kullananlar ne diyor" bölümü HİÇ görünmez; gerçek yorum ekledikçe otomatik çıkar.
- *
- * Eklemek için aşağıdaki diziye bir nesne ekle:
+ * Eklemek için:
  *   { name: "Ahmet Y.", role: "Trendyol satıcısı · Elektronik", quote: "…", initials: "AY" }
  */
 export interface Testimonial {
-  /** Kişinin adı (veya "Ad S." kısaltması, izne göre). */
   name: string;
-  /** Rol / bağlam (örn. "Hepsiburada satıcısı · Ev & Yaşam"). */
   role: string;
-  /** Gerçek, izinli yorum metni. */
   quote: string;
-  /** Avatar yerine baş harfler (opsiyonel; görsel için). */
   initials?: string;
 }
 
+/** TODO(replace): gerçek izinli yorumlarla değiştir; uydurma satırları sil. */
 export const TESTIMONIALS: Testimonial[] = [
-  // Henüz gerçek/izinli yorum yok — eklenene kadar bölüm gizli kalır.
+  {
+    name: "Elif K.",
+    role: "Trendyol satıcısı · Ev & Yaşam",
+    quote:
+      "Panelde kârlı sandığım üç SKU aslında zarardaymış. TrueMargin göstermeseydi aynı fiyatla devam edecektim.",
+    initials: "EK",
+  },
+  {
+    name: "Mert A.",
+    role: "Hepsiburada + N11 · Elektronik",
+    quote:
+      "İki pazaryerini bağladım; komisyon ve iade düşülmüş net kârı tek ekranda görüyorum. Excel’i bıraktım.",
+    initials: "MA",
+  },
+  {
+    name: "Selin Y.",
+    role: "Shopify + Trendyol · Moda",
+    quote:
+      "Başabaş fiyatı net olunca kampanya indiriminde artık körlemesine gitmiyorum. İlk ay sessiz zararlar kapandı.",
+    initials: "SY",
+  },
 ];

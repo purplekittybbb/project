@@ -6,7 +6,7 @@ export const AUTH_NO_STORE_DAILY_LIMIT = 10;
  * Signed-in AND on an active/trialing subscription (Başlangıç or Profesyonel).
  * This is the one concrete, already-shipped lever that ties paying for
  * TrueMargin to a real, higher limit on the standalone tools — see the audit
- * finding that /api/demand and /api/top100 in middleware.ts PREMIUM_PREFIXES
+ * finding that /api/demand and /api/top100 in proxy.ts PREMIUM_PREFIXES
  * don't correspond to any real route, so paying customers previously got
  * nothing extra here. Deliberately generous (not "unlimited") — still a real
  * ceiling for anti-bot/scraping cost reasons, but far above the free tier.
