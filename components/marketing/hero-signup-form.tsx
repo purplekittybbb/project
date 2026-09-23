@@ -42,6 +42,12 @@ export function HeroSignupForm() {
     const { data, error: signErr } = await supabase.auth.signUp({
       email: trimmedEmail,
       password,
+      options: {
+        data: {
+          full_name: trimmedEmail.split("@")[0] || "Satıcı",
+          company: "",
+        },
+      },
     });
 
     setLoading(false);

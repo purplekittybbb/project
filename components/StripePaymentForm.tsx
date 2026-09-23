@@ -79,6 +79,8 @@ function PaymentForm({
         return;
       }
       onSuccess();
+      // Parent navigates away; clear busy if soft-nav stalls.
+      setBusy(false);
     } catch {
       onError("Sunucuya bağlanılamadı.");
       setBusy(false);
@@ -113,6 +115,7 @@ export function StripePaymentForm({
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const stripePromise = useMemo(() => {
     if (!publishableKey) return null;
@@ -121,11 +124,10 @@ export function StripePaymentForm({
 
   useEffect(() => {
     let active = true;
+    setLoadError(null);
+    setClientSecret(null);
     (async () => {
       try {
-        // Fetched fresh here too (see PaymentForm.handleSubmit's comment) —
-        // this component no longer trusts a token the parent captured at
-        // page-mount time and threaded down as a prop.
         const accessToken = await getFreshAccessToken();
         if (!accessToken) {
           if (active) setLoadError("Oturum bulunamadı — lütfen tekrar giriş yapın.");
@@ -147,13 +149,9 @@ export function StripePaymentForm({
       }
     })();
     return () => { active = false; };
-  }, []);
+  }, [reloadKey]);
 
   if (!stripePromise) {
-    // Bu koşula gerçekte hiç girilmemeli — StripePaymentForm zaten yalnızca
-    // stripeLive true iken render ediliyor (bkz. app/connect/page.tsx). Yine
-    // de ortam yapılandırması eksikse, kullanıcıya "publishable key" gibi bir
-    // geliştirici hata mesajı yerine nötr bir mesaj gösteriyoruz.
     return (
       <p className="text-sm tm-field-error">
         Ödeme yöntemi şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.
@@ -162,7 +160,18 @@ export function StripePaymentForm({
   }
 
   if (loadError) {
-    return <p className="text-sm tm-field-error">{loadError}</p>;
+    return (
+      <div className="space-y-3">
+        <p className="text-sm tm-field-error" role="alert">{loadError}</p>
+        <button
+          type="button"
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="tm-btn-primary h-10 px-4 text-sm font-medium"
+        >
+          Tekrar dene
+        </button>
+      </div>
+    );
   }
 
   if (!clientSecret) {

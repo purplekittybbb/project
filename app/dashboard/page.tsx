@@ -1290,7 +1290,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           <div className="flex flex-col gap-2 pt-2">
             <button
               type="button"
-              onClick={() => router.push("/connect")}
+              onClick={() => router.push("/connect?preview=connect")}
               className="h-10 px-4 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors"
             >
               CSV yükle veya pazaryeri bağla
@@ -1507,7 +1507,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                 authConfigured={authConfigured}
                 hasMarketplaceConnected={dataChannels.length > 0}
                 hasRealData={view.skus.length > 0}
-                onConnect={() => router.push("/connect")}
+                onConnect={() => router.push("/connect?preview=connect")}
                 onGoToData={() => setCurrentTab("Verilerim")}
                 onGoToSettlement={() => setCurrentTab("Dashboard")}
                 onGoToProducts={() => setCurrentTab("Products")}

@@ -16,11 +16,11 @@
  */
 
 import { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
 import { MarketplaceConnectStep } from "@/components/MarketplaceConnectStep";
 import { addConnection, getConnections } from "@/lib/connect/store";
-import { getSupabaseClient, getFreshAccessToken, isAuthConfigured } from "@/lib/supabase/client";
+import { getFreshAccessToken, isAuthConfigured } from "@/lib/supabase/client";
 import { loadUserRowsWithStatus } from "@/lib/supabase/user-data";
 import {
   completeOnboarding, isOnboardingDone, setConnectedMarketplaces,
@@ -31,6 +31,7 @@ import { StripePaymentForm } from "@/components/StripePaymentForm";
 import { launchPlanDisplay } from "@/lib/product-market";
 import { LockIcon } from "@/components/trust/LockIcon";
 import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
+import { safeNextPath } from "@/lib/auth/safe-next-path";
 
 /**
  * Silently re-syncs every marketplace this signed-in user has stored (but
@@ -41,10 +42,7 @@ import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
  * form and go straight to /dashboard).
  */
 async function tryAutoReconnect(): Promise<boolean> {
-  const supabase = getSupabaseClient();
-  if (!supabase) return false;
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData.session?.access_token;
+  const accessToken = await getFreshAccessToken();
   if (!accessToken) return false;
 
   let result: { connected?: string[] };
@@ -109,15 +107,16 @@ function StepRail({ step }: { step: Step }) {
 }
 
 function ConnectFlow() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const previewConnect = searchParams.get("preview") === "connect";
+  const returnTo = safeNextPath(searchParams.get("next"), "/dashboard");
 
   const [step, setStep] = useState<Step>("connect");
   const [ready, setReady] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [cardBusy, setCardBusy] = useState(false);
   const [cardError, setCardError] = useState("");
+  const [skipBilling, setSkipBilling] = useState(false);
   const stripeLive = isStripeLiveEnabled();
 
   useEffect(() => {
@@ -127,14 +126,12 @@ function ConnectFlow() {
       if (previewConnect) {
         const ids = getConnections().map((c) => c.marketplaceId);
         if (ids.length) setConnectedMarketplaces(ids);
+        setSkipBilling(true);
         setReady(true);
         return;
       }
 
       if (isAuthConfigured()) {
-        // Real deployment: trust actual Supabase data, never a stale local flag —
-        // a returning user with real rows goes straight in; one with none (even
-        // if some earlier browser session marked onboarding "done") sees connect.
         const { rows, error: loadError } = await loadUserRowsWithStatus();
         if (!active) return;
         if (loadError) {
@@ -143,20 +140,42 @@ function ConnectFlow() {
           return;
         }
         if (rows.length > 0) {
-          router.replace("/dashboard");
+          window.location.assign(returnTo);
           return;
         }
 
-        // No data yet — but this user may have previously connected a live
-        // marketplace whose stored credentials (marketplace_credentials) were
-        // never read back (e.g. after "Clear", or a fresh sign-in elsewhere).
-        // Try a silent reconnect BEFORE ever showing a form; only fall back
-        // to the connect UI if that fails or there's nothing to try.
         const reconnected = await tryAutoReconnect();
         if (!active) return;
         if (reconnected) {
-          router.replace("/dashboard");
+          window.location.assign(returnTo);
           return;
+        }
+
+        // Already on free trial / paid — don't force plan+card again.
+        const token = await getFreshAccessToken();
+        if (token) {
+          try {
+            const statusRes = await fetch("/api/billing/status", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const statusJson = (await statusRes.json().catch(() => ({}))) as {
+              subscription?: { status?: string } | null;
+              paidPlan?: { status?: string } | null;
+            };
+            const subStatus = statusJson.subscription?.status;
+            const paidStatus = statusJson.paidPlan?.status;
+            if (
+              subStatus === "trialing" ||
+              subStatus === "active" ||
+              paidStatus === "active" ||
+              paidStatus === "trialing"
+            ) {
+              if (!active) return;
+              setSkipBilling(true);
+            }
+          } catch {
+            // ignore — show full wizard
+          }
         }
 
         const ids = getConnections().map((c) => c.marketplaceId);
@@ -165,9 +184,8 @@ function ConnectFlow() {
         return;
       }
 
-      // Demo/local mode (no Supabase keys) — original local-flag behaviour, untouched.
       if (isOnboardingDone()) {
-        router.replace("/dashboard");
+        window.location.assign(returnTo);
         return;
       }
       const ids = getConnections().map((c) => c.marketplaceId);
@@ -176,11 +194,17 @@ function ConnectFlow() {
     })();
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router, previewConnect]);
+  }, [previewConnect, returnTo]);
 
   function handleConnectContinue() {
     const ids = getConnections().map((c) => c.marketplaceId);
     setConnectedMarketplaces(ids);
+    // Returning from dashboard only to (re)connect, or already billed — skip plan/card.
+    if (previewConnect || skipBilling) {
+      completeOnboarding(ids[0]);
+      window.location.assign(returnTo);
+      return;
+    }
     setStep("plan");
   }
 
@@ -191,11 +215,6 @@ function ConnectFlow() {
     if (isAuthConfigured() && !stripeLive) {
       setCardBusy(true);
       setCardError("");
-      // Fetched fresh, right before use — not a token captured back when this
-      // page first mounted. A user can spend real time on step 1 gathering a
-      // Trendyol/Hepsiburada/N11 API key from their own seller panel before
-      // ever reaching this step; see getFreshAccessToken's doc comment for
-      // why holding a token in state across that gap is the wrong pattern.
       const accessToken = await getFreshAccessToken();
       if (!accessToken) {
         setCardError("Oturum bulunamadı — lütfen tekrar giriş yapıp tekrar deneyin.");
@@ -222,7 +241,7 @@ function ConnectFlow() {
     }
 
     completeOnboarding(ids[0]);
-    router.push("/dashboard");
+    window.location.assign(returnTo);
   }
 
   if (!ready) {

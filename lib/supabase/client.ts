@@ -25,7 +25,13 @@ export function getSupabaseClient(): SupabaseClient | null {
 
   if (!url || !anonKey) return null;
 
-  cached = createBrowserClient(url, anonKey);
+  cached = createBrowserClient(url, anonKey, {
+    cookieOptions: {
+      path: "/",
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    },
+  });
   return cached;
 }
 
@@ -38,11 +44,14 @@ export function isAuthConfigured(): boolean {
 
 /**
  * Fresh access token at call time — never cache in component state.
- * supabase-js auto-refreshes; a token captured on mount can go stale mid-flow.
+ * Validates via getUser() first so an expired local JWT is refreshed/rejected
+ * before marketplace or billing API calls.
  */
 export async function getFreshAccessToken(): Promise<string | null> {
   const supabase = getSupabaseClient();
   if (!supabase) return null;
+  const { data: userData, error } = await supabase.auth.getUser();
+  if (error || !userData.user) return null;
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? null;
 }
