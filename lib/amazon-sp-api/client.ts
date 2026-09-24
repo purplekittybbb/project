@@ -12,6 +12,7 @@
  */
 
 import type { UserRawRow } from "../adapters/csv";
+import { istanbulDayString, istanbulTodayString } from "../time/istanbul";
 import { AMAZON_TR_MARKETPLACE_ID, SP_API_EU_ENDPOINT } from "./constants";
 import { assertAmazonOrdersLiveAllowed } from "./live";
 import { exchangeRefreshToken } from "./lwa";
@@ -73,8 +74,8 @@ export function mapAmazonOrdersToUserRawRows(orders: AmazonOrder[]): UserRawRow[
     if (isNonSaleAmazonOrder(order)) continue;
     const orderId = order.AmazonOrderId ?? `amazon-tr-${rows.length}`;
     const saleDate = order.PurchaseDate
-      ? order.PurchaseDate.slice(0, 10)
-      : new Date().toISOString().slice(0, 10);
+      ? istanbulDayString(order.PurchaseDate) || istanbulTodayString()
+      : istanbulTodayString();
     const items = order.OrderItems ?? [];
 
     for (const item of items) {

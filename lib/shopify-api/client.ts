@@ -32,6 +32,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import type { UserRawRow } from "../adapters/csv";
+import { istanbulDayString, istanbulTodayString } from "../time/istanbul";
 
 const API_VERSION = "2026-07";
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -324,7 +325,9 @@ export function mapShopifyOrdersToUserRawRows(orders: ShopifyOrderNode[]): UserR
   let totalLinesSeen = 0;
 
   for (const order of orders) {
-    const saleDate = order.createdAt ? order.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const saleDate = order.createdAt
+      ? istanbulDayString(order.createdAt) || istanbulTodayString()
+      : istanbulTodayString();
     const orderId = order.name ?? order.id ?? `shopify-${rows.length}`;
     const lines = order.lineItems?.edges ?? [];
 
@@ -389,7 +392,9 @@ export function mapShopifyWebhookOrderToUserRawRows(payload: unknown): UserRawRo
     throw new ShopifyMappingError("Shopify webhook sipariş gövdesi beklenen biçimde değil.");
   }
   const order = parsed.data;
-  const saleDate = order.created_at ? order.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const saleDate = order.created_at
+    ? istanbulDayString(order.created_at) || istanbulTodayString()
+    : istanbulTodayString();
   const orderId = order.name ?? (order.id != null ? String(order.id) : `shopify-wh-${Date.now()}`);
   const rows: UserRawRow[] = [];
   let totalLinesSeen = 0;

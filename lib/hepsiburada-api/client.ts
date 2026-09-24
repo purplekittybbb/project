@@ -32,6 +32,7 @@
 import { z } from "zod";
 import type { UserRawRow } from "../adapters/csv";
 import { mapToInternalCategory } from "../domain/internal-category";
+import { istanbulDayString, istanbulTodayString } from "../time/istanbul";
 
 const HEPSIBURADA_API_BASE = "https://oms-external.hepsiburada.com";
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -258,7 +259,7 @@ export function mapHepsiburadaOrdersToUserRawRows(orders: HepsiburadaOrder[]): U
 
   for (const order of orders) {
     const rawDate = order.orderDate ?? order.OrderDate;
-    const saleDate = rawDate ? new Date(rawDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const saleDate = rawDate ? istanbulDayString(rawDate) || istanbulTodayString() : istanbulTodayString();
     const orderId = order.orderNumber ?? order.OrderNumber ?? `hepsiburada-${rows.length}`;
     const lines = order.lineItems ?? order.LineItems ?? order.items ?? [];
 

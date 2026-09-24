@@ -24,6 +24,7 @@
 import { z } from "zod";
 import type { UserRawRow } from "../adapters/csv";
 import { mapToInternalCategory } from "../domain/internal-category";
+import { istanbulDayString, istanbulTodayString } from "../time/istanbul";
 
 const N11_API_BASE = "https://api.n11.com/rest/delivery/v1";
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -213,8 +214,14 @@ export async function fetchN11Orders(creds: N11Credentials, days = 90): Promise<
 
 function resolveSaleDate(order: N11Order): string {
   const raw = order.lastModifiedDate ?? order.orderDate ?? order.createdDate;
-  if (raw == null) return new Date().toISOString().slice(0, 10);
-  return new Date(typeof raw === "number" ? raw : raw).toISOString().slice(0, 10);
+  if (raw == null) return istanbulTodayString();
+  // BUG FIX: the old `typeof raw === "number" ? raw : raw` was a no-op ternary.
+  // N11 may send epoch-ms as a numeric STRING ("1699..."); `new Date("1699...")`
+  // → Invalid Date → `.toISOString()` throws RangeError and aborts the whole
+  // sync. Coerce all-digit strings to a number and guard an unparseable value.
+  const numeric =
+    typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw) : raw;
+  return istanbulDayString(numeric as string | number) || istanbulTodayString();
 }
 
 /**

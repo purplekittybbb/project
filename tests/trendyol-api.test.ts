@@ -8,6 +8,7 @@ import {
   TrendyolApiError,
   TrendyolMappingError,
 } from "../lib/trendyol-api/client";
+import { istanbulDayString } from "../lib/time/istanbul";
 
 function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}) {
   return {
@@ -186,7 +187,7 @@ describe("mapOrdersToUserRawRows — real order data mapping", () => {
       return_rate: 0,
       ad_spend: 0,
       marketplace: "trendyol",
-      sale_date: new Date(1762253333685).toISOString().slice(0, 10),
+      sale_date: istanbulDayString(1762253333685),
       product_name: "Kuş ve Çiçek Desenli Tepsi - Yeşil / Altın Sarısı - 49 cm, 01SYM134, Tek Ebat",
       barcode: "8683772071724",
       // Official example has productCategoryId-less / no categoryName /

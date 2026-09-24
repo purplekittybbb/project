@@ -21,6 +21,7 @@
 
 import type { UserRawRow } from "../adapters/csv";
 import { mapToInternalCategory } from "../domain/internal-category";
+import { istanbulDayString, istanbulTodayString } from "../time/istanbul";
 
 const TRENDYOL_API_BASE = "https://apigw.trendyol.com/integration";
 const MAX_RATE_LIMIT_RETRIES = 3;
@@ -320,8 +321,8 @@ export function mapOrdersToUserRawRows(
 
   for (const order of orders) {
     const saleDate = order.orderDate
-      ? new Date(order.orderDate).toISOString().slice(0, 10)
-      : new Date().toISOString().slice(0, 10);
+      ? istanbulDayString(order.orderDate) || istanbulTodayString()
+      : istanbulTodayString();
     const orderId = order.orderNumber ?? String(order.shipmentPackageId ?? `trendyol-${rows.length}`);
 
     for (const line of order.lines ?? []) {
