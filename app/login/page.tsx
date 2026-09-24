@@ -4,7 +4,7 @@
  * Giriş — PDF §3 kapsülleme, §6 Türkçe mikro-metin, §4 clay hata rengi.
  */
 
-import { Suspense, useEffect, useState, useRef } from "react";
+import { Suspense, useState, useRef } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { getSupabaseClient, allowUnauthedDemoBypass } from "@/lib/supabase/client";
@@ -30,17 +30,12 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const nextPath = safeNextPath(searchParams.get("next"), "/connect");
   const passwordRef = useRef<HTMLInputElement>(null);
-  const [mounted, setMounted] = useState(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [emailError, setEmailError] = useState("");
   const [formError, setFormError] = useState("");
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   function validateEmail() {
     if (!email.trim()) {
@@ -111,14 +106,6 @@ function LoginForm() {
     } finally {
       setLoading(false);
     }
-  }
-
-  if (!mounted) {
-    return (
-      <div className="w-full max-w-[400px] text-center text-muted-foreground text-sm py-12">
-        Yükleniyor…
-      </div>
-    );
   }
 
   return (

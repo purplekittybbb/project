@@ -42,16 +42,26 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     }
 
     let active = true;
+    let settled = false;
 
     function goLogin() {
       setStatus("guest");
       router.replace(loginUrlFor(pathnameRef.current));
     }
 
+    // Never leave the UI on "Oturum doğrulanıyor…" forever (slow/hung Supabase).
+    const timeoutId = window.setTimeout(() => {
+      if (!active || settled) return;
+      settled = true;
+      goLogin();
+    }, 8000);
+
     void supabase.auth
       .getUser()
       .then(({ data, error }) => {
-        if (!active) return;
+        if (!active || settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
         if (!error && data.user) {
           if (!data.user.email_confirmed_at) {
             setStatus("guest");
@@ -66,7 +76,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         }
       })
       .catch(() => {
-        if (active) goLogin();
+        if (!active || settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        goLogin();
       });
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
@@ -88,6 +101,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     return () => {
       active = false;
+      window.clearTimeout(timeoutId);
       sub.subscription.unsubscribe();
     };
   }, [router]);
