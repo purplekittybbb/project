@@ -40,7 +40,7 @@ export function HeroSignupForm() {
         return;
       }
 
-      const { data, error: signErr } = await supabase.auth.signUp({
+      const signUp = supabase.auth.signUp({
         email: trimmedEmail,
         password,
         options: {
@@ -51,6 +51,10 @@ export function HeroSignupForm() {
           },
         },
       });
+      const timed = new Promise<Awaited<typeof signUp>>((_, reject) => {
+        window.setTimeout(() => reject(new Error("timeout")), 15000);
+      });
+      const { data, error: signErr } = await Promise.race([signUp, timed]);
 
       if (signErr) {
         setError(
@@ -69,8 +73,12 @@ export function HeroSignupForm() {
         return;
       }
       window.location.assign("/connect");
-    } catch {
-      setError("Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.");
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message === "timeout"
+          ? "Sunucu yanıt vermedi. İnternetinizi kontrol edip tekrar deneyin."
+          : "Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.",
+      );
     } finally {
       setLoading(false);
     }

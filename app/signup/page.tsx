@@ -192,7 +192,7 @@ function SignupForm() {
           ? window.location.origin
           : (process.env.NEXT_PUBLIC_SITE_URL ?? "");
 
-      const { data, error } = await supabase.auth.signUp({
+      const signUp = supabase.auth.signUp({
         email: form.email.trim(),
         password: form.password,
         options: {
@@ -204,6 +204,10 @@ function SignupForm() {
           },
         },
       });
+      const timed = new Promise<Awaited<typeof signUp>>((_, reject) => {
+        window.setTimeout(() => reject(new Error("timeout")), 15000);
+      });
+      const { data, error } = await Promise.race([signUp, timed]);
 
       if (error) {
         setFormError(
@@ -228,8 +232,12 @@ function SignupForm() {
       }
 
       window.location.assign(afterAuthPath);
-    } catch {
-      setFormError("Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.");
+    } catch (err) {
+      setFormError(
+        err instanceof Error && err.message === "timeout"
+          ? "Sunucu yanıt vermedi. İnternetinizi kontrol edip tekrar deneyin."
+          : "Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.",
+      );
     } finally {
       setLoading(false);
     }
