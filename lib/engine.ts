@@ -323,15 +323,29 @@ export function getMarginHistory(txs: Transaction[]): MarginPeriod[] {
     });
 }
 
-/** Minimum revenue to cover COGS + shipping + payment fees after marketplace commission.
- *  Formula: (COGS + kargo + hizmet bedeli) / (1 − komisyon oranı) — rates from actual fee waterfall. */
+/**
+ * Inverse of netContribution: the listing revenue at which net = 0, assuming
+ * rate-based fees stay proportional to price and fixed costs do not.
+ *
+ *   Rate (denominator): commission + commission-VAT + paymentFees
+ *   Fixed (numerator):  cogs + shipping + returns + ads + packaging
+ *
+ * Same structure as computeSafePrice (lib/calc/safe-price.ts). The previous
+ * formula (cogs+shipping+paymentFees)/(1−commission) omitted VAT/returns/ads/
+ * packaging and treated paymentFees as fixed — systematically too low.
+ */
 export function computeBreakEvenPrice(w: FeeWaterfall): {
   breakEvenPrice: number;
   commissionRatePct: number;
 } {
-  const commissionRate = w.grossRevenue > 0 ? w.commission / w.grossRevenue : 0;
-  const numerator = w.cogs + w.shipping + w.paymentFees;
-  const breakEvenPrice = commissionRate >= 1 ? numerator : numerator / (1 - commissionRate);
+  const revenue = w.grossRevenue;
+  const commissionRate = revenue > 0 ? w.commission / revenue : 0;
+  const vatRate = revenue > 0 ? w.vat / revenue : 0;
+  const paymentRate = revenue > 0 ? w.paymentFees / revenue : 0;
+  const rateSum = commissionRate + vatRate + paymentRate;
+  const numerator =
+    w.cogs + w.shipping + w.returnsAllocated + w.adSpendAllocated + (w.packaging ?? 0);
+  const breakEvenPrice = rateSum >= 1 ? Infinity : numerator / (1 - rateSum);
   return { breakEvenPrice, commissionRatePct: commissionRate * 100 };
 }
 
