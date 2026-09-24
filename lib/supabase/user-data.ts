@@ -147,7 +147,7 @@ export async function saveUserRows(rows: UserRawRow[]): Promise<{ error: string 
   const userId = await currentUserId();
   if (!userId) return { error: "No active session." };
 
-  const payload = rows.map((r) => ({
+  let payload: Record<string, unknown>[] = rows.map((r) => ({
     user_id: userId,
     order_id: r.order_id,
     sku: r.sku,
@@ -169,8 +169,22 @@ export async function saveUserRows(rows: UserRawRow[]): Promise<{ error: string 
     barcode: r.barcode ?? null,            // 0020: EAN/GTIN for cross-marketplace match
   }));
 
-  const { error } = await supabase.from(TABLE).insert(payload);
-  return { error: error ? error.message : null };
+  // Prod may lag migrations (0020/0022). Strip missing columns and retry so
+  // CSV / connect never hard-fail on schema cache drift.
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const { error } = await supabase.from(TABLE).insert(payload);
+    if (!error) return { error: null };
+    const missing = error.message.match(/Could not find the '(\w+)' column/i)?.[1];
+    if (!missing || !(missing in (payload[0] ?? {}))) {
+      return { error: error.message };
+    }
+    payload = payload.map((row) => {
+      const next = { ...row };
+      delete next[missing];
+      return next;
+    });
+  }
+  return { error: "Veriler kaydedilemedi (şema uyumsuz)." };
 }
 
 /** Delete a single row by id (RLS ensures it must be the user's own). */

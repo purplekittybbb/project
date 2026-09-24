@@ -60,7 +60,7 @@ export async function saveDedupedTransactions(
     return { error: null, rowsSaved: 0, duplicatesSkipped };
   }
 
-  const payload = newRows.map((r) => ({
+  let payload: Record<string, unknown>[] = newRows.map((r) => ({
     user_id: userId,
     order_id: r.order_id,
     sku: r.sku,
@@ -79,9 +79,31 @@ export async function saveDedupedTransactions(
     product_name: r.product_name ?? null,
     barcode: r.barcode ?? null,
   }));
-  const { error: insertError } = await supabase.from("user_transactions").insert(payload);
-  if (insertError) {
-    return { error: "Veriler kaydedilemedi.", rawError: insertError.message, rowsSaved: 0, duplicatesSkipped };
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const { error: insertError } = await supabase.from("user_transactions").insert(payload);
+    if (!insertError) {
+      return { error: null, rowsSaved: newRows.length, duplicatesSkipped };
+    }
+    const missing = insertError.message.match(/Could not find the '(\w+)' column/i)?.[1];
+    if (!missing || !(missing in (payload[0] ?? {}))) {
+      return {
+        error: "Veriler kaydedilemedi.",
+        rawError: insertError.message,
+        rowsSaved: 0,
+        duplicatesSkipped,
+      };
+    }
+    payload = payload.map((row) => {
+      const next = { ...row };
+      delete next[missing];
+      return next;
+    });
   }
-  return { error: null, rowsSaved: newRows.length, duplicatesSkipped };
+  return {
+    error: "Veriler kaydedilemedi.",
+    rawError: "schema-fallback-exhausted",
+    rowsSaved: 0,
+    duplicatesSkipped,
+  };
 }

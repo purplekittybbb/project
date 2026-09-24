@@ -277,7 +277,6 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
       if (warnings.length > 0) {
         console.warn("[connect] CSV validation warnings:", warnings);
       }
-      setCsvRows(valid);
       if (isAuthConfigured()) {
         const { error } = await saveUserRows(valid);
         if (error) {
@@ -285,6 +284,8 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
           return false;
         }
       }
+      // Only mark success after persist (or demo without auth).
+      setCsvRows(valid);
       if (!isMarketplaceConnected("manual_csv")) {
         addConnection("manual_csv", "demo", { method: "csv" });
       }
