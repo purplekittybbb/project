@@ -23,7 +23,7 @@ import type { Transaction } from "../domain/canonical";
 import { validateTransactions } from "../domain/schemas";
 import type { UserRawRow } from "../adapters/csv";
 import { localeForMarketplace } from "../domain/locale";
-import { enrichRowWithProductCost } from "../calc/enrich";
+import { enrichRowWithProductCost, lookupProductCost } from "../calc/enrich";
 import { loadProductCostsWithStatus } from "./product-costs";
 
 const TABLE = "user_transactions";
@@ -129,7 +129,10 @@ export async function loadUserRowsWithStatus(): Promise<LoadUserRowsResult> {
   }
   if (costs.size === 0) return { rows: stored, error: null };
   return {
-    rows: stored.map((r) => ({ ...enrichRowWithProductCost(r, costs.get(r.sku)), id: r.id })),
+    rows: stored.map((r) => ({
+      ...enrichRowWithProductCost(r, lookupProductCost(costs, r.marketplace, r.sku)),
+      id: r.id,
+    })),
     error: null,
   };
 }

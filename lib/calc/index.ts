@@ -32,6 +32,8 @@ export {
 export {
   enrichRowWithProductCost,
   enrichRowsWithProductCosts,
+  lookupProductCost,
+  productCostKey,
   type ProductCost,
 } from "./enrich";
 

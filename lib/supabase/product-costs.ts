@@ -8,7 +8,7 @@
  */
 
 import { getSupabaseClient } from "./client";
-import type { ProductCost } from "../calc/enrich";
+import { productCostKey, type ProductCost } from "../calc/enrich";
 
 const TABLE = "product_costs";
 
@@ -36,7 +36,7 @@ function isMissingRelationError(message: string): boolean {
 function rowsToMap(data: ProductCostRow[]): Map<string, ProductCost> {
   const map = new Map<string, ProductCost>();
   for (const r of data) {
-    map.set(r.sku, {
+    map.set(productCostKey(r.marketplace, r.sku), {
       unitCost: Number(r.unit_cost),
       shippingPerUnit: Number(r.shipping_per_unit),
       returnRate: Number(r.return_rate),
@@ -103,21 +103,27 @@ export async function upsertProductCost(
   const userId = userData.user?.id;
   if (!userId) return { error: "No active session." };
 
+  // `?? 0` does NOT catch NaN (only null/undefined). A NaN from an upstream
+  // parseFloat would be written to a numeric column as NULL → the cost is
+  // silently lost → margin silently inflated. Coerce every field to a finite
+  // number, falling back to 0 for a non-finite value.
+  const finite = (v: number | undefined): number => (Number.isFinite(v) ? (v as number) : 0);
+
   const base = {
     user_id: userId,
     marketplace,
     sku,
-    unit_cost: cost.unitCost ?? 0,
-    shipping_per_unit: cost.shippingPerUnit ?? 0,
-    return_rate: cost.returnRate ?? 0,
-    ad_spend_per_unit: cost.adSpendPerUnit ?? 0,
-    packaging_per_unit: cost.packagingPerUnit ?? 0,
+    unit_cost: finite(cost.unitCost),
+    shipping_per_unit: finite(cost.shippingPerUnit),
+    return_rate: finite(cost.returnRate),
+    ad_spend_per_unit: finite(cost.adSpendPerUnit),
+    packaging_per_unit: finite(cost.packagingPerUnit),
     updated_at: new Date().toISOString(),
   };
 
   const withCommission = await supabase
     .from(TABLE)
-    .upsert({ ...base, commission_rate: cost.commissionRate ?? 0 }, { onConflict: "user_id,marketplace,sku" });
+    .upsert({ ...base, commission_rate: finite(cost.commissionRate) }, { onConflict: "user_id,marketplace,sku" });
   if (!withCommission.error) return { error: null };
 
   const legacy = await supabase.from(TABLE).upsert(base, { onConflict: "user_id,marketplace,sku" });

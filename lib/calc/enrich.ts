@@ -35,6 +35,24 @@ export interface ProductCost {
   commissionRate?: number;
 }
 
+/** Composite key so the same SKU can have different costs per marketplace. */
+export function productCostKey(marketplace: string, sku: string): string {
+  return `${marketplace}::${sku}`;
+}
+
+/** Prefer marketplace::sku; fall back to bare sku for legacy in-memory maps. */
+export function lookupProductCost(
+  costs: Map<string, ProductCost>,
+  marketplace: string | undefined,
+  sku: string,
+): ProductCost | undefined {
+  if (marketplace) {
+    const keyed = costs.get(productCostKey(marketplace, sku));
+    if (keyed) return keyed;
+  }
+  return costs.get(sku);
+}
+
 /** True when a numeric field is missing or left at 0 (i.e. a fillable gap). */
 function isGap(value: number | undefined): boolean {
   return value == null || value === 0;
@@ -74,12 +92,14 @@ export function enrichRowWithProductCost(row: UserRawRow, cost: ProductCost | un
 }
 
 /**
- * Enrich a batch of rows, looking each row's profile up by SKU. Rows whose SKU
- * has no stored profile pass through unchanged.
+ * Enrich a batch of rows, looking each row's profile up by marketplace::sku.
+ * Rows whose SKU has no stored profile pass through unchanged.
  */
 export function enrichRowsWithProductCosts(
   rows: UserRawRow[],
   costs: Map<string, ProductCost>,
 ): UserRawRow[] {
-  return rows.map((row) => enrichRowWithProductCost(row, costs.get(row.sku)));
+  return rows.map((row) =>
+    enrichRowWithProductCost(row, lookupProductCost(costs, row.marketplace, row.sku)),
+  );
 }

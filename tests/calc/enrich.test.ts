@@ -87,4 +87,17 @@ describe("enrichRowsWithProductCosts", () => {
     expect(a.unit_cost).toBe(100);
     expect(b.unit_cost).toBe(0); // no profile for SKU-2
   });
+
+  it("does not apply a Hepsiburada cost profile to the same SKU on Trendyol", () => {
+    const costs = new Map<string, ProductCost>([
+      ["hepsiburada::SKU-1", { unitCost: 50 }],
+      ["trendyol::SKU-1", { unitCost: 180 }],
+    ]);
+    const [ty, hb] = enrichRowsWithProductCosts(
+      [row({ sku: "SKU-1", marketplace: "trendyol" }), row({ sku: "SKU-1", marketplace: "hepsiburada" })],
+      costs,
+    );
+    expect(ty.unit_cost).toBe(180);
+    expect(hb.unit_cost).toBe(50);
+  });
 });
