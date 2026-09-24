@@ -13,10 +13,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { getSupabaseClient, allowUnauthedDemoBypass } from "@/lib/supabase/client";
 import { TrustSubmitButton } from "@/components/trust/TrustSubmitButton";
 import { SecurePaymentCapsule } from "@/components/trust/SecurePaymentCapsule";
 import { FIELD_ERROR_BORDER } from "@/lib/design/financial-ui";
+import { Suspense } from "react";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -107,6 +109,22 @@ const EMPTY: FormState  = { fullName: "", email: "", company: "", password: "" }
 const NO_ERR: ErrorState = { fullName: "", email: "", company: "", password: "" };
 
 export default function SignupPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <SignupForm />
+    </Suspense>
+  );
+}
+
+function SignupForm() {
+  const searchParams = useSearchParams();
+  const planParam = searchParams.get("plan");
+  const paidPlan = planParam === "pro" || planParam === "starter" ? planParam : null;
+  /** After auth: paid plans land on settings billing; others on connect. */
+  const afterAuthPath = paidPlan
+    ? `/settings?tab=abonelik&plan=${paidPlan}`
+    : "/connect";
+
   const [form, setForm]     = useState<FormState>(EMPTY);
   const [errors, setErrors] = useState<ErrorState>(NO_ERR);
   const [formError, setFormError] = useState("");
@@ -165,17 +183,24 @@ export default function SignupPage() {
           return;
         }
         await new Promise((r) => setTimeout(r, 600));
-        window.location.assign("/connect");
+        window.location.assign(afterAuthPath);
         return;
       }
+
+      const origin =
+        typeof window !== "undefined"
+          ? window.location.origin
+          : (process.env.NEXT_PUBLIC_SITE_URL ?? "");
 
       const { data, error } = await supabase.auth.signUp({
         email: form.email.trim(),
         password: form.password,
         options: {
+          emailRedirectTo: `${origin}/api/auth/callback?next=${encodeURIComponent(afterAuthPath)}`,
           data: {
             full_name: form.fullName.trim(),
             company: form.company.trim(),
+            ...(paidPlan ? { intended_plan: paidPlan } : {}),
           },
         },
       });
@@ -194,12 +219,15 @@ export default function SignupPage() {
         return;
       }
 
-      if (!data.session) {
-        setNotice("Hesap oluşturuldu. E-postanızdaki onay bağlantısına tıklayıp ardından giriş yapın.");
+      const email = form.email.trim();
+      if (!data.session || !data.user?.email_confirmed_at) {
+        const q = new URLSearchParams({ email });
+        if (paidPlan) q.set("plan", paidPlan);
+        window.location.assign(`/dogrula-email?${q.toString()}`);
         return;
       }
 
-      window.location.assign("/connect");
+      window.location.assign(afterAuthPath);
     } catch {
       setFormError("Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.");
     } finally {

@@ -232,11 +232,13 @@ async function trialFallback(supabase: SupabaseClient, userId: string | null): P
     const status = trialRow.status as string;
     const trialEnd = trialRow.trial_end as string | null;
     const trialStillOpen = trialEnd === null || new Date(trialEnd).getTime() > Date.now();
-    const hasAccess = (status === "trialing" || status === "active") && trialStillOpen;
+    // Paid Stripe `active` must unlock even after trial_end has passed.
+    const hasAccess =
+      status === "active" || (status === "trialing" && trialStillOpen);
 
     return {
       hasAccess,
-      status: hasAccess ? "trialing" : null,
+      status: hasAccess ? (status === "active" ? "active" : "trialing") : null,
       planId: null,
       currentPeriodEnd: trialEnd,
       isNew: false,

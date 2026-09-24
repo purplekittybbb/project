@@ -9,6 +9,7 @@
  */
 
 import { startScrapeWorker, isRedisConfigured } from "../lib/queue";
+import { startMarketplaceSyncWorker } from "../lib/queues/marketplace-sync-queue";
 
 async function main(): Promise<void> {
   if (!isRedisConfigured()) {
@@ -16,15 +17,17 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const worker = startScrapeWorker();
-  if (!worker) {
-    console.error("[scrape-worker] Failed to start worker.");
+  const scrapeWorker = startScrapeWorker();
+  const syncWorker = startMarketplaceSyncWorker();
+  if (!scrapeWorker) {
+    console.error("[scrape-worker] Failed to start scrape worker.");
     process.exit(1);
   }
 
   const shutdown = async (signal: string) => {
     console.info("[scrape-worker] %s — closing…", signal);
-    await worker.close();
+    await scrapeWorker.close();
+    if (syncWorker) await syncWorker.close();
     process.exit(0);
   };
 

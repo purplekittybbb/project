@@ -7,6 +7,7 @@
 const AUTH_PATH_DENY = new Set([
   "/login",
   "/signup",
+  "/dogrula-email",
   "/sifremi-unuttum",
   "/sifre-sifirla",
 ]);

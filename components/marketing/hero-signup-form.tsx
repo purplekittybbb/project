@@ -44,6 +44,7 @@ export function HeroSignupForm() {
         email: trimmedEmail,
         password,
         options: {
+          emailRedirectTo: `${window.location.origin}/api/auth/callback?next=${encodeURIComponent("/connect")}`,
           data: {
             full_name: trimmedEmail.split("@")[0] || "Satıcı",
             company: "",
@@ -63,8 +64,8 @@ export function HeroSignupForm() {
         setError("Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin.");
         return;
       }
-      if (!data.session) {
-        setNotice("Hesap oluşturuldu. E-postanızdaki onay bağlantısına tıklayın.");
+      if (!data.session || !data.user?.email_confirmed_at) {
+        window.location.assign(`/dogrula-email?email=${encodeURIComponent(trimmedEmail)}`);
         return;
       }
       window.location.assign("/connect");

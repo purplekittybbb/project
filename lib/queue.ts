@@ -370,7 +370,7 @@ export function startScrapeWorker(): Worker<ScrapeJobPayload> | null {
     },
     {
       connection,
-      concurrency: 1,
+      concurrency: Math.max(1, Number(process.env.SCRAPE_WORKER_CONCURRENCY) || 2),
     },
   );
 

@@ -84,10 +84,23 @@ function LoginForm() {
       });
 
       if (error) {
+        const msg = error.message ?? "";
+        if (/email not confirmed|Email not confirmed/i.test(msg)) {
+          window.location.assign(`/dogrula-email?email=${encodeURIComponent(email.trim())}`);
+          return;
+        }
         setFormError(
-          error.message === "Invalid login credentials"
+          msg === "Invalid login credentials"
             ? "E-posta veya şifre kayıtlarımızla eşleşmiyor."
             : "Giriş yapılamadı. Lütfen tekrar deneyin.",
+        );
+        return;
+      }
+
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData.user && !userData.user.email_confirmed_at) {
+        window.location.assign(
+          `/dogrula-email?email=${encodeURIComponent(userData.user.email ?? email.trim())}`,
         );
         return;
       }

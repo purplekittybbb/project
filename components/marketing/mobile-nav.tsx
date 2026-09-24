@@ -95,13 +95,22 @@ export function MobileNav({ open, onClose, signedIn = false }: MobileNavProps) {
 
         <div className="flex flex-col gap-2 px-4 py-4">
           {signedIn ? (
-            <Link
-              href="/dashboard"
-              onClick={onClose}
-              className="inline-flex h-10 items-center justify-center bg-[var(--tm-copper)] text-sm font-medium text-[var(--tm-paper)]"
-            >
-              Panele git
-            </Link>
+            <>
+              <Link
+                href="/settings"
+                onClick={onClose}
+                className="inline-flex h-10 items-center justify-center border border-border text-sm text-foreground"
+              >
+                Ayarlar
+              </Link>
+              <Link
+                href="/dashboard"
+                onClick={onClose}
+                className="inline-flex h-10 items-center justify-center bg-[var(--tm-copper)] text-sm font-medium text-[var(--tm-paper)]"
+              >
+                Panele git
+              </Link>
+            </>
           ) : (
             <>
               <Link

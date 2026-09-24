@@ -48,12 +48,18 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       router.replace(loginUrlFor(pathnameRef.current));
     }
 
-    // getUser() hits Auth and refreshes; getSession() alone can be stale.
     void supabase.auth
       .getUser()
       .then(({ data, error }) => {
         if (!active) return;
         if (!error && data.user) {
+          if (!data.user.email_confirmed_at) {
+            setStatus("guest");
+            router.replace(
+              `/dogrula-email${data.user.email ? `?email=${encodeURIComponent(data.user.email)}` : ""}`,
+            );
+            return;
+          }
           setStatus("authed");
         } else {
           goLogin();
@@ -65,9 +71,15 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (!active) return;
-      // TOKEN_REFRESHED can briefly report null session — do not bounce to login.
       if (event === "TOKEN_REFRESHED") return;
       if (session?.user) {
+        if (!session.user.email_confirmed_at) {
+          setStatus("guest");
+          router.replace(
+            `/dogrula-email${session.user.email ? `?email=${encodeURIComponent(session.user.email)}` : ""}`,
+          );
+          return;
+        }
         setStatus("authed");
       } else if (event === "SIGNED_OUT") {
         goLogin();

@@ -38,6 +38,7 @@ const PUBLIC_PREFIXES = [
   "/araclar",
   "/login",
   "/signup",
+  "/dogrula-email",
   "/sifremi-unuttum",
   "/sifre-sifirla",
   "/kullanim-kosullari",
@@ -50,6 +51,7 @@ const PUBLIC_PREFIXES = [
   "/api/auth",
   "/api/tools",
   "/api/billing/iyzico/callback",
+  "/api/billing/stripe/webhook",
   "/_next",
   "/favicon",
   "/icons",
@@ -57,6 +59,10 @@ const PUBLIC_PREFIXES = [
   "/api/extension/lookup",
   "/sitemap.xml",
   "/robots.txt",
+  // Sentry wizard example + browser tunnel (must stay public or auth redirects break testing)
+  "/sentry-example-page",
+  "/api/sentry-example-api",
+  "/monitoring",
 ];
 
 const PREMIUM_PREFIXES: string[] = [];
@@ -136,6 +142,28 @@ export async function proxy(request: NextRequest) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname + request.nextUrl.search);
     return withRefreshedCookies(response, NextResponse.redirect(loginUrl));
+  }
+
+  // Require confirmed email before any protected surface (SaaS onboarding gate).
+  // Skip when Demo bypass / email confirmation is not used by the project yet
+  // only if the user somehow has a session without the field — still block null.
+  if (
+    !user.email_confirmed_at &&
+    !pathname.startsWith("/dogrula-email") &&
+    !pathname.startsWith("/api/auth")
+  ) {
+    if (pathname.startsWith("/api/")) {
+      return withRefreshedCookies(
+        response,
+        NextResponse.json(
+          { error: "E-posta onaylanmamış.", code: "email_unconfirmed" },
+          { status: 403 },
+        ),
+      );
+    }
+    const verifyUrl = new URL("/dogrula-email", request.url);
+    if (user.email) verifyUrl.searchParams.set("email", user.email);
+    return withRefreshedCookies(response, NextResponse.redirect(verifyUrl));
   }
 
   if (isPremium(pathname)) {

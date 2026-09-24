@@ -82,12 +82,20 @@ export function SiteNav() {
         <div className="flex items-center gap-1 sm:gap-2">
           <div className="hidden items-center gap-1 sm:flex sm:gap-2">
             {signedIn ? (
-              <Link
-                href="/dashboard"
-                className="inline-flex h-10 items-center justify-center bg-[var(--tm-copper)] px-4 text-sm font-medium text-[var(--tm-paper)] transition-opacity hover:opacity-90 sm:px-5"
-              >
-                Panele git
-              </Link>
+              <>
+                <Link
+                  href="/settings"
+                  className="inline-flex h-10 items-center justify-center px-3 text-sm text-muted-foreground transition-colors hover:text-foreground sm:px-4"
+                >
+                  Ayarlar
+                </Link>
+                <Link
+                  href="/dashboard"
+                  className="inline-flex h-10 items-center justify-center bg-[var(--tm-copper)] px-4 text-sm font-medium text-[var(--tm-paper)] transition-opacity hover:opacity-90 sm:px-5"
+                >
+                  Panele git
+                </Link>
+              </>
             ) : (
               <>
                 <Link

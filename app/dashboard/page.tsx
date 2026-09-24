@@ -503,6 +503,9 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     setDataBusy(false);
   }
   const [sellerMenu, setSellerMenu] = useState(false);
+  // Mobil kenar-çubuğu çekmecesi (P1-7). Masaüstünde kenar çubuğu sabit sütun;
+  // telefonda ekranı yemesin diye varsayılan gizli, hamburger ile açılan overlay.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [currentTab, setCurrentTab] = useState("Dashboard");
   // Trial countdown is client-only (localStorage); read after mount to avoid
   // hydration mismatch. null → not on a trial (badge hidden).
@@ -1279,12 +1282,14 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const trialStillActive =
     billingStatus?.subscription?.status === "trialing" &&
     (!billingStatus.subscription.trialEnd || new Date(billingStatus.subscription.trialEnd).getTime() > Date.now());
+  const stripeActive = billingStatus?.subscription?.status === "active";
+  const iyzicoActive =
+    billingStatus?.paidPlan?.status === "active" ||
+    billingStatus?.paidPlan?.status === "trialing";
   // Infra/billing fetch failure must not silently revoke Pro — treat as unknown.
   const billingUnknown = billingStatusLoaded && !!billingStatusError && !billingStatus;
   const hasProAccess =
-    billingUnknown ||
-    trialStillActive ||
-    (billingStatus?.paidPlan?.status === "active" && billingStatus.paidPlan.planId === "pro");
+    billingUnknown || trialStillActive || stripeActive || iyzicoActive;
 
   // Still waiting on the initial Supabase fetch for a real signed-in user —
   // `view`/`fin` above are the seed fallback for this one frame; never paint
@@ -1383,8 +1388,21 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
         }
       `}</style>
 
-      {/* FIXED LEFT SIDEBAR */}
-      <aside className="w-[220px] bg-zinc-950 border-r border-zinc-900 flex flex-col shrink-0 z-40 relative">
+      {/* Mobil çekmece açıkken arkadaki scrim (yalnızca telefonda). */}
+      {mobileNavOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 md:hidden"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* SOL KENAR ÇUBUĞU — masaüstünde sabit sütun, telefonda açılır çekmece (P1-7). */}
+      <aside
+        className={`w-[220px] bg-zinc-950 border-r border-zinc-900 flex flex-col shrink-0 z-50 md:z-40
+          fixed inset-y-0 left-0 md:relative transition-transform duration-200 ease-out
+          ${mobileNavOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0`}
+      >
         <div className="h-20 flex items-center px-6">
           <span className="text-zinc-100 font-mono tracking-tight text-lg font-medium">TrueMargin</span>
         </div>
@@ -1397,7 +1415,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               {group.items.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => setCurrentTab(item.id)}
+                  onClick={() => { setCurrentTab(item.id); setMobileNavOpen(false); }}
                   className={`w-full flex items-center gap-3 px-3 py-2 text-sm rounded-sm transition-colors ${
                     currentTab === item.id ? "bg-zinc-900 text-zinc-100" : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50"
                   }`}
@@ -1433,7 +1451,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           return (
             <button
               type="button"
-              onClick={() => setCurrentTab("Settings")}
+              onClick={() => { setCurrentTab("Settings"); setMobileNavOpen(false); }}
               className="p-4 border-t border-zinc-900 m-3 mb-4 rounded-sm flex items-center gap-3 text-left hover:bg-zinc-900/50 transition-colors w-[calc(100%-1.5rem)]"
             >
               <div className="w-8 h-8 bg-zinc-800 shrink-0 flex items-center justify-center text-zinc-400 text-xs font-mono">{initials}</div>
@@ -1450,6 +1468,18 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       <div className="flex-1 flex flex-col relative h-full overflow-hidden">
         {/* Top Navigation Bar */}
         <header className="h-14 border-b border-zinc-900 px-6 flex items-center justify-between shrink-0 bg-zinc-950/90 backdrop-blur-md z-30">
+          <div className="flex items-center gap-3 min-w-0">
+          {/* Mobil menü butonu — kenar çubuğu çekmecesini açar (P1-7). */}
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen(true)}
+            className="md:hidden -ml-1 shrink-0 text-zinc-400 hover:text-zinc-100 transition-colors"
+            aria-label="Menüyü aç"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
           <div className="relative">
             <button
               onClick={() => setSellerMenu((v) => !v)}
@@ -1475,9 +1505,12 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               </div>
             )}
           </div>
+          </div>
 
-          <div className="flex items-center gap-8">
-          <div className="items-center gap-8 text-[13px] font-mono tracking-wide hidden md:flex">
+          <div className="flex items-center gap-8 min-w-0">
+          {/* Kanal seçici — masaüstünde geniş, telefonda yatay kaydırılabilir (P1-7:
+              eskiden "hidden md:flex" idi, mobilde pazaryeri hiç değiştirilemiyordu). */}
+          <div className="items-center gap-5 md:gap-8 text-[13px] font-mono tracking-wide flex overflow-x-auto max-w-[55vw] md:max-w-none md:overflow-visible">
             {dataChannels.map((c) => (
               <button
                 key={c}
@@ -2345,9 +2378,44 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-zinc-600 font-mono text-[12px]">
-                    {t("settings.notConfigured")}
-                  </p>
+                  <div className="space-y-3">
+                    <p className="text-zinc-600 font-mono text-[12px]">
+                      {t("settings.notConfigured")}
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={() => router.push("/signup")}
+                        className="inline-flex items-center text-[12px] font-mono text-zinc-200 underline underline-offset-2 hover:text-white"
+                      >
+                        {t("settings.demoCtaSignup")} →
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => router.push("/login")}
+                        className="inline-flex items-center text-[12px] font-mono text-zinc-400 underline underline-offset-2 hover:text-zinc-200"
+                      >
+                        {t("settings.demoCtaLogin")}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {/* Tam hesap ayarlarına köprü. app/settings profil düzenleme +
+                    hesap silmeyi içerir ama daha önce hiçbir yere BAĞLI DEĞİLDİ
+                    (yalnızca URL elle yazılarak ulaşılıyordu) — yani pratikte
+                    kullanıcı profilini düzenleyemiyor/hesabını silemiyordu.
+                    Bu köprü onu menüden erişilebilir yapar. */}
+                {authConfigured && (
+                  <div className="mt-5 pt-5 border-t border-zinc-900">
+                    <button
+                      type="button"
+                      onClick={() => router.push("/settings")}
+                      className="inline-flex items-center gap-2 text-[12px] font-mono text-zinc-400 hover:text-zinc-100 transition-colors"
+                    >
+                      Profili düzenle · hesabı yönet ve sil
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -2355,7 +2423,16 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
               <div className="mt-8 border border-zinc-900 bg-zinc-950/50 p-6">
                 <div className="text-zinc-600 text-[10px] uppercase tracking-[0.2em] font-sans mb-4">{t("settings.billingTrial")}</div>
                 {!authConfigured ? (
-                  <p className="text-zinc-600 font-mono text-[12px]">{t("settings.signInToView")}</p>
+                  <div className="space-y-3">
+                    <p className="text-zinc-600 font-mono text-[12px]">{t("settings.signInToView")}</p>
+                    <button
+                      type="button"
+                      onClick={() => router.push("/signup")}
+                      className="inline-flex items-center text-[12px] font-mono text-zinc-200 underline underline-offset-2 hover:text-white"
+                    >
+                      {t("settings.demoCtaSignup")} →
+                    </button>
+                  </div>
                 ) : billingStatusError ? (
                   <p className="fin-loss font-mono text-[12px]">{billingStatusError}</p>
                 ) : !billingStatus ? (

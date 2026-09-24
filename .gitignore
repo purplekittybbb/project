@@ -26,3 +26,6 @@ coverage/
 
 # Supabase CLI temp
 supabase/.temp/
+
+# Sentry Config File
+.env.sentry-build-plugin
