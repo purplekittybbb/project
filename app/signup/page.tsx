@@ -187,54 +187,72 @@ function SignupForm() {
         return;
       }
 
-      const origin =
-        typeof window !== "undefined"
-          ? window.location.origin
-          : (process.env.NEXT_PUBLIC_SITE_URL ?? "");
-
-      const signUp = supabase.auth.signUp({
-        email: form.email.trim(),
-        password: form.password,
-        options: {
+      const email = form.email.trim();
+      const origin = window.location.origin;
+      const apiRes = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password: form.password,
+          fullName: form.fullName.trim(),
+          company: form.company.trim(),
+          plan: paidPlan,
           emailRedirectTo: `${origin}/api/auth/callback?next=${encodeURIComponent(afterAuthPath)}`,
-          data: {
-            full_name: form.fullName.trim(),
-            company: form.company.trim(),
-            ...(paidPlan ? { intended_plan: paidPlan } : {}),
-          },
-        },
+        }),
+        signal: AbortSignal.timeout(15000),
       });
-      const timed = new Promise<Awaited<typeof signUp>>((_, reject) => {
-        window.setTimeout(() => reject(new Error("timeout")), 15000);
-      });
-      const { data, error } = await Promise.race([signUp, timed]);
+      const apiJson = (await apiRes.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        needsConfirm?: boolean;
+        afterAuth?: string;
+        session?: {
+          access_token: string;
+          refresh_token: string;
+        } | null;
+      };
 
-      if (error) {
+      if (!apiRes.ok) {
         setFormError(
-          /already registered|already exists/i.test(error.message)
-            ? "Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin."
-            : "Kayıt tamamlanamadı. Lütfen tekrar deneyin.",
+          apiJson.error ||
+            (apiJson.code === "already_registered"
+              ? "Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin."
+              : "Kayıt tamamlanamadı. Lütfen tekrar deneyin."),
         );
         return;
       }
 
-      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        setFormError("Bu e-posta ile kayıtlı bir hesap var. Giriş yapmayı deneyin.");
-        return;
-      }
-
-      const email = form.email.trim();
-      if (!data.session || !data.user?.email_confirmed_at) {
+      if (apiJson.needsConfirm || !apiJson.session) {
         const q = new URLSearchParams({ email });
         if (paidPlan) q.set("plan", paidPlan);
         window.location.assign(`/dogrula-email?${q.toString()}`);
         return;
       }
 
-      window.location.assign(afterAuthPath);
+      const { error: sessionErr } = await supabase.auth.setSession({
+        access_token: apiJson.session.access_token,
+        refresh_token: apiJson.session.refresh_token,
+      });
+      if (sessionErr) {
+        // Account exists; fall back to password sign-in so cookies still land.
+        const { error: signInErr } = await supabase.auth.signInWithPassword({
+          email,
+          password: form.password,
+        });
+        if (signInErr) {
+          setFormError("Hesap oluştu ama oturum açılamadı. Giriş yapmayı deneyin.");
+          return;
+        }
+      }
+
+      window.location.assign(apiJson.afterAuth || afterAuthPath);
     } catch (err) {
+      const timedOut =
+        (err instanceof Error && (err.name === "TimeoutError" || err.message === "timeout")) ||
+        (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "TimeoutError");
       setFormError(
-        err instanceof Error && err.message === "timeout"
+        timedOut
           ? "Sunucu yanıt vermedi. İnternetinizi kontrol edip tekrar deneyin."
           : "Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.",
       );

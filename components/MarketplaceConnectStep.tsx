@@ -260,39 +260,49 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
     }
   }
 
-  async function pickCsv(file: File) {
+  async function ingestCsvText(text: string): Promise<boolean> {
     setConnectError("");
     setCsvBusy(true);
-    const text = await file.text();
-    const res = parseCsv(text);
-    if (!res.ok) {
-      setConnectError(res.error ?? "CSV okunamadı.");
-      setCsvBusy(false);
-      return;
-    }
-    const { valid, warnings } = validateUserRawRows(res.rows);
-    if (valid.length === 0) {
-      setConnectError("Hiçbir satır geçerli veri içermiyor — CSV formatını kontrol edin.");
-      setCsvBusy(false);
-      return;
-    }
-    if (warnings.length > 0) {
-      console.warn("[connect] CSV validation warnings:", warnings);
-    }
-    setCsvRows(valid);
-    if (isAuthConfigured()) {
-      const { error } = await saveUserRows(valid);
-      if (error) {
-        setConnectError(`CSV kaydedilemedi: ${error}`);
-        setCsvBusy(false);
-        return;
+    try {
+      const res = parseCsv(text);
+      if (!res.ok) {
+        setConnectError(res.error ?? "CSV okunamadı.");
+        return false;
       }
+      const { valid, warnings } = validateUserRawRows(res.rows);
+      if (valid.length === 0) {
+        setConnectError("Hiçbir satır geçerli veri içermiyor — CSV formatını kontrol edin.");
+        return false;
+      }
+      if (warnings.length > 0) {
+        console.warn("[connect] CSV validation warnings:", warnings);
+      }
+      setCsvRows(valid);
+      if (isAuthConfigured()) {
+        const { error } = await saveUserRows(valid);
+        if (error) {
+          setConnectError(`CSV kaydedilemedi: ${error}`);
+          return false;
+        }
+      }
+      if (!isMarketplaceConnected("manual_csv")) {
+        addConnection("manual_csv", "demo", { method: "csv" });
+      }
+      refresh();
+      return true;
+    } finally {
+      setCsvBusy(false);
     }
-    if (!isMarketplaceConnected("manual_csv")) {
-      addConnection("manual_csv", "demo", { method: "csv" });
-    }
-    refresh();
-    setCsvBusy(false);
+  }
+
+  async function pickCsv(file: File) {
+    await ingestCsvText(await file.text());
+  }
+
+  /** One-click path: load bundled sample rows so "Devam et" is never a dead end. */
+  async function useSampleAndContinue() {
+    const ok = await ingestCsvText(SAMPLE_CSV);
+    if (ok) onContinue();
   }
 
   function downloadSample() {
@@ -355,6 +365,14 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
             className="tm-btn-primary h-10 px-5 text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-50"
           >
             {csvBusy ? "Yükleniyor…" : "CSV dosyası seç"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void useSampleAndContinue()}
+            disabled={csvBusy}
+            className="h-10 px-4 text-sm font-medium border border-input rounded-[var(--tm-r-data)] text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            Örnek veriyle başla
           </button>
           <button
             type="button"
@@ -510,6 +528,16 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
         <LockIcon className="text-[var(--tm-paper)] opacity-90" />
         Devam et
       </button>
+
+      {!canContinue && (
+        <button
+          type="button"
+          onClick={onContinue}
+          className="mt-2 w-full text-center text-[12px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+        >
+          Şimdilik atla — boş panelle devam et
+        </button>
+      )}
 
       <div className="mt-3 flex items-center justify-center gap-1.5 text-muted-foreground text-[11px]">
         <LockIcon />
