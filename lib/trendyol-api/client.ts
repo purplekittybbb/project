@@ -330,7 +330,11 @@ export function mapOrdersToUserRawRows(
       const sku = line.stockCode ?? line.merchantSku ?? line.sku ?? line.barcode ?? "";
       if (!sku) continue;
       const units = Math.max(1, Math.round(line.quantity ?? 1));
-      const grossRevenue = Number(line.lineGrossAmount ?? line.lineUnitPrice ?? line.amount ?? line.price ?? 0) || 0;
+      const lineTotal = Number(line.lineGrossAmount);
+      const unitFallback = Number(line.lineUnitPrice ?? line.amount ?? line.price ?? 0);
+      const grossRevenue = Number.isFinite(lineTotal) && lineTotal > 0
+        ? lineTotal
+        : (Number.isFinite(unitFallback) ? unitFallback * units : 0);
       if (grossRevenue <= 0) continue;
 
       rows.push({

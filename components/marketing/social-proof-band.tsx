@@ -46,7 +46,7 @@ export function SocialProofBand() {
             href="/demo"
             className="underline-offset-4 hover:text-foreground hover:underline"
           >
-            Seed paneli incele
+            Örnek paneli incele
           </Link>
           <span className="hidden text-border sm:inline" aria-hidden>
             ·
@@ -55,7 +55,7 @@ export function SocialProofBand() {
             href="/yatirimci"
             className="underline-offset-4 hover:text-foreground hover:underline"
           >
-            Yatırımcı diligence
+            Yatırımcılar için
           </Link>
         </div>
       </div>

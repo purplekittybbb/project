@@ -37,6 +37,8 @@
   ],
   "exclude": [
     "node_modules",
-    "truemargin-core"
+    "truemargin-core",
+    "e2e",
+    "playwright.config.ts"
   ]
 }

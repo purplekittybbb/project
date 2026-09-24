@@ -155,7 +155,7 @@ export default function YatirimciPage() {
           <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
             <li>✓ Çok-pazaryeri adapter mimarisi (Trendyol, HB, N11, Shopify, Amazon…)</li>
             <li>✓ Kanonik sipariş modeli + per-SKU gerçek marj motoru</li>
-            <li>✓ Multi-tenant RLS (migration 0038/0039 hazır; apply prod’da)</li>
+            <li>✓ Satıcı verisi satır düzeyinde izolasyon (RLS)</li>
             <li>✓ Immutable decision ledger (audit trail) + kural tabanlı underwriting rationale</li>
             <li>✓ XAI Confidence UI (Ne / Neden / Nasıl) — EU AI Act yönünde şeffaflık</li>
             <li>✓ KVKK sayfaları + kurumsal iletişim iskeleti (MERSİS gerçek veri bekliyor)</li>

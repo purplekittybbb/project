@@ -4,6 +4,26 @@ _Tarih: 25 Eylül 2026 · Dört boyutta sistematik denetim: Hesap · Ödeme · �
 
 ---
 
+## GÜNCEL DURUM (25 Eyl gece — DENEYIM_DENETIMI turu)
+
+Canlı kullanım (localhost, 1440 + 375). Kod okuyarak değil gezerek bulundu.
+
+**BERBAT (düzeltildi):**
+- Ana sayfa “Kullananlar ne diyor” + Elif/Mert/Selin, hemen üstte “Yeni platform — ilk kullanıcılarımızdan biri olun.” Sahte referans hissi. → Örnek senaryo + “temsili” etiketi.
+- Footer: “Gerçek şirket / adres bilgileri yasal kayıt sonrası burada yayınlanır” scam hissi. → Yalnızca e-posta.
+
+**CİDDİ (düzeltildi):**
+- Boş panel: siyah boşluk + `router.push` CTA tıklanınca yerinde kaldı. → Kart + gerçek `Link` + örnek panel.
+- Girişliyken hero hâlâ kayıt formu gösteriyordu. → “Hesabınız açık / Panele git”.
+- “Seed paneli incele”, `manual_entry · read-only`, “Amazon bağla (Demo)”, “OAuth veya API anahtarı”, yatırımcı “apply prod’da”.
+- Negatif satış fiyatında hesaplayıcı sonuçsuz kayboluyordu.
+
+**Makine:** `npm run test:e2e` (`e2e/experience-smoke.spec.ts`) — 404 + sahte yorum + çöp fiyat. Görsel piksel regresyonu sonraki tur.
+
+**Açık (deneyim):** telefon menü/tablolar tam geçilmedi; API-anahtarı modalı hâlâ teknik; 5 gerçek satıcı testi yok.
+
+---
+
 ## GÜNCEL DURUM (25 Eyl — DENETIM_GOREV_BELGESI turu)
 
 **Kanıt:** `npx tsc --noEmit` temiz · `npm test` 689 geçti / 2 ödeme testi skip.
@@ -16,7 +36,17 @@ _Tarih: 25 Eylül 2026 · Dört boyutta sistematik denetim: Hesap · Ödeme · �
 
 **Ödeme:** dokunulmadı. `billing-demo-trial` / `billing-status` iki asılı gate `it.skip`.
 
-**Açık (sonraki tur):** frontend dashboard boş/hata durumları; RLS/migration 0022/0042 prod; E2E-CI; AD-16 (enrich 0=gap) mimari; adaptör küçük flag'ler.
+**25 Eyl gece — 3 denetim ajanı kapatılan kod (doğrulandı):**
+- Shopify webhook `proxy.ts` PUBLIC (`/api/shopify/webhooks`).
+- `/connect?shopify=connected` artık credentials-status doğrulaması olmadan live bağlanmıyor.
+- AuthGuard: geçici getUser ağı hatası login’e atmıyor.
+- Dashboard: maliyet okuma banner; ledger fail → boş (sonsuz yükleme yok); disconnect token yoksa local silmez; billing fail-open Pro kapatıldı.
+- ProductCostEditor `marketplace::sku` lookup (AD-14 regresyonu).
+- Trendyol birim fiyat × adet; cron loss-alarm açık satır varsa tekrar insert etmez.
+
+**Sahip (migration, audit-only ödeme):** 0003, 0038, 0039, 0040, 0041, 0029–0032, 0020, 0022, 0042.
+
+**Açık (sonraki tur):** HB/MAX_PAGES tavanı; CSV 3-ondalık; E2E-CI; AD-16; dashboard 142KB refactor.
 
 ---
 

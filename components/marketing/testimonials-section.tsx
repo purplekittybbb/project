@@ -15,13 +15,14 @@ export function TestimonialsSection() {
         <Reveal>
           <div className="max-w-2xl">
             <p className="text-sm font-medium uppercase tracking-[0.12em] text-[var(--tm-copper)]">
-              Referanslar
+              Örnek senaryolar
             </p>
             <h2 className="mt-3 font-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-              Kullananlar ne diyor
+              Satıcı panelinde böyle görünür
             </h2>
             <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-              Pazaryeri satıcılarından gelen deneyimler.
+              Gerçek müşteri yorumu değil — ürünün ne işe yaradığını anlatan temsili senaryolar.
+              İlk kullanıcılarımızdan biri olun; izinli referanslar burada yayınlanır.
             </p>
           </div>
         </Reveal>

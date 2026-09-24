@@ -50,8 +50,22 @@ const PUBLIC_PREFIXES = [
   "/financing",
   "/api/auth",
   "/api/tools",
+  // Sağlık ucu tasarımı gereği public (yalnızca boolean alt-sistem durumu,
+  // asla gizli DEĞER döndürmez — bkz. app/api/health/route.ts). Auth arkasında
+  // olması onu izleme/deploy-smoke için kullanılamaz kılıyordu (P1-9).
+  "/api/health",
+  // KRİTİK: Vercel Cron istekleri Supabase OTURUM ÇEREZİ taşımaz — yalnızca
+  // `Authorization: Bearer ${CRON_SECRET}` taşır. Bu prefix public olmazsa,
+  // aşağıdaki `if (!user) → 401` bloğu her cron isteğini ROTAYA ULAŞMADAN
+  // 401'ler ve arka plan işleri (pazaryeri senkronu, görünürlük precrawl,
+  // benchmark, haftalık özet) SESSİZCE hiç çalışmaz. Her /api/cron rotası
+  // CRON_SECRET'i kendisi doğruladığı için (stripe/iyzico webhook'ları gibi)
+  // burada public olmaları güvenlidir — asıl kapı rotanın kendi secret kontrolü.
+  "/api/cron",
   "/api/billing/iyzico/callback",
   "/api/billing/stripe/webhook",
+  // Shopify HMAC-verified webhooks (no session cookie).
+  "/api/shopify/webhooks",
   "/_next",
   "/favicon",
   "/icons",

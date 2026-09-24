@@ -17,8 +17,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { StoredRow } from "@/lib/supabase/user-data";
 import { buildSkuEconomicsMap } from "@/lib/tools/sku-economics";
-import { loadProductCosts, upsertProductCost } from "@/lib/supabase/product-costs";
-import type { ProductCost } from "@/lib/calc/enrich";
+import { loadProductCostsWithStatus, upsertProductCost } from "@/lib/supabase/product-costs";
+import { lookupProductCost, type ProductCost } from "@/lib/calc/enrich";
 import { feeConfigFor, type GuestMarketplace } from "@/lib/tools/marketplace-fees";
 import { resolveCommissionRate } from "@/lib/adapters/marketplace-adapter";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -78,6 +78,7 @@ export function ProductCostEditor({
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   // Prefill each SKU's editable fields: a saved profile (product_costs) wins;
@@ -85,11 +86,12 @@ export function ProductCostEditor({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const saved = await loadProductCosts();
+      const { costs: saved, error } = await loadProductCostsWithStatus();
       if (cancelled) return;
+      setLoadError(error);
       const next: Record<string, Draft> = {};
       for (const e of economics.values()) {
-        const s = saved.get(e.sku);
+        const s = lookupProductCost(saved, e.marketplace, e.sku);
         next[e.sku] = {
           unitCost: fieldStr(s?.unitCost, e.unitCost),
           shippingPerUnit: fieldStr(s?.shippingPerUnit, e.shippingPerUnit),
@@ -173,6 +175,13 @@ export function ProductCostEditor({
           olduğundan yüksek görünür.
         </p>
       </div>
+
+      {loadError && (
+        <p role="alert" className="mb-4 text-[12px] text-amber-200">
+          Kayıtlı maliyetler okunamadı: {loadError}. Aşağıdaki alanlar satır varsayılanı — kaydetmeden
+          önce tekrar deneyin.
+        </p>
+      )}
 
       <div className="flex items-center justify-between gap-4 mb-4">
         <input

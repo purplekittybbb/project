@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getSupabaseClient } from "@/lib/supabase/client";
@@ -16,6 +16,15 @@ export function HeroSignupForm() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.user) setSignedIn(true);
+    });
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -82,6 +91,33 @@ export function HeroSignupForm() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (signedIn) {
+    return (
+      <div className="rounded-[var(--tm-r-ui)] border border-[color-mix(in_srgb,var(--tm-paper)_18%,transparent)] bg-[color-mix(in_srgb,var(--tm-paper)_8%,transparent)] p-6 lg:p-8">
+        <p className="text-xs font-medium uppercase tracking-[0.14em] text-[color-mix(in_srgb,var(--tm-paper)_55%,transparent)]">
+          Hesabınız açık
+        </p>
+        <p className="mt-2 text-sm text-[color-mix(in_srgb,var(--tm-paper)_75%,transparent)]">
+          Kayıt formuna gerek yok — panelinize veya mağaza bağlantısına gidin.
+        </p>
+        <div className="mt-6 flex flex-col gap-2">
+          <Link
+            href="/dashboard"
+            className="inline-flex min-h-11 items-center justify-center rounded-[var(--tm-r-ui)] bg-[var(--tm-copper)] px-4 text-sm font-medium text-[var(--tm-paper)] hover:opacity-90"
+          >
+            Panele git
+          </Link>
+          <Link
+            href="/connect"
+            className="inline-flex min-h-11 items-center justify-center rounded-[var(--tm-r-ui)] border border-[color-mix(in_srgb,var(--tm-paper)_28%,transparent)] px-4 text-sm text-[var(--tm-paper)] hover:bg-[color-mix(in_srgb,var(--tm-paper)_8%,transparent)]"
+          >
+            Mağaza bağla
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   return (

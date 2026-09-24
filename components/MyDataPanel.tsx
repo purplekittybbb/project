@@ -93,7 +93,13 @@ export function MyDataPanel({ rows, authConfigured, busy, actionError, onUpload,
   async function handleFile(file: File) {
     setCsvError("");
     setPreview(null);
-    const text = await file.text();
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setCsvError("Dosya okunamadı.");
+      return;
+    }
     const res = parseCsv(text);
     if (!res.ok) { setCsvError(res.error ?? "CSV ayrıştırılamadı."); return; }
 
@@ -116,7 +122,7 @@ export function MyDataPanel({ rows, authConfigured, busy, actionError, onUpload,
   }
 
   async function confirmImport() {
-    if (!preview) return;
+    if (!preview || busy) return;
     await onUpload(preview.rows);
     setPreview(null);
     setFileName("");

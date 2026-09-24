@@ -43,18 +43,38 @@ import {
 } from "@/lib/marketplaces";
 import { LockIcon } from "@/components/trust/LockIcon";
 
+async function confirmServerCredential(marketplaceId: string): Promise<boolean> {
+  const accessToken = await getFreshAccessToken();
+  if (!accessToken) return false;
+  try {
+    const res = await fetch("/api/marketplace/credentials-status", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const result = (await res.json().catch(() => ({}))) as {
+      marketplaces?: string[];
+      connections?: { marketplace?: string }[];
+    };
+    if (Array.isArray(result.connections) && result.connections.some((c) => c.marketplace === marketplaceId)) {
+      return true;
+    }
+    return Array.isArray(result.marketplaces) && result.marketplaces.includes(marketplaceId);
+  } catch {
+    return false;
+  }
+}
+
 function connectLabel(m: MarketplaceOption): string {
   switch (m.connectionMethod) {
     case "csv": return "CSV yükle";
     case "manual": return "Elle ekle";
-    case "api_key": return "API anahtarı ekle";
+    case "api_key": return "Mağaza anahtarı ekle";
     case "oauth":
       // Shopify is currently the only connectionMethod:"oauth" entry (see
       // lib/marketplaces.ts) — label reflects whether THIS deployment has
       // live Shopify Partner-app credentials configured (see startConnect).
       if (m.id === "shopify" && isShopifyLiveEnabled()) return `${m.label.split(" ")[0]} bağla`;
       if (m.id === "amazon_tr" && isAmazonLwaConfigured()) return `${m.label.split(" ")[0]} bağla`;
-      return `${m.label.split(" ")[0]} bağla (Demo)`;
+      return `${m.label.split(" ")[0]} bağla (örnek veri)`;
     default: return `${m.label.split(" ")[0]} bağla`;
   }
 }
@@ -119,38 +139,43 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Landed back here from a real Shopify OAuth redirect (see
-  // app/api/shopify/oauth/callback) — pick up the result and clean the URL.
-  // Demo connect uses MarketplaceOAuthModal; this path remains for live OAuth.
+  // Landed back here from a real Shopify/Amazon OAuth redirect.
+  // Never trust the query flag alone — confirm marketplace_credentials first.
   useEffect(() => {
     const amazonResult = searchParams.get("amazon");
-    if (amazonResult) {
-      if (amazonResult === "connected") {
-        addConnection("amazon_tr", "live", { tokenRef: "tm_key_amazon_tr_oauth", method: "oauth" });
-        refresh();
-      } else if (amazonResult === "error") {
+    const shopifyResult = searchParams.get("shopify");
+    if (!amazonResult && !shopifyResult) return;
+
+    let active = true;
+    void (async () => {
+      if (amazonResult === "error") {
         setConnectError(searchParams.get("amazon_error") ?? "Amazon TR'ye bağlanılamadı.");
+      } else if (shopifyResult === "error") {
+        setConnectError(searchParams.get("shopify_error") ?? "Shopify'a bağlanılamadı.");
+      } else if (amazonResult === "connected" || shopifyResult === "connected") {
+        const marketplaceId = amazonResult === "connected" ? "amazon_tr" : "shopify";
+        const confirmed = await confirmServerCredential(marketplaceId);
+        if (!active) return;
+        if (confirmed) {
+          addConnection(marketplaceId, "live", {
+            tokenRef: `tm_key_${marketplaceId}_oauth`,
+            method: "oauth",
+          });
+          refresh();
+        } else {
+          setConnectError("Bağlantı sunucuda doğrulanamadı. Lütfen tekrar deneyin.");
+        }
       }
+      if (!active) return;
       const params = new URLSearchParams(searchParams.toString());
       params.delete("amazon");
       params.delete("amazon_error");
+      params.delete("shopify");
+      params.delete("shopify_error");
       const qs = params.toString();
       router.replace(qs ? `/connect?${qs}` : "/connect");
-      return;
-    }
-    const shopifyResult = searchParams.get("shopify");
-    if (!shopifyResult) return;
-    if (shopifyResult === "connected") {
-      addConnection("shopify", "live", { tokenRef: "tm_key_shopify_oauth", method: "oauth" });
-      refresh();
-    } else if (shopifyResult === "error") {
-      setConnectError(searchParams.get("shopify_error") ?? "Shopify'a bağlanılamadı.");
-    }
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("shopify");
-    params.delete("shopify_error");
-    const qs = params.toString();
-    router.replace(qs ? `/connect?${qs}` : "/connect");
+    })();
+    return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
@@ -322,7 +347,7 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
     <section>
       <h1 className="font-heading text-[22px] font-semibold tracking-tight text-foreground mb-2">Pazaryerlerinizi bağlayın</h1>
       <p className="text-sm text-muted-foreground mb-2 leading-relaxed">
-        Her kanal için güvenli, salt okunur erişim — OAuth veya API anahtarı. Şifre asla istenmez.
+        Satış raporu yükleyin veya mağazanızı bağlayın. Şifreniz asla istenmez — yalnızca okuma izni.
       </p>
       <p className="text-[12px] text-muted-foreground mb-6 leading-relaxed border-l border-[var(--tm-mist)] pl-3">
         {READ_ONLY_COPY}
@@ -410,11 +435,14 @@ export function MarketplaceConnectStep({ onContinue, onConnectionsChange }: Prop
                 >
                   <div className="min-w-0">
                     <div className="text-sm text-foreground truncate">{opt?.label ?? c.marketplaceId}</div>
-                    <div className="text-muted-foreground font-mono text-[10px] tnum truncate mt-0.5">
-                      {c.accessTokenRef} · read-only
-                      {c.provider === "demo" && c.method !== "manual" && c.method !== "csv" && (
-                        <span className="text-amber-500/80"> · demo, sample data</span>
-                      )}
+                    <div className="text-muted-foreground text-[11px] truncate mt-0.5">
+                      {c.method === "manual"
+                        ? "Elle eklenen satışlar · yalnızca okuma"
+                        : c.method === "csv"
+                          ? "CSV ile yüklendi · yalnızca okuma"
+                          : c.provider === "demo"
+                            ? "Örnek veri · gerçek mağaza değil"
+                            : "Salt okunur erişim"}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">

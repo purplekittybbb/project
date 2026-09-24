@@ -133,8 +133,24 @@ export async function insertLossAlarms(
     is_silent_loser: a.isSilentLoser,
     message: a.message,
   }));
-  const { error } = await supabase.from(TABLE).insert(payload);
-  return { error: error ? error.message : null, recorded: error ? 0 : payload.length };
+
+  const { data: open, error: openErr } = await supabase
+    .from(TABLE)
+    .select("sku, marketplace, level")
+    .eq("user_id", userId)
+    .eq("marketplace", marketplace)
+    .is("resolved_at", null);
+  if (openErr && !/does not exist|schema cache/i.test(openErr.message)) {
+    return { error: openErr.message, recorded: 0 };
+  }
+  const openKeys = new Set(
+    (open ?? []).map((r) => `${String(r.marketplace)}::${String(r.sku)}::${String(r.level)}`),
+  );
+  const fresh = payload.filter((a) => !openKeys.has(`${a.marketplace}::${a.sku}::${a.level}`));
+  if (fresh.length === 0) return { error: null, recorded: 0 };
+
+  const { error } = await supabase.from(TABLE).insert(fresh);
+  return { error: error ? error.message : null, recorded: error ? 0 : fresh.length };
 }
 
 /** Mark one alarm resolved (RLS ensures it must be the user's own). */

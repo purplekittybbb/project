@@ -157,6 +157,12 @@ export function ProfitCalculator() {
         </p>
       </form>
 
+      {!result && (
+        <p className="mt-6 rounded-[var(--tm-r-ui)] border border-border bg-secondary/40 px-4 py-3 text-sm text-muted-foreground" role="status">
+          Satış fiyatı 0&apos;dan büyük bir sayı olmalı. Örnek: 299
+        </p>
+      )}
+
       {result && (
         <div className="mt-8 space-y-4">
           <div

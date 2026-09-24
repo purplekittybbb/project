@@ -119,6 +119,18 @@ describe("mapOrdersToUserRawRows — real order data mapping", () => {
     expect(rows[1].gross_revenue).toBe(100);
   });
 
+  it("multiplies unit-price fallback by quantity when lineGrossAmount is absent", () => {
+    const rows = mapOrdersToUserRawRows([
+      {
+        orderNumber: "ORD-UNIT",
+        lines: [{ stockCode: "SKU-U", quantity: 3, lineUnitPrice: 50 }],
+      },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].units).toBe(3);
+    expect(rows[0].gross_revenue).toBe(150);
+  });
+
   it("falls back to merchantSku/sku/barcode and amount/price for older API revisions", () => {
     const rows = mapOrdersToUserRawRows([
       {

@@ -422,9 +422,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       try {
         const res = await fetch("/api/ledger/list", { headers: { Authorization: `Bearer ${accessToken}` } });
         const result = await res.json().catch(() => ({}));
-        if (Array.isArray(result.entries)) setRealLedgerEntries(result.entries);
+        if (res.ok && Array.isArray(result.entries)) {
+          setRealLedgerEntries(result.entries);
+        } else {
+          setRealLedgerEntries([]);
+        }
       } catch {
-        // Non-critical — History just keeps showing its last known state.
+        setRealLedgerEntries([]);
       }
     });
   }
@@ -750,17 +754,22 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           ? await supabase.auth.getSession()
           : { data: { session: null } };
         const accessToken = sessionData.session?.access_token;
-        if (accessToken) {
-          const res = await fetch("/api/marketplace/disconnect", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-            body: JSON.stringify({ marketplace: marketplaceId, deleteData }),
-          });
-          const result = await res.json().catch(() => ({}));
-          if (!res.ok || !result.success) {
-            setDisconnectStatus((prev) => ({ ...prev, [marketplaceId]: { ok: false, message: result.error ?? "Bağlantı kesilemedi." } }));
-            return;
-          }
+        if (!accessToken) {
+          setDisconnectStatus((prev) => ({
+            ...prev,
+            [marketplaceId]: { ok: false, message: "Oturum bulunamadı — tekrar giriş yapıp deneyin." },
+          }));
+          return;
+        }
+        const res = await fetch("/api/marketplace/disconnect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ marketplace: marketplaceId, deleteData }),
+        });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok || !result.success) {
+          setDisconnectStatus((prev) => ({ ...prev, [marketplaceId]: { ok: false, message: result.error ?? "Bağlantı kesilemedi." } }));
+          return;
         }
       }
       removeConnectionByMarketplace(marketplaceId);
@@ -1291,10 +1300,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   const iyzicoActive =
     billingStatus?.paidPlan?.status === "active" ||
     billingStatus?.paidPlan?.status === "trialing";
-  // Infra/billing fetch failure must not silently revoke Pro — treat as unknown.
-  const billingUnknown = billingStatusLoaded && !!billingStatusError && !billingStatus;
-  const hasProAccess =
-    billingUnknown || trialStillActive || stripeActive || iyzicoActive;
+  // Billing fetch failure must not grant Pro. Fail closed.
+  const hasProAccess = trialStillActive || stripeActive || iyzicoActive;
 
   // Still waiting on the initial Supabase fetch for a real signed-in user —
   // `view`/`fin` above are the seed fallback for this one frame; never paint
@@ -1336,8 +1343,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
         <div className="max-w-sm text-center space-y-4">
           <div className="text-zinc-200 font-sans text-lg font-medium">Veriler yüklenemedi</div>
           <p className="text-zinc-500 text-sm leading-relaxed">
-            Satış kayıtlarınız okunamadı: {userDataLoadError}. Oturumunuzun açık olduğundan ve veritabanı
-            migration&apos;larının uygulandığından emin olun, ardından tekrar deneyin.
+            Satış kayıtlarınız okunamadı. İnternetinizi kontrol edip tekrar deneyin. Sürerse
+            destek@truemargin.app yazın.
           </p>
           <button
             type="button"
@@ -1355,38 +1362,53 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   if (hasNoRealDataYet) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
-        <div className="max-w-sm text-center space-y-4">
+        <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900/70 p-6 text-center space-y-4">
           <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-emerald-500/90">
-            Giriş başarılı
+            Hesabınız açık
           </p>
-          <div className="text-zinc-200 font-sans text-lg font-medium">Henüz satış verisi yok</div>
-          <p className="text-zinc-500 text-sm leading-relaxed">
-            Hesabın açık. Panelin dolması için CSV yükle, satışları elle gir veya bir pazaryeri bağla —
-            bağlantı tek başına geçmiş siparişleri çekmez.
+          <div className="text-zinc-100 font-sans text-xl font-medium">İlk satışlarınızı ekleyin</div>
+          <p className="text-zinc-400 text-sm leading-relaxed">
+            CSV yükleyin veya mağaza bağlayın — net kâr yaklaşık iki dakikada görünür. Mağaza
+            bağlamak tek başına geçmiş siparişleri getirmez; rapor yüklemeniz gerekir.
           </p>
-          <div className="flex flex-col gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => router.push("/connect?preview=connect")}
-              className="h-10 px-4 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors"
+          <div className="flex flex-col gap-2 pt-1">
+            <a
+              href="/connect"
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.assign("/connect");
+              }}
+              className="inline-flex min-h-11 items-center justify-center px-4 bg-zinc-100 text-zinc-950 text-sm font-semibold hover:bg-zinc-200 transition-colors"
             >
-              CSV yükle veya pazaryeri bağla
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push("/settings")}
-              className="h-10 px-4 border border-zinc-700 text-zinc-300 text-sm hover:bg-zinc-900 transition-colors"
+              CSV yükle veya mağaza bağla
+            </a>
+            <a
+              href="/demo"
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.assign("/demo");
+              }}
+              className="inline-flex min-h-11 items-center justify-center px-4 border border-zinc-700 text-zinc-200 text-sm hover:bg-zinc-800 transition-colors"
+            >
+              Önce örnek paneli gör
+            </a>
+            <a
+              href="/settings"
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.assign("/settings");
+              }}
+              className="inline-flex min-h-11 items-center justify-center px-4 text-zinc-500 text-sm hover:text-zinc-300 transition-colors"
             >
               Ayarlar
-            </button>
-            <p className="text-zinc-600 text-[11px]">
-              Excel/CSV yükleme ve elle satış girişi bağlantı ekranındadır.
-            </p>
+            </a>
           </div>
         </div>
       </div>
     );
   }
+
+  const costLoadWarning = Boolean(userDataLoadError && hasRuntimeSeller(USER_TENANT_ID));
 
   return (
     <div data-rev={dataVersion} data-financial-surface="dark" className="h-screen w-full bg-zinc-950 text-zinc-200 font-sans selection:bg-zinc-800 flex overflow-hidden">
@@ -1593,6 +1615,43 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
           {/* VIEW: DASHBOARD */}
           {currentTab === "Dashboard" && (
             <div className="max-w-[1300px] mx-auto px-8 py-12 md:py-20">
+              {/* Belirgin DEMO bandı — örnek panonun gerçek veriyle karıştırılmaması
+                  ve aynı zamanda bir dönüşüm hunisi olması için. Yalnızca demo modunda. */}
+              {demoMode && (
+                <div className="w-full mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 border border-[color:var(--tm-copper)]/40 bg-[color:var(--tm-copper)]/[0.08] rounded-[7px] px-5 py-4">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-[3px] text-[10px] font-semibold tracking-[0.15em] uppercase text-[color:var(--tm-copper)] border border-[color:var(--tm-copper)]/40 shrink-0">
+                      Demo
+                    </span>
+                    <span className="text-[13px] font-semibold text-zinc-100 truncate">
+                      Örnek pano — gösterilen tüm rakamlar temsilîdir.
+                    </span>
+                  </div>
+                  <span className="text-[12px] leading-snug text-zinc-400 sm:ml-auto">
+                    Kendi gerçek net kârını görmek için mağazanı bağla veya satış raporunu yükle.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => router.push("/signup")}
+                    className="shrink-0 inline-flex items-center justify-center h-9 px-4 rounded-[7px] text-[13px] font-semibold text-white transition-[filter] hover:brightness-105"
+                    style={{ background: "var(--tm-copper)" }}
+                  >
+                    Kendi verinle dene →
+                  </button>
+                </div>
+              )}
+              {costLoadWarning && (
+                <div
+                  role="alert"
+                  className="w-full mb-8 border border-amber-500/30 bg-amber-500/[0.07] px-5 py-4 text-[13px] text-amber-200"
+                >
+                  Maliyet profilleri okunamadı: {userDataLoadError}. Gösterilen marjlar eksik
+                  maliyetle şişkin olabilir.{" "}
+                  <button type="button" onClick={() => void refreshUserData()} className="underline underline-offset-2">
+                    Tekrar dene
+                  </button>
+                </div>
+              )}
               {costsLookMissing && (
                 <button
                   type="button"

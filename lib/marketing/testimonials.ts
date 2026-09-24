@@ -18,24 +18,24 @@ export interface Testimonial {
 /** TODO(replace): gerçek izinli yorumlarla değiştir; uydurma satırları sil. */
 export const TESTIMONIALS: Testimonial[] = [
   {
-    name: "Elif K.",
-    role: "Trendyol satıcısı · Ev & Yaşam",
+    name: "Ev & Yaşam senaryosu",
+    role: "Trendyol · temsili",
     quote:
-      "Panelde kârlı sandığım üç SKU aslında zarardaymış. TrueMargin göstermeseydi aynı fiyatla devam edecektim.",
-    initials: "EK",
+      "Panelde kârlı görünen üç ürün, komisyon ve iade sonrası zararda kalabilir. Bunu satır satır görmeden aynı fiyatla devam etmek yaygın bir hata.",
+    initials: "EY",
   },
   {
-    name: "Mert A.",
-    role: "Hepsiburada + N11 · Elektronik",
+    name: "Çoklu pazaryeri senaryosu",
+    role: "Hepsiburada + N11 · temsili",
     quote:
-      "İki pazaryerini bağladım; komisyon ve iade düşülmüş net kârı tek ekranda görüyorum. Excel’i bıraktım.",
-    initials: "MA",
+      "İki kanalı bağlayınca komisyon ve iade düşülmüş net kâr tek ekranda durur. Excel’de kaybolan fark burada görünür.",
+    initials: "ÇP",
   },
   {
-    name: "Selin Y.",
-    role: "Shopify + Trendyol · Moda",
+    name: "Kampanya senaryosu",
+    role: "Trendyol · temsili",
     quote:
-      "Başabaş fiyatı net olunca kampanya indiriminde artık körlemesine gitmiyorum. İlk ay sessiz zararlar kapandı.",
-    initials: "SY",
+      "Başabaş fiyatı net olunca indirimde körlemesine gitmek zorlaşır. Sessiz zarar, kampanya bitmeden yakalanır.",
+    initials: "KA",
   },
 ];

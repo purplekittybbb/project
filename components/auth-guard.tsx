@@ -79,16 +79,19 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Background verify — revoke only if server says session is dead.
+        // Background verify — revoke only on a real auth rejection.
+        // Transient network/timeout must not bounce a valid cookie session.
         const { data, error } = await supabase.auth.getUser();
         if (!active) return;
-        if (error || !data.user) {
-          goLogin();
+        if (data.user) {
+          acceptUser(data.user);
           return;
         }
-        acceptUser(data.user);
+        const msg = error?.message ?? "";
+        const transient = /fetch|network|timeout|Failed to fetch|Load failed/i.test(msg);
+        if (!transient) goLogin();
       } catch {
-        if (active) goLogin();
+        // Keep the cookie-session accept from above; do not logout on throw.
       }
     })();
 

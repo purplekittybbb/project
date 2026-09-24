@@ -86,7 +86,7 @@ export const MARKETPLACE_OPTIONS: MarketplaceOption[] = [
   },
   {
     id: "amazon_tr", label: "Amazon (TR)", region: "tr",
-    description: "SP-API — Seller Central OAuth (ilk canlı sipariş çekimi henüz açık değil)",
+    description: "Amazon satıcı hesabı — canlı sipariş çekimi henüz açık değil",
     currency: "TRY", engineChannel: "amazon_tr", connectionMethod: "oauth",
   },
   {

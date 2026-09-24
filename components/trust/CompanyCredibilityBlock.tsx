@@ -16,7 +16,6 @@ export function CompanyCredibilityBlock({ compact = false }: { compact?: boolean
           {COMPANY_INFO.email}
         </a>
         {COMPANY_INFO.legalName ? ` · ${COMPANY_INFO.legalName}` : ""}
-        {!hasLegal && " · Gerçek şirket / adres bilgileri yasal kayıt sonrası burada yayınlanır"}
       </p>
     );
   }
@@ -44,9 +43,8 @@ export function CompanyCredibilityBlock({ compact = false }: { compact?: boolean
       </dl>
       {!hasLegal && (
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          Ticaret unvanı, açık adres ve MERSİS bilgileri henüz bu alanda yayınlanmamıştır. Uydurma
-          adres göstermiyoruz — kayıt tamamlandığında{" "}
-          <code className="text-[11px]">lib/legal/company.ts</code> üzerinden tek kaynaktan eklenir.
+          Ticaret unvanı ve açık adres henüz yayınlanmadı. Uydurma adres yazmıyoruz — kayıt
+          tamamlanınca bu blokta görünecek.
         </p>
       )}
     </div>
