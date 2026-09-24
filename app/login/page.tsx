@@ -28,7 +28,7 @@ function Logo() {
 
 function LoginForm() {
   const searchParams = useSearchParams();
-  const nextPath = safeNextPath(searchParams.get("next"), "/connect");
+  const nextPath = safeNextPath(searchParams.get("next"), "/dashboard");
   const passwordRef = useRef<HTMLInputElement>(null);
 
   const [email, setEmail] = useState("");
@@ -73,10 +73,14 @@ function LoginForm() {
     }
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const signIn = supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
+      const timed = new Promise<Awaited<typeof signIn>>((_, reject) => {
+        window.setTimeout(() => reject(new Error("timeout")), 15000);
+      });
+      const { error } = await Promise.race([signIn, timed]);
 
       if (error) {
         const msg = error.message ?? "";
@@ -92,17 +96,25 @@ function LoginForm() {
         return;
       }
 
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData.user && !userData.user.email_confirmed_at) {
+      const userResult = await Promise.race([
+        supabase.auth.getUser(),
+        new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 8000)),
+      ]);
+      const user = userResult?.data?.user;
+      if (user && !user.email_confirmed_at) {
         window.location.assign(
-          `/dogrula-email?email=${encodeURIComponent(userData.user.email ?? email.trim())}`,
+          `/dogrula-email?email=${encodeURIComponent(user.email ?? email.trim())}`,
         );
         return;
       }
 
       window.location.assign(nextPath);
-    } catch {
-      setFormError("Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.");
+    } catch (err) {
+      setFormError(
+        err instanceof Error && err.message === "timeout"
+          ? "Sunucu yanıt vermedi. İnternetinizi kontrol edip tekrar deneyin."
+          : "Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.",
+      );
     } finally {
       setLoading(false);
     }

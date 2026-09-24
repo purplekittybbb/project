@@ -121,78 +121,103 @@ function ConnectFlow() {
 
   useEffect(() => {
     let active = true;
-    (async () => {
-      // Explicit preview mode always shows the connect step, regardless of state.
-      if (previewConnect) {
-        const ids = getConnections().map((c) => c.marketplaceId);
-        if (ids.length) setConnectedMarketplaces(ids);
-        setSkipBilling(true);
-        setReady(true);
-        return;
-      }
-
-      if (isAuthConfigured()) {
-        const { rows, error: loadError } = await loadUserRowsWithStatus();
-        if (!active) return;
-        if (loadError) {
-          setBootError("Satış verileriniz okunamadı. Oturumu yenileyip tekrar deneyin.");
-          setReady(true);
-          return;
-        }
-        if (rows.length > 0) {
-          window.location.assign(returnTo);
-          return;
-        }
-
-        const reconnected = await tryAutoReconnect();
-        if (!active) return;
-        if (reconnected) {
-          window.location.assign(returnTo);
-          return;
-        }
-
-        // Already on free trial / paid — don't force plan+card again.
-        const token = await getFreshAccessToken();
-        if (token) {
-          try {
-            const statusRes = await fetch("/api/billing/status", {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            const statusJson = (await statusRes.json().catch(() => ({}))) as {
-              subscription?: { status?: string } | null;
-              paidPlan?: { status?: string } | null;
-            };
-            const subStatus = statusJson.subscription?.status;
-            const paidStatus = statusJson.paidPlan?.status;
-            if (
-              subStatus === "trialing" ||
-              subStatus === "active" ||
-              paidStatus === "active" ||
-              paidStatus === "trialing"
-            ) {
-              if (!active) return;
-              setSkipBilling(true);
-            }
-          } catch {
-            // ignore — show full wizard
-          }
-        }
-
-        const ids = getConnections().map((c) => c.marketplaceId);
-        if (ids.length) setConnectedMarketplaces(ids);
-        setReady(true);
-        return;
-      }
-
-      if (isOnboardingDone()) {
-        window.location.assign(returnTo);
-        return;
-      }
-      const ids = getConnections().map((c) => c.marketplaceId);
-      if (ids.length) setConnectedMarketplaces(ids);
+    const bootDeadline = window.setTimeout(() => {
+      if (!active) return;
+      // Never leave users on "Hesabınız hazırlanıyor…" forever (slow Supabase / APIs).
       setReady(true);
+    }, 5000);
+
+    (async () => {
+      try {
+        // Explicit preview mode always shows the connect step, regardless of state.
+        if (previewConnect) {
+          const ids = getConnections().map((c) => c.marketplaceId);
+          if (ids.length) setConnectedMarketplaces(ids);
+          setSkipBilling(true);
+          if (active) setReady(true);
+          return;
+        }
+
+        if (isAuthConfigured()) {
+          const { rows, error: loadError } = await loadUserRowsWithStatus();
+          if (!active) return;
+          if (loadError) {
+            setBootError("Satış verileriniz okunamadı. Oturumu yenileyip tekrar deneyin.");
+            setReady(true);
+            return;
+          }
+          if (rows.length > 0) {
+            window.location.assign(returnTo);
+            return;
+          }
+
+          const reconnected = await Promise.race([
+            tryAutoReconnect(),
+            new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), 4000)),
+          ]);
+          if (!active) return;
+          if (reconnected) {
+            window.location.assign(returnTo);
+            return;
+          }
+
+          // Already on free trial / paid — don't force plan+card again.
+          const token = await Promise.race([
+            getFreshAccessToken(),
+            new Promise<string | null>((resolve) => window.setTimeout(() => resolve(null), 4000)),
+          ]);
+          if (token) {
+            try {
+              const statusRes = await fetch("/api/billing/status", {
+                headers: { Authorization: `Bearer ${token}` },
+                signal: AbortSignal.timeout(4000),
+              });
+              const statusJson = (await statusRes.json().catch(() => ({}))) as {
+                subscription?: { status?: string } | null;
+                paidPlan?: { status?: string } | null;
+              };
+              const subStatus = statusJson.subscription?.status;
+              const paidStatus = statusJson.paidPlan?.status;
+              if (
+                subStatus === "trialing" ||
+                subStatus === "active" ||
+                paidStatus === "active" ||
+                paidStatus === "trialing"
+              ) {
+                if (!active) return;
+                setSkipBilling(true);
+              }
+            } catch {
+              // ignore — show full wizard
+            }
+          }
+
+          const ids = getConnections().map((c) => c.marketplaceId);
+          if (ids.length) setConnectedMarketplaces(ids);
+          if (active) setReady(true);
+          return;
+        }
+
+        if (isOnboardingDone()) {
+          window.location.assign(returnTo);
+          return;
+        }
+        const ids = getConnections().map((c) => c.marketplaceId);
+        if (ids.length) setConnectedMarketplaces(ids);
+        if (active) setReady(true);
+      } catch {
+        if (active) {
+          setBootError("Hesap hazırlığı tamamlanamadı. Tekrar deneyin.");
+          setReady(true);
+        }
+      } finally {
+        window.clearTimeout(bootDeadline);
+      }
     })();
-    return () => { active = false; };
+    return () => {
+      active = false;
+      window.clearTimeout(bootDeadline);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewConnect, returnTo]);
 
