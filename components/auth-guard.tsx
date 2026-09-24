@@ -6,9 +6,13 @@
  * Session cookies are set by createBrowserClient (@supabase/ssr).
  * Proxy enforces auth on the server; this guard covers client navigations.
  *
- * - Valid user  → render children
- * - No user     → /login?next=<current path>
- * - No Supabase → open (demo / clone without keys)
+ * Fast path: getSession() is local (cookies) — do NOT block the UI on getUser()
+ * network round-trips (that was leaving users on "Oturum doğrulanıyor…" forever
+ * when Supabase was slow/unreachable).
+ *
+ * - Valid session → render children immediately; verify with getUser in background
+ * - No session    → /login?next=<current path>
+ * - No Supabase   → open (demo / clone without keys)
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -20,6 +24,10 @@ type Status = "checking" | "authed" | "guest" | "misconfigured";
 function loginUrlFor(pathname: string | null): string {
   if (!pathname || pathname === "/login" || pathname === "/signup") return "/login";
   return `/login?next=${encodeURIComponent(pathname)}`;
+}
+
+function dogrulaUrl(email: string | undefined): string {
+  return `/dogrula-email${email ? `?email=${encodeURIComponent(email)}` : ""}`;
 }
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -42,58 +50,53 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     }
 
     let active = true;
-    let settled = false;
 
     function goLogin() {
       setStatus("guest");
       router.replace(loginUrlFor(pathnameRef.current));
     }
 
-    // Never leave the UI on "Oturum doğrulanıyor…" forever (slow/hung Supabase).
-    const timeoutId = window.setTimeout(() => {
-      if (!active || settled) return;
-      settled = true;
-      goLogin();
-    }, 8000);
+    function acceptUser(user: { email?: string | null; email_confirmed_at?: string | null }) {
+      if (!user.email_confirmed_at) {
+        setStatus("guest");
+        router.replace(dogrulaUrl(user.email ?? undefined));
+        return;
+      }
+      setStatus("authed");
+    }
 
-    void supabase.auth
-      .getUser()
-      .then(({ data, error }) => {
-        if (!active || settled) return;
-        settled = true;
-        window.clearTimeout(timeoutId);
-        if (!error && data.user) {
-          if (!data.user.email_confirmed_at) {
-            setStatus("guest");
-            router.replace(
-              `/dogrula-email${data.user.email ? `?email=${encodeURIComponent(data.user.email)}` : ""}`,
-            );
-            return;
-          }
-          setStatus("authed");
+    void (async () => {
+      try {
+        // Fast path — cookie/local session, no network wait.
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!active) return;
+
+        const sessionUser = sessionData.session?.user;
+        if (sessionUser) {
+          acceptUser(sessionUser);
         } else {
           goLogin();
+          return;
         }
-      })
-      .catch(() => {
-        if (!active || settled) return;
-        settled = true;
-        window.clearTimeout(timeoutId);
-        goLogin();
-      });
+
+        // Background verify — revoke only if server says session is dead.
+        const { data, error } = await supabase.auth.getUser();
+        if (!active) return;
+        if (error || !data.user) {
+          goLogin();
+          return;
+        }
+        acceptUser(data.user);
+      } catch {
+        if (active) goLogin();
+      }
+    })();
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (!active) return;
       if (event === "TOKEN_REFRESHED") return;
       if (session?.user) {
-        if (!session.user.email_confirmed_at) {
-          setStatus("guest");
-          router.replace(
-            `/dogrula-email${session.user.email ? `?email=${encodeURIComponent(session.user.email)}` : ""}`,
-          );
-          return;
-        }
-        setStatus("authed");
+        acceptUser(session.user);
       } else if (event === "SIGNED_OUT") {
         goLogin();
       }
@@ -101,7 +104,6 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     return () => {
       active = false;
-      window.clearTimeout(timeoutId);
       sub.subscription.unsubscribe();
     };
   }, [router]);
