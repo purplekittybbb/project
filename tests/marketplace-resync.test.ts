@@ -112,6 +112,20 @@ function makeSupabaseMock(opts: {
             store.push(...payload);
             return Promise.resolve({ error: null });
           },
+          upsert(payload: StoredRow[], _opts?: unknown) {
+            void _opts;
+            lastInsertedPayload = payload;
+            if (opts.insertError) return Promise.resolve({ error: opts.insertError });
+            const existing = new Set(store.map((r) => `${r.user_id}|${r.marketplace}|${r.order_id}`));
+            for (const row of payload) {
+              const key = `${row.user_id}|${row.marketplace}|${row.order_id}`;
+              if (!existing.has(key)) {
+                store.push(row);
+                existing.add(key);
+              }
+            }
+            return Promise.resolve({ error: null });
+          },
         };
       }
       throw new Error(`Unexpected table in test mock: ${table}`);

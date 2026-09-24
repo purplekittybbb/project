@@ -19,10 +19,11 @@
 -- (user_id, marketplace, order_id) simply fails instead of duplicating —
 -- Postgres, not application timing, has the final word.
 --
--- OPTIONAL: the app runs correctly today without this migration applied
--- (the de-dupe SELECT-then-filter in resyncMarketplace works regardless).
--- Apply this whenever convenient via the Supabase SQL editor or
--- `supabase db push` — nothing in the app depends on it being present yet.
+-- REQUIRED for concurrent sync safety (cron + manual Yenile).
+-- lib/save-user-transactions.ts upserts on (user_id, marketplace, order_id)
+-- and falls back to INSERT if this index is missing. Apply via the
+-- Supabase SQL editor or `supabase db push`. Without it, two overlapping
+-- syncs can still double-insert the same order.
 --
 -- Partial index: manual/CSV rows commonly default order_id to '' (see
 -- 0001_user_transactions.sql) and many such rows legitimately share that

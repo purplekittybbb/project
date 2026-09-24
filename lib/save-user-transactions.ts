@@ -80,18 +80,69 @@ export async function saveDedupedTransactions(
     barcode: r.barcode ?? null,
   }));
 
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const { error: insertError } = await supabase.from("user_transactions").insert(payload);
-    if (!insertError) {
-      return { error: null, rowsSaved: newRows.length, duplicatesSkipped };
+  const withOrderId = payload.filter((row) => String(row.order_id ?? "") !== "");
+  const emptyOrderId = payload.filter((row) => String(row.order_id ?? "") === "");
+
+  let saved = 0;
+  if (withOrderId.length > 0) {
+    const upserted = await writeDedupedRows(supabase, withOrderId, "upsert");
+    if (upserted.error && !isMissingConflictTarget(upserted.rawError ?? "")) {
+      return { ...upserted, duplicatesSkipped };
     }
-    const missing = insertError.message.match(/Could not find the '(\w+)' column/i)?.[1];
+    if (upserted.error) {
+      // Migration 0003 unique index not applied yet — insert + treat 23505 as skip.
+      const inserted = await writeDedupedRows(supabase, withOrderId, "insert");
+      if (inserted.error) return { ...inserted, duplicatesSkipped };
+      saved += inserted.rowsSaved;
+    } else {
+      saved += upserted.rowsSaved;
+    }
+  }
+  if (emptyOrderId.length > 0) {
+    const inserted = await writeDedupedRows(supabase, emptyOrderId, "insert");
+    if (inserted.error) return { ...inserted, duplicatesSkipped };
+    saved += inserted.rowsSaved;
+  }
+  return { error: null, rowsSaved: saved, duplicatesSkipped };
+}
+
+function isMissingConflictTarget(message: string): boolean {
+  return /no unique or exclusion constraint matching the ON CONFLICT/i.test(message);
+}
+
+function isUniqueViolation(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return error.code === "23505" || /duplicate key/i.test(error.message ?? "");
+}
+
+async function writeDedupedRows(
+  supabase: SupabaseClient,
+  payload: Record<string, unknown>[],
+  mode: "upsert" | "insert",
+): Promise<SaveDedupedResult> {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const table = supabase.from("user_transactions");
+    const result =
+      mode === "upsert"
+        ? await table.upsert(payload, {
+            onConflict: "user_id,marketplace,order_id",
+            ignoreDuplicates: true,
+          })
+        : await table.insert(payload);
+
+    if (!result.error) {
+      return { error: null, rowsSaved: payload.length, duplicatesSkipped: 0 };
+    }
+    if (mode === "insert" && isUniqueViolation(result.error)) {
+      return { error: null, rowsSaved: 0, duplicatesSkipped: payload.length };
+    }
+    const missing = result.error.message.match(/Could not find the '(\w+)' column/i)?.[1];
     if (!missing || !(missing in (payload[0] ?? {}))) {
       return {
         error: "Veriler kaydedilemedi.",
-        rawError: insertError.message,
+        rawError: result.error.message,
         rowsSaved: 0,
-        duplicatesSkipped,
+        duplicatesSkipped: 0,
       };
     }
     payload = payload.map((row) => {
@@ -104,6 +155,6 @@ export async function saveDedupedTransactions(
     error: "Veriler kaydedilemedi.",
     rawError: "schema-fallback-exhausted",
     rowsSaved: 0,
-    duplicatesSkipped,
+    duplicatesSkipped: 0,
   };
 }
