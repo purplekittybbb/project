@@ -680,7 +680,12 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
   }, [demoMode, billingStatus?.subscription?.trialEnd]);
 
   async function loadBillingStatus() {
-    if (!authConfigured) return;
+    if (!authConfigured) {
+      setBillingStatusLoaded(true);
+      return;
+    }
+    const done = () => setBillingStatusLoaded(true);
+    const watchdog = window.setTimeout(done, 6000);
     try {
       const supabase = getSupabaseClient();
       if (!supabase) return;
@@ -689,6 +694,7 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
       if (!accessToken) return;
       const res = await fetch("/api/billing/status", {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(5000),
       });
       const result = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -704,9 +710,8 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     } catch {
       setBillingStatusError("Abonelik bilgisi yüklenemedi.");
     } finally {
-      // Runs even on an early return (not authConfigured is the one exception —
-      // that path never needs this, since needsOnboarding is already false then).
-      setBillingStatusLoaded(true);
+      window.clearTimeout(watchdog);
+      done();
     }
   }
   useEffect(() => { loadBillingStatus(); }, [authConfigured]);
@@ -1351,12 +1356,13 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
         <div className="max-w-sm text-center space-y-4">
-          <div className="text-zinc-200 font-sans text-lg font-medium">Henüz veri yok</div>
+          <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-emerald-500/90">
+            Giriş başarılı
+          </p>
+          <div className="text-zinc-200 font-sans text-lg font-medium">Henüz satış verisi yok</div>
           <p className="text-zinc-500 text-sm leading-relaxed">
-            Hesabınız kuruldu, ancak gösterilecek gerçek sipariş verisi henüz yok — kayıt sırasında bir
-            pazaryeri bağlamak hesabı ilişkilendirir ama geçmiş siparişleri kendiliğinden çekmez. Rakamlarınızı
-            burada görmek için bir CSV yükleyin, satışlarınızı elle girin veya gerçek API erişimiyle bir
-            pazaryeri bağlayın.
+            Hesabın açık. Panelin dolması için CSV yükle, satışları elle gir veya bir pazaryeri bağla —
+            bağlantı tek başına geçmiş siparişleri çekmez.
           </p>
           <div className="flex flex-col gap-2 pt-2">
             <button
@@ -1366,8 +1372,15 @@ export function DashboardPage({ demoMode = false }: DashboardPageProps) {
             >
               CSV yükle veya pazaryeri bağla
             </button>
+            <button
+              type="button"
+              onClick={() => router.push("/settings")}
+              className="h-10 px-4 border border-zinc-700 text-zinc-300 text-sm hover:bg-zinc-900 transition-colors"
+            >
+              Ayarlar
+            </button>
             <p className="text-zinc-600 text-[11px]">
-              Excel/CSV yükleme ve elle satış girişi de bağlantı ekranındadır.
+              Excel/CSV yükleme ve elle satış girişi bağlantı ekranındadır.
             </p>
           </div>
         </div>

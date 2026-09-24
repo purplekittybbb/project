@@ -26,5 +26,7 @@ describe("safeNextPath", () => {
   it("blocks auth redirect loops", () => {
     expect(safeNextPath("/login")).toBe("/connect");
     expect(safeNextPath("/signup?x=1")).toBe("/connect");
+    expect(safeNextPath("/icon.svg")).toBe("/connect");
+    expect(safeNextPath("/icon-dark-32x32.png", "/dashboard")).toBe("/dashboard");
   });
 });

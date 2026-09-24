@@ -36,6 +36,12 @@ export function safeNextPath(raw: string | null | undefined, fallback = "/connec
 
   const pathOnly = decoded.split(/[?#]/)[0] ?? decoded;
   if (AUTH_PATH_DENY.has(pathOnly)) return fallback;
+  // Never bounce post-login into static assets (favicon requests used to set
+  // ?next=/icon.svg and trap users in a login↔asset redirect loop).
+  if (/\.(svg|png|jpe?g|gif|ico|webp|css|js|map|woff2?|ttf|txt)$/i.test(pathOnly)) {
+    return fallback;
+  }
+  if (/^\/(icon|favicon|apple-icon)/i.test(pathOnly)) return fallback;
 
   return decoded;
 }

@@ -63,6 +63,12 @@ const PUBLIC_PREFIXES = [
   "/sentry-example-page",
   "/api/sentry-example-api",
   "/monitoring",
+  // Static brand assets — must not redirect to /login?next=/icon.svg (auth loop)
+  "/icon.svg",
+  "/icon-dark-32x32.png",
+  "/icon-light-32x32.png",
+  "/favicon.ico",
+  "/apple-icon.png",
 ];
 
 const PREMIUM_PREFIXES: string[] = [];
